@@ -1,6 +1,7 @@
 import makeWASocket, {
   DisconnectReason,
   makeCacheableSignalKeyStore,
+  fetchLatestBaileysVersion,
   Browsers,
   WAMediaUpload,
 } from "@whiskeysockets/baileys";
@@ -17,6 +18,32 @@ import { objectStorageClient } from "./objectStorage";
 const GCS_BUCKET_ID = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID ?? "";
 
 export const BASE_SESSION_DIR = path.resolve(process.cwd(), "whatsapp-session");
+
+// ── WhatsApp Web version ──────────────────────────────────────────
+// A stale client version makes the WA handshake fail with HTTP 405 before a QR
+// is ever issued, so we ask Baileys for the version WA Web is currently serving
+// instead of hardcoding one. Cached for the process, refreshed hourly, with a
+// fallback so a fetch failure degrades to "try anyway" rather than "cannot connect".
+const WA_VERSION_TTL_MS = 60 * 60 * 1000;
+const WA_VERSION_FALLBACK: [number, number, number] = [2, 3000, 1023223821];
+
+let waVersionCache: { version: [number, number, number]; fetchedAt: number } | null = null;
+
+async function resolveWaVersion(): Promise<[number, number, number]> {
+  if (waVersionCache && Date.now() - waVersionCache.fetchedAt < WA_VERSION_TTL_MS) {
+    return waVersionCache.version;
+  }
+  try {
+    const { version, isLatest } = await fetchLatestBaileysVersion();
+    waVersionCache = { version: version as [number, number, number], fetchedAt: Date.now() };
+    appLogger.info({ version, isLatest }, "WhatsApp Web version fetched");
+    return waVersionCache.version;
+  } catch (err) {
+    const version = waVersionCache?.version ?? WA_VERSION_FALLBACK;
+    appLogger.warn({ err, version }, "WA version fetch failed — using fallback");
+    return version;
+  }
+}
 
 // ── Protobuf Long → unix seconds ──────────────────────────────────
 // Baileys timestamps (conversationTimestamp, messageTimestamp) arrive as
@@ -1098,15 +1125,27 @@ class WhatsAppInstance {
     // can detect a WA server-side rejection (creds loaded but QR requested).
     const hadRegisteredCreds = (authState.creds as any).registered === true;
 
+    const waVersion = await resolveWaVersion();
+
+    // If another init() overtook us while fetching the version, bail out.
+    if (myGen !== this.socketGeneration) return;
+
     const sock = makeWASocket({
+      version: waVersion,
       auth: {
         creds: authState.creds,
         keys: makeCacheableSignalKeyStore(authState.keys, this.log as any),
       },
-      // WhatsApp Desktop impersonation — more stable than Mac/Safari (browser-type)
-      // sessions.  WA server applies less aggressive session expiry to Desktop
-      // clients and does NOT send the "Connected from Web" phone notification.
-      browser:                    ["WhatsApp", "Desktop", "2.2329.9"] as [string, string, string],
+      // Do NOT reintroduce a "Desktop" browser name here. The handshake fails
+      // two different ways and both were live in this file:
+      //   - stale/default client version  -> WA closes with 405
+      //   - browser name "Desktop"        -> WA closes with 428, before any QR
+      // The previous ["WhatsApp","Desktop","2.2329.9"] tripped both. Verified
+      // against WA servers: ubuntu/Chrome, macOS/Safari and windows/Chrome all
+      // pair; anything named "Desktop" does not. Trade-off accepted: a normal
+      // browser identity means the owner's phone does show the linked-device
+      // notice, which the old Desktop string suppressed.
+      browser:                    Browsers.ubuntu("Chrome"),
       countryCode:                "AE",
       printQRInTerminal:          false,
       logger:                     this.log as any,

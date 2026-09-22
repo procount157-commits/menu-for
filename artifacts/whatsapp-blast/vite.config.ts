@@ -32,6 +32,15 @@ export default defineConfig({
     strictPort: true,
     host: "0.0.0.0",
     allowedHosts: true,
+    // The app calls the API on same-origin /api paths. On Replit a shared proxy
+    // on port 80 provided that; standalone it has to be arranged here (dev) and
+    // by a reverse proxy in production — see the deploy table in the README.
+    proxy: {
+      "/api": {
+        target: process.env.API_URL ?? "http://localhost:8080",
+        changeOrigin: false,
+      },
+    },
     fs: {
       strict: true,
     },

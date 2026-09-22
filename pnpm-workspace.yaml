@@ -64,3 +64,8 @@ onlyBuiltDependencies:
   - msw
   - sharp
   - unrs-resolver
+
+allowBuilds:
+  '@whiskeysockets/baileys': true
+  esbuild: true
+  protobufjs: true
