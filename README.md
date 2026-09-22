@@ -12,6 +12,40 @@
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string, `SESSION_SECRET` — session signing secret
 
+## Local setup (from a clean machine)
+
+```bash
+# 1. pnpm (via corepack, shipped with Node 20+)
+corepack enable && corepack prepare pnpm@latest --activate
+
+# 2. PostgreSQL
+docker run -d --name wam-postgres \
+  -e POSTGRES_USER=wam -e POSTGRES_PASSWORD=wam_dev_pw \
+  -e POSTGRES_DB=whatsapp_marketer -p 5433:5432 postgres:16-alpine
+
+# 3. Config
+cp .env.example .env
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"  # -> SESSION_SECRET
+
+# 4. Install and create the schema
+pnpm install
+pnpm --filter @workspace/db run push
+
+# 5. Run (two terminals)
+pnpm --filter @workspace/api-server run dev    # :8080
+PORT=5173 pnpm --filter @workspace/whatsapp-blast run dev   # :5173
+```
+
+Open http://localhost:5173, register, then link WhatsApp from the Connect page.
+
+### Linking notes
+
+`whatsapp.ts` fetches the live WhatsApp Web version at connect time and identifies
+as ubuntu/Chrome. Do not change the browser identity to anything named `"Desktop"` —
+WhatsApp closes that handshake with 428 before a QR is ever issued, and a stale
+client version closes it with 405. Both were live in the original code at once.
+
+
 ## Deploy (standalone — no Replit)
 
 Ports and production commands, previously held in the Replit artifact manifests:
