@@ -13,9 +13,8 @@ import { useDatabaseAuthState, migrateSessionFilesToDb } from "./wa-auth-state";
 import path from "path";
 import fs from "fs";
 import qrcode from "qrcode";
-import { objectStorageClient } from "./objectStorage";
+import { getObjectBuffer, objectNameFromUrl } from "./storage";
 
-const GCS_BUCKET_ID = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID ?? "";
 
 export const BASE_SESSION_DIR = path.resolve(process.cwd(), "whatsapp-session");
 
@@ -2755,26 +2754,11 @@ async function resolveMedia(mediaUrl: string): Promise<WAMediaUpload> {
   // MEDIA_NOT_FOUND. file.download() either resolves (Buffer) or rejects with
   // a real Error, giving the campaign loop a chance to mark the contact failed
   // and move on instead of retrying indefinitely.
-  if (mediaUrl.startsWith("/api/media/file/")) {
-    const encodedObjectName = mediaUrl.slice("/api/media/file/".length);
-    const objectName = decodeURIComponent(encodedObjectName);
-    if (!GCS_BUCKET_ID) {
-      throw new Error("MEDIA_CONFIG_ERR: DEFAULT_OBJECT_STORAGE_BUCKET_ID غير مضبوط");
-    }
-    const bucket = objectStorageClient.bucket(GCS_BUCKET_ID);
-    const file   = bucket.file(objectName);
-    const [buffer] = await Promise.race([
-      file.download() as Promise<[Buffer]>,
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`MEDIA_NOT_FOUND: انتهت مهلة تحميل الملف من GCS — ${objectName}`)),
-          20_000,
-        )
-      ),
-    ]);
-    // WAMediaUpload = Buffer | WAMediaPayloadStream | WAMediaPayloadURL
-    // Pass the downloaded Buffer directly — this is the most reliable path.
-    return buffer;
+  const objectName = objectNameFromUrl(mediaUrl);
+  if (objectName) {
+    // WAMediaUpload = Buffer | WAMediaPayloadStream | WAMediaPayloadURL.
+    // Buffered rather than streamed: see the note in storage.getObjectBuffer.
+    return await getObjectBuffer(objectName);
   }
   // Legacy local file path
   if (mediaUrl.startsWith("/") || mediaUrl.startsWith("./")) {

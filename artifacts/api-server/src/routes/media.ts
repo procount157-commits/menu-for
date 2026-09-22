@@ -15,13 +15,15 @@
 import { Router, type RequestHandler } from "express";
 import path from "path";
 import { randomUUID } from "crypto";
-import { objectStorageClient } from "../lib/objectStorage";
+import {
+  putObject, statObject, createObjectReadStream,
+  storageDriver, MEDIA_URL_PREFIX, MEDIA_ROOT,
+} from "../lib/storage";
 import { logger } from "../lib/logger";
 import { requireAuth } from "../lib/auth";
 
 const router = Router();
 
-const BUCKET_ID = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID ?? "";
 const OBJECT_PREFIX = "media-uploads";
 
 const ALLOWED_EXT  = /\.(jpg|jpeg|png|gif|webp|mp4|mov|avi|mkv|webm)$/i;
@@ -61,34 +63,22 @@ const uploadHandler: RequestHandler = async (req, res): Promise<void> => {
 
   const ext = path.extname(filename).toLowerCase() || `.${mimetype.split("/")[1]}`;
   const objectName = `${OBJECT_PREFIX}/${randomUUID()}${ext}`;
-  const serveUrl = `/api/media/file/${encodeURIComponent(objectName)}`;
+  const serveUrl = `${MEDIA_URL_PREFIX}${encodeURIComponent(objectName)}`;
 
-  // ── Fallback: no bucket configured ──────────────────────────────
-  if (!BUCKET_ID) {
-    logger.warn("DEFAULT_OBJECT_STORAGE_BUCKET_ID not set — returning placeholder");
-    res.json({ filename, path: serveUrl, url: serveUrl, size: buffer.length, mimetype, storage: "none" });
-    return;
-  }
-
-  // ── Upload buffer to GCS ─────────────────────────────────────────
+  // There is deliberately no "storage not configured" success path here. This
+  // route used to answer 200 with a URL nothing was stored behind whenever the
+  // bucket was unset, so the upload looked fine and the campaign only failed
+  // later, once per recipient. A failure to store is now a failure to upload.
   try {
-    logger.info({ objectName, size: buffer.length, mimetype }, "Uploading to Replit Object Storage");
-
-    const bucket = objectStorageClient.bucket(BUCKET_ID);
-    const gcsFile = bucket.file(objectName);
-
-    await gcsFile.save(buffer, {
-      contentType: mimetype,
-      resumable: false,
-      metadata: { cacheControl: "public, max-age=31536000, immutable" },
+    await putObject(objectName, buffer, mimetype);
+    logger.info({ objectName, size: buffer.length, driver: storageDriver() }, "media upload stored");
+    res.json({
+      filename, path: serveUrl, url: serveUrl,
+      size: buffer.length, mimetype, storage: storageDriver(),
     });
-
-    logger.info({ objectName, size: buffer.length }, "Upload to Object Storage succeeded");
-
-    res.json({ filename, path: serveUrl, url: serveUrl, size: buffer.length, mimetype, storage: "replit-gcs" });
   } catch (err: any) {
-    logger.error({ err: err?.message, stack: err?.stack, objectName }, "GCS upload failed");
-    res.status(500).json({ error: `فشل رفع الملف إلى التخزين: ${err?.message ?? "unknown error"}` });
+    logger.error({ err: err?.message, stack: err?.stack, objectName, driver: storageDriver(), root: MEDIA_ROOT }, "media upload failed");
+    res.status(500).json({ error: `فشل حفظ الملف: ${err?.message ?? "خطأ غير معروف"}` });
   }
 };
 
@@ -98,28 +88,26 @@ router.post("/upload", requireAuth, uploadHandler);
 router.get("/file/:objectName", async (req, res): Promise<void> => {
   const objectName = decodeURIComponent(req.params.objectName);
 
-  if (!BUCKET_ID) {
-    res.status(503).json({ error: "Object Storage not configured" });
-    return;
-  }
-
   try {
-    const bucket = objectStorageClient.bucket(BUCKET_ID);
-    const file = bucket.file(objectName);
-    const [exists] = await file.exists();
-    if (!exists) {
+    const meta = await statObject(objectName);
+    if (!meta) {
       res.status(404).json({ error: "الملف غير موجود" });
       return;
     }
 
-    const [meta] = await file.getMetadata();
-    res.setHeader("Content-Type", (meta.contentType as string) || "application/octet-stream");
+    res.setHeader("Content-Type", meta.contentType);
     res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
     if (meta.size) res.setHeader("Content-Length", String(meta.size));
 
-    file.createReadStream().pipe(res);
+    const stream = createObjectReadStream(objectName);
+    stream.on("error", (err) => {
+      logger.error({ err, objectName }, "media stream error");
+      if (!res.headersSent) res.status(500).json({ error: "خطأ في قراءة الملف" });
+      else res.destroy();
+    });
+    stream.pipe(res);
   } catch (err: any) {
-    logger.error({ err: err?.message, objectName }, "GCS serve error");
+    logger.error({ err: err?.message, objectName }, "media serve error");
     if (!res.headersSent) res.status(500).json({ error: "خطأ في قراءة الملف" });
   }
 });

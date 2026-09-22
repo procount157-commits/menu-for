@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, campaignsTable, contactGroupsTable, contactsTable, messageLogs, unsubscribedPhonesTable, waSessionEventsTable, campaignButtonResponsesTable } from "@workspace/db";
 import { assessDeliveryHealth, MIN_SAMPLE as DELIVERY_MIN_SAMPLE } from "../lib/delivery-health";
 import { computeGap } from "../lib/pacing";
+import { objectExists, objectNameFromUrl } from "../lib/storage";
 import { eq, desc, count, sql, and, gte, inArray, lt, max, asc } from "drizzle-orm";
 import { sendMessage, getStatus, waitForConnection, registerOnConnectHook, initWhatsApp } from "../lib/whatsapp";
 import { requireAuth } from "../lib/auth";
@@ -794,8 +795,16 @@ router.post("/:id/start", async (req, res) => {
   // Validate BEFORE starting the loop — prevents all contacts from
   // showing as "failed" when the real problem is a deleted upload.
   if (campaign.mediaUrl) {
-    const isGcsPath = campaign.mediaUrl.startsWith("/api/media/file/");
-    const isLocalPath = !isGcsPath && (campaign.mediaUrl.startsWith("/") || campaign.mediaUrl.startsWith("./"));
+    const storedObject = objectNameFromUrl(campaign.mediaUrl);
+    // A stored-object path used to be assumed valid without checking, so a
+    // campaign whose upload never landed passed this gate and then failed once
+    // per recipient. Check it like any other.
+    if (storedObject && !(await objectExists(storedObject))) {
+      return res.status(400).json({
+        error: `ملف الوسائط غير موجود في التخزين. عدّل الحملة وارفع الملف مجدداً.\n(${storedObject})`,
+      });
+    }
+    const isLocalPath = !storedObject && (campaign.mediaUrl.startsWith("/") || campaign.mediaUrl.startsWith("./"));
     if (isLocalPath && !fs.existsSync(campaign.mediaUrl)) {
       // Try to find the file by filename in the uploads dir as a fallback
       const uploads = path.resolve(process.cwd(), "uploads");
@@ -810,7 +819,7 @@ router.post("/:id/start", async (req, res) => {
         });
       }
     }
-    // GCS paths (/api/media/file/...) and full URLs are always valid — no fs check needed
+    // External http(s) URLs are passed through to WhatsApp as-is.
   }
 
   // Skip numbers already sent in this campaign

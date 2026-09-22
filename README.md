@@ -101,6 +101,7 @@ ceiling), opt-out enforcement, cross-campaign 72h dedup, per-send number check.
 Run the checks:
 
 ```bash
+pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/storage.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/pacing.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/delivery-health.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/sending-hours.test.ts
@@ -150,10 +151,14 @@ Build: `pnpm run build` (runs typecheck first). The frontend needs `PORT` and `B
 at dev/preview time; the API server needs `PORT`, `DATABASE_URL` and `SESSION_SECRET`.
 Put a reverse proxy in front so `/api` reaches 8080 and `/` reaches the static build.
 
-> **Media storage is still Replit-bound.** `artifacts/api-server/src/lib/objectStorage.ts`
-> authenticates to Google Cloud Storage through the Replit sidecar at `127.0.0.1:1106`.
-> Campaign media upload/serve will not work off Replit until this is repointed at a real
-> storage backend (Supabase Storage, S3, or local disk).
+Media storage goes through `artifacts/api-server/src/lib/storage.ts`, which
+writes to local disk by default (`MEDIA_DIR`, default
+`artifacts/api-server/uploads`) and switches to Google Cloud Storage when
+`DEFAULT_OBJECT_STORAGE_BUCKET_ID` is set — so a Replit deployment keeps
+working and localhost works without one.
+
+Object names come from URL parameters and are resolved inside the media root,
+so a name like `../../etc/passwd` is refused rather than served.
 
 
 ## First Admin User
