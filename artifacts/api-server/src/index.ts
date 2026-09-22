@@ -1,0 +1,241 @@
+import app from "./app";
+import { logger } from "./lib/logger";
+import { restoreAllSessions, getActiveUserIds, getStatus, initWhatsApp } from "./lib/whatsapp";
+import { resumeRunningCampaigns } from "./routes/campaigns";
+import { runAutoMaintenance } from "./lib/diagnosis-engine";
+import crypto from "crypto";
+import bcrypt from "bcryptjs";
+import { db, usersTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
+import https from "https";
+import http from "http";
+import { execSync } from "child_process";
+
+// ── Process-level crash guard ─────────────────────────────────────
+// An unhandled exception would kill the server and stop ALL campaigns.
+// Log it and keep running — individual async paths have their own try/catch.
+process.on("uncaughtException", (err) => {
+  logger.error({ err }, "UNCAUGHT EXCEPTION — server kept alive");
+});
+process.on("unhandledRejection", (reason) => {
+  logger.error({ reason }, "UNHANDLED REJECTION — server kept alive");
+});
+
+async function seedAdminIfConfigured() {
+  const adminPhone = process.env["ADMIN_PHONE"];
+  const adminPassword = process.env["ADMIN_PASSWORD"];
+  if (!adminPhone || !adminPassword) return;
+
+  try {
+    const rawPhone = adminPhone.replace(/[\s\-\+\(\)]/g, "");
+    const cleanPhone = rawPhone.replace(/^00/, "");
+
+    let [user] = await db.select().from(usersTable).where(eq(usersTable.phone, cleanPhone));
+    if (!user && cleanPhone !== rawPhone) {
+      [user] = await db.select().from(usersTable).where(eq(usersTable.phone, rawPhone));
+    }
+    if (!user) {
+      logger.info({ adminPhone }, "seed-admin: user not found, skipping");
+      return;
+    }
+
+    const hash = await bcrypt.hash(adminPassword, 10);
+    const token = crypto.randomBytes(32).toString("hex");
+
+    await db.update(usersTable)
+      .set({ passwordHash: hash, isAdmin: true, directLoginToken: token })
+      .where(eq(usersTable.id, user.id));
+
+    logger.info({ userId: user.id, phone: user.phone, directLoginToken: token }, "seed-admin: admin upgraded ✓");
+  } catch (err) {
+    logger.error({ err }, "seed-admin: failed");
+  }
+}
+
+const rawPort = process.env["PORT"];
+
+if (!rawPort) {
+  throw new Error("PORT environment variable is required but was not provided.");
+}
+
+const port = Number(rawPort);
+
+if (Number.isNaN(port) || port <= 0) {
+  throw new Error(`Invalid PORT value: "${rawPort}"`);
+}
+
+// ── Port conflict prevention ───────────────────────────────────────
+// When a Replit workflow restarts, the old Node process may still hold
+// the port for a few seconds, causing EADDRINUSE → server fails to start
+// → WA sessions drop → campaigns stop.
+// Kill the old process first, wait 500 ms, then bind.
+// (The package.json start script also does this; this is a belt-and-suspenders guard.)
+try {
+  execSync(`fuser -k ${port}/tcp 2>/dev/null`, { stdio: "ignore" });
+  // Brief pause to let the OS reclaim the port
+  execSync("sleep 0.4", { stdio: "ignore" });
+} catch { /* fuser not available or port already free — ignore */ }
+
+let eaddrRetries = 0;
+const EADDR_MAX = 8;
+
+function startListening() {
+  app.listen(port, (err) => {
+    if (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EADDRINUSE") {
+        eaddrRetries++;
+        if (eaddrRetries > EADDR_MAX) {
+          logger.error({ port, retries: eaddrRetries }, "EADDRINUSE: max retries exceeded — exiting so workflow can restart");
+          process.exit(1);
+        }
+        logger.warn({ port, attempt: eaddrRetries, max: EADDR_MAX }, "EADDRINUSE — killing occupying process and retrying in 1.5 s");
+        try { execSync(`fuser -k ${port}/tcp 2>/dev/null`, { stdio: "ignore" }); } catch {}
+        setTimeout(startListening, 1500);
+        return;
+      }
+      logger.error({ err }, "Fatal: cannot listen on port");
+      process.exit(1);
+    }
+
+    logger.info({ port }, "Server listening");
+
+    // Restore all saved WhatsApp sessions from DB — no QR needed after restart or deployment
+    void restoreAllSessions();
+
+    // Resume any campaigns that were running before the server restarted
+    void resumeRunningCampaigns();
+
+    // Auto-seed admin on startup if env vars are set
+    void seedAdminIfConfigured();
+
+    // ── Connection Guardian ───────────────────────────────────────────
+    // Runs every 90 seconds. For every user whose WA instance is loaded
+    // but shows "disconnected" (not reconnecting, not qr_ready), fires
+    // initWhatsApp() immediately — same as the watchdog inside the instance
+    // but from outside, as a second safety net.
+    startConnectionGuardian();
+
+    // ── Auto-Maintenance Scheduler ─────────────────────────────────────
+    // Runs every 10 minutes for every loaded WA instance: performs a
+    // safe, read-only-or-reconnect-only self-healing pass (never wipes
+    // credentials). Complements the Connection Guardian (which only
+    // handles fully-dead sockets) by also validating degraded/stale
+    // sessions and flagging broken sessions for the user.
+    startAutoMaintenanceScheduler();
+
+    // ── Self-ping keep-alive ──────────────────────────────────────────
+    // Pings /api/ping every 1 minute to keep the server process alive.
+    // For 24/7 uptime also set up UptimeRobot to ping from the outside.
+    startKeepAlive(port);
+  });
+}
+
+startListening();
+
+// ── Global Connection Guardian ────────────────────────────────────────
+// Second safety net on top of the per-instance watchdog.
+// Every 90 s it scans ALL loaded WA instances; any that are "disconnected"
+// (session saved but socket dead, not currently reconnecting/qr_ready) get
+// an immediate initWhatsApp() call.  This catches edge cases where the
+// per-instance watchdog timer was lost (e.g. GC, setInterval swallowed).
+function startConnectionGuardian() {
+  const INTERVAL_MS = 90_000; // 90 seconds
+
+  async function runGuardian() {
+    const ids = getActiveUserIds();
+    for (const userId of ids) {
+      try {
+        const s = getStatus(userId);
+        // Only act when truly dead — not when actively reconnecting / showing QR
+        if (!s.connected &&
+            s.status !== "connecting" &&
+            s.status !== "reconnecting" &&
+            s.status !== "qr_ready") {
+          logger.info({ userId, status: s.status }, "Guardian: dead session detected — triggering reconnect");
+          await initWhatsApp(userId);
+        }
+      } catch (err) {
+        logger.error({ err, userId }, "Guardian: reconnect attempt failed");
+      }
+    }
+  }
+
+  // First run after 30 s to let restoreAllSessions finish initialising
+  setTimeout(() => {
+    void runGuardian();
+    setInterval(() => void runGuardian(), INTERVAL_MS);
+  }, 30_000);
+
+  logger.info({ intervalSec: INTERVAL_MS / 1000 }, "Connection guardian started");
+}
+
+// ── Auto-Maintenance Scheduler ─────────────────────────────────────────
+// Every 10 minutes, runs the safe self-healing routine (runAutoMaintenance)
+// for every loaded WA instance. Unlike the Connection Guardian above, this
+// also acts on "degraded"/"stale"/"broken_session" extendedStatus values —
+// not just fully "disconnected" sockets — giving earlier, more precise
+// intervention. All actions are logged to wa_session_events as
+// "auto_maintenance" so they show up in the diagnostics root-cause view.
+function startAutoMaintenanceScheduler() {
+  const INTERVAL_MS = 10 * 60_000; // 10 minutes
+
+  async function runMaintenance() {
+    const ids = getActiveUserIds();
+    for (const userId of ids) {
+      try {
+        const result = await runAutoMaintenance(userId);
+        if (result.action !== "noop") {
+          logger.info({ userId, action: result.action, diagnosis: result.diagnosis }, "Auto-maintenance: action taken");
+        }
+      } catch (err) {
+        logger.error({ err, userId }, "Auto-maintenance: run failed");
+      }
+    }
+  }
+
+  // First run after 60 s (after guardian's 30 s head start) so it never
+  // races an in-progress restoreAllSessions() init.
+  setTimeout(() => {
+    void runMaintenance();
+    setInterval(() => void runMaintenance(), INTERVAL_MS);
+  }, 60_000);
+
+  logger.info({ intervalMin: INTERVAL_MS / 60_000 }, "Auto-maintenance scheduler started");
+}
+
+function startKeepAlive(localPort: number): void {
+  // ── Interval: 1 minute ───────────────────────────────────────────
+  // Pings /api/ping every 60 s:
+  //   • In dev mode: keeps the Replit workspace awake (sleeps after ~5 min idle)
+  //   • In Autoscale deployment: helps prevent scale-to-zero (supplemented by UptimeRobot)
+  //   • In Reserved VM: not strictly needed but harmless
+  const INTERVAL_MS = 60_000;
+
+  const domains = (process.env["REPLIT_DOMAINS"] ?? "").split(",").filter(Boolean);
+  const publicDomain = domains[0];
+
+  // Always ping localhost directly — this keeps the Node process awake
+  // even when the public proxy has not yet forwarded the request.
+  const localUrl  = `http://localhost:${localPort}/api/ping`;
+  const publicUrl = publicDomain ? `https://${publicDomain}/api/ping` : null;
+
+  function ping(url: string) {
+    const mod = url.startsWith("https") ? https : http;
+    const req = mod.get(url, { timeout: 10_000 }, (res) => {
+      logger.debug({ statusCode: res.statusCode, url }, "keep-alive ping ✓");
+      res.resume();
+    });
+    req.on("error", (e) => logger.warn({ err: e.message, url }, "keep-alive ping failed"));
+    req.end();
+  }
+
+  setInterval(() => {
+    // Always ping localhost (keeps Node awake regardless of proxy state)
+    ping(localUrl);
+    // Also ping the public URL so Replit proxy registers activity
+    if (publicUrl) ping(publicUrl);
+  }, INTERVAL_MS);
+
+  logger.info({ localUrl, publicUrl, intervalMin: INTERVAL_MS / 60_000 }, "Keep-alive started");
+}

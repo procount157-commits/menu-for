@@ -1,0 +1,877 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: WhatsApp Bulk Messenger API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: whatsapp
+    description: WhatsApp connection management
+  - name: contacts
+    description: Contact and phone number management
+  - name: campaigns
+    description: Campaign management
+  - name: messages
+    description: Message templates and sending
+  - name: chatbot
+    description: Chatbot builder
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /whatsapp/status:
+    get:
+      operationId: getWhatsappStatus
+      tags: [whatsapp]
+      summary: Get WhatsApp connection status
+      responses:
+        "200":
+          description: Connection status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhatsappStatus"
+
+  /whatsapp/qr:
+    get:
+      operationId: getWhatsappQr
+      tags: [whatsapp]
+      summary: Get QR code for WhatsApp connection
+      responses:
+        "200":
+          description: QR code data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QrCode"
+
+  /whatsapp/logout:
+    post:
+      operationId: logoutWhatsapp
+      tags: [whatsapp]
+      summary: Logout from WhatsApp
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /contacts:
+    get:
+      operationId: listContacts
+      tags: [contacts]
+      summary: List all contact groups
+      responses:
+        "200":
+          description: List of contact groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContactGroup"
+    post:
+      operationId: createContactGroup
+      tags: [contacts]
+      summary: Create a contact group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactGroupInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactGroup"
+
+  /contacts/{id}:
+    get:
+      operationId: getContactGroup
+      tags: [contacts]
+      summary: Get a contact group with its contacts
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Contact group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactGroup"
+    delete:
+      operationId: deleteContactGroup
+      tags: [contacts]
+      summary: Delete a contact group
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /contacts/{id}/numbers:
+    post:
+      operationId: addNumbers
+      tags: [contacts]
+      summary: Add phone numbers to a contact group (paste or Excel import)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NumbersInput"
+      responses:
+        "200":
+          description: Numbers added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NumbersResult"
+
+  /campaigns:
+    get:
+      operationId: listCampaigns
+      tags: [campaigns]
+      summary: List all campaigns
+      responses:
+        "200":
+          description: List of campaigns
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Campaign"
+    post:
+      operationId: createCampaign
+      tags: [campaigns]
+      summary: Create a new campaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  /campaigns/{id}:
+    get:
+      operationId: getCampaign
+      tags: [campaigns]
+      summary: Get campaign details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+    patch:
+      operationId: updateCampaign
+      tags: [campaigns]
+      summary: Update a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+    delete:
+      operationId: deleteCampaign
+      tags: [campaigns]
+      summary: Delete a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /campaigns/{id}/start:
+    post:
+      operationId: startCampaign
+      tags: [campaigns]
+      summary: Start sending a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /campaigns/{id}/pause:
+    post:
+      operationId: pauseCampaign
+      tags: [campaigns]
+      summary: Pause a running campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign paused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /campaigns/{id}/stats:
+    get:
+      operationId: getCampaignStats
+      tags: [campaigns]
+      summary: Get campaign sending statistics
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignStats"
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [campaigns]
+      summary: Get overall dashboard statistics
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /chatbots:
+    get:
+      operationId: listChatbots
+      tags: [chatbot]
+      summary: List all chatbots
+      responses:
+        "200":
+          description: List of chatbots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Chatbot"
+    post:
+      operationId: createChatbot
+      tags: [chatbot]
+      summary: Create a chatbot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatbotInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chatbot"
+
+  /chatbots/{id}:
+    get:
+      operationId: getChatbot
+      tags: [chatbot]
+      summary: Get chatbot details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Chatbot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chatbot"
+    patch:
+      operationId: updateChatbot
+      tags: [chatbot]
+      summary: Update a chatbot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatbotUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chatbot"
+    delete:
+      operationId: deleteChatbot
+      tags: [chatbot]
+      summary: Delete a chatbot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /chatbots/{id}/toggle:
+    post:
+      operationId: toggleChatbot
+      tags: [chatbot]
+      summary: Enable or disable a chatbot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Toggled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chatbot"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+
+    WhatsappStatus:
+      type: object
+      properties:
+        connected:
+          type: boolean
+        phone:
+          type: ["string", "null"]
+        name:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [disconnected, connecting, connected, qr_ready]
+      required:
+        - connected
+        - status
+
+    QrCode:
+      type: object
+      properties:
+        qr:
+          type: ["string", "null"]
+        status:
+          type: string
+      required:
+        - status
+
+    ContactGroup:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        count:
+          type: integer
+        contacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Contact"
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - count
+        - createdAt
+
+    Contact:
+      type: object
+      properties:
+        id:
+          type: integer
+        phone:
+          type: string
+        name:
+          type: ["string", "null"]
+        status:
+          type: string
+      required:
+        - id
+        - phone
+        - status
+
+    ContactGroupInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+      required:
+        - name
+
+    ContactEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+      required:
+        - phone
+
+    NumbersInput:
+      type: object
+      properties:
+        numbers:
+          type: string
+          description: Newline or comma-separated phone numbers, or JSON array
+        contacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContactEntry"
+          description: Structured list of {name, phone} entries (alternative to numbers)
+        format:
+          type: string
+          enum: [text, json]
+          default: text
+        mobileOnly:
+          type: boolean
+          default: false
+          description: When true, landline numbers are skipped
+
+    NumbersResult:
+      type: object
+      properties:
+        added:
+          type: integer
+        duplicates:
+          type: integer
+        invalid:
+          type: integer
+        skippedLandline:
+          type: integer
+        total:
+          type: integer
+        autoSplit:
+          type: boolean
+        groups:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              count:
+                type: integer
+            required:
+              - id
+              - name
+              - count
+      required:
+        - added
+        - duplicates
+        - invalid
+        - total
+
+    Campaign:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+          enum: [draft, scheduled, running, paused, completed, failed]
+        contactGroupId:
+          type: ["integer", "null"]
+        contactGroupName:
+          type: ["string", "null"]
+        message:
+          type: string
+        messageType:
+          type: string
+          enum: [text, image, video, carousel, button]
+        mediaUrl:
+          type: ["string", "null"]
+        buttons:
+          type: ["string", "null"]
+          description: JSON array of button objects
+        carousel:
+          type: ["string", "null"]
+          description: JSON array of carousel cards
+        delayMin:
+          type: integer
+          description: Min delay between messages in seconds
+        delayMax:
+          type: integer
+          description: Max delay between messages in seconds
+        messageLimit:
+          type: ["integer", "null"]
+          description: Max messages to send per run (null = send all)
+        scheduledAt:
+          type: ["string", "null"]
+        sentCount:
+          type: integer
+        failedCount:
+          type: integer
+        totalCount:
+          type: integer
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - status
+        - message
+        - messageType
+        - delayMin
+        - delayMax
+        - sentCount
+        - failedCount
+        - totalCount
+        - createdAt
+
+    CampaignInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        contactGroupId:
+          type: integer
+        message:
+          type: string
+          minLength: 1
+        messageType:
+          type: string
+          enum: [text, image, video, carousel, button]
+          default: text
+        mediaUrl:
+          type: string
+        buttons:
+          type: string
+          description: JSON string of buttons array
+        carousel:
+          type: string
+          description: JSON string of carousel cards
+        delayMin:
+          type: integer
+          default: 5
+          minimum: 1
+        delayMax:
+          type: integer
+          default: 15
+          minimum: 1
+        messageLimit:
+          type: integer
+          minimum: 1
+          description: Stop after sending this many messages (optional)
+        scheduledAt:
+          type: string
+      required:
+        - name
+        - contactGroupId
+        - message
+
+    CampaignUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        message:
+          type: string
+        messageType:
+          type: string
+          enum: [text, image, video, carousel, button]
+        mediaUrl:
+          type: string
+        buttons:
+          type: string
+        carousel:
+          type: string
+        companyName:
+          type: string
+        delayMin:
+          type: integer
+        delayMax:
+          type: integer
+        messageLimit:
+          type: integer
+          description: Stop after sending this many messages (optional)
+        scheduledAt:
+          type: string
+
+    CampaignStats:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+        sentCount:
+          type: integer
+        failedCount:
+          type: integer
+        totalCount:
+          type: integer
+        deliveredCount:
+          type: integer
+          description: Messages confirmed delivered to recipient device (grey double tick)
+        readCount:
+          type: integer
+          description: Messages confirmed read by recipient (blue double tick)
+        successRate:
+          type: number
+        deliveryRate:
+          type: number
+          description: Percentage of sent messages confirmed delivered
+        readRate:
+          type: number
+          description: Percentage of sent messages read by recipients
+        recentLogs:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessageLog"
+      required:
+        - id
+        - name
+        - status
+        - sentCount
+        - failedCount
+        - totalCount
+        - deliveredCount
+        - readCount
+        - successRate
+        - deliveryRate
+        - readRate
+        - recentLogs
+
+    MessageLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        phone:
+          type: string
+        status:
+          type: string
+          enum: [sent, failed, pending]
+        error:
+          type: ["string", "null"]
+        sentAt:
+          type: ["string", "null"]
+        deliveredAt:
+          type: ["string", "null"]
+          description: When the message was confirmed delivered to the recipient's device
+        readAt:
+          type: ["string", "null"]
+          description: When the message was read by the recipient
+      required:
+        - id
+        - phone
+        - status
+
+    DashboardStats:
+      type: object
+      properties:
+        totalCampaigns:
+          type: integer
+        activeCampaigns:
+          type: integer
+        totalContacts:
+          type: integer
+        totalSent:
+          type: integer
+        totalFailed:
+          type: integer
+        recentCampaigns:
+          type: array
+          items:
+            $ref: "#/components/schemas/Campaign"
+      required:
+        - totalCampaigns
+        - activeCampaigns
+        - totalContacts
+        - totalSent
+        - totalFailed
+        - recentCampaigns
+
+    Chatbot:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        enabled:
+          type: boolean
+        welcomeMessage:
+          type: string
+        nodes:
+          type: string
+          description: JSON string of chatbot node tree
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - enabled
+        - welcomeMessage
+        - nodes
+        - createdAt
+
+    ChatbotInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        welcomeMessage:
+          type: string
+          minLength: 1
+        nodes:
+          type: string
+          default: "[]"
+      required:
+        - name
+        - welcomeMessage
+
+    ChatbotUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        welcomeMessage:
+          type: string
+        nodes:
+          type: string
+        enabled:
+          type: boolean
