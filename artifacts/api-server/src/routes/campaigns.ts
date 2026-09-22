@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db, campaignsTable, contactGroupsTable, contactsTable, messageLogs, unsubscribedPhonesTable, waSessionEventsTable, campaignButtonResponsesTable } from "@workspace/db";
+import { assessDeliveryHealth, MIN_SAMPLE as DELIVERY_MIN_SAMPLE } from "../lib/delivery-health";
 import { eq, desc, count, sql, and, gte, inArray, lt, max, asc } from "drizzle-orm";
 import { sendMessage, getStatus, waitForConnection, registerOnConnectHook, initWhatsApp } from "../lib/whatsapp";
 import { requireAuth } from "../lib/auth";
@@ -78,10 +79,53 @@ async function getEffectiveDailyLimit(userId: number): Promise<number> {
   }
 }
 
-// Sending-hours gate disabled — campaigns run 24/7
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function waitForSendingHours(_campaignId: number, _info: { running: boolean; lastProgressAt: number }): Promise<void> {
-  // no-op: no time restriction
+// ── Sending hours ─────────────────────────────────────────────────
+// A marketing message at 03:00 gets blocked and reported at a far higher rate
+// than the same message at 11:00, and block/report rate is what actually gets
+// a number banned. This gate was previously a no-op, so campaigns ran through
+// the night. Configurable, and can be turned off with SENDING_HOURS_ENABLED=false.
+const SENDING_HOURS_ENABLED = process.env["SENDING_HOURS_ENABLED"] !== "false";
+const SENDING_TZ            = process.env["SENDING_TIMEZONE"] ?? "Asia/Dubai";
+const SENDING_HOUR_START    = Number(process.env["SENDING_HOUR_START"] ?? 9);   // inclusive
+const SENDING_HOUR_END      = Number(process.env["SENDING_HOUR_END"]   ?? 21);  // exclusive
+
+/** Current hour (0–23) in the configured sending timezone. */
+function hourInSendingTz(now = new Date()): number {
+  return Number(
+    new Intl.DateTimeFormat("en-GB", { timeZone: SENDING_TZ, hour: "2-digit", hour12: false }).format(now),
+  );
+}
+
+export function isWithinSendingHours(now = new Date()): boolean {
+  if (!SENDING_HOURS_ENABLED) return true;
+  const h = hourInSendingTz(now);
+  // Handles a window that wraps past midnight (e.g. 20 -> 2) as well as a
+  // normal daytime one.
+  return SENDING_HOUR_START <= SENDING_HOUR_END
+    ? h >= SENDING_HOUR_START && h < SENDING_HOUR_END
+    : h >= SENDING_HOUR_START || h < SENDING_HOUR_END;
+}
+
+/**
+ * Block until the sending window opens. Sleeps in short slices so pausing a
+ * campaign overnight takes effect immediately instead of waiting until morning.
+ */
+async function waitForSendingHours(campaignId: number, info: { running: boolean; lastProgressAt: number }): Promise<void> {
+  if (isWithinSendingHours()) return;
+
+  logger.info(
+    { campaignId, tz: SENDING_TZ, hour: hourInSendingTz(), window: `${SENDING_HOUR_START}:00-${SENDING_HOUR_END}:00` },
+    "خارج ساعات الإرسال — انتظار فتح النافذة",
+  );
+
+  while (info.running && !isWithinSendingHours()) {
+    await interruptibleSleep(60_000, info);
+    info.lastProgressAt = Date.now(); // waiting on purpose — not a stall
+  }
+
+  if (info.running) {
+    logger.info({ campaignId, hour: hourInSendingTz() }, "ساعات الإرسال فُتحت — استئناف");
+  }
 }
 
 // ── Arabic synonym variation ─────────────────────────────────────
@@ -233,6 +277,15 @@ router.use(requireAuth);
 const QUALITY_WINDOW    = 20;  // look at last N messages
 const FAILURE_THRESHOLD = 0.40; // 40% failure rate triggers auto-pause
 
+// ── Delivery guard ────────────────────────────────────────────────
+// The failure-rate guard above only sees errors thrown at send time. A
+// throttled number keeps reporting successful sends while nothing arrives,
+// so delivery receipts are checked separately, every N sends.
+const DELIVERY_CHECK_EVERY = 25;
+// When delivery sags but has not collapsed, stretch the gaps instead of
+// stopping — backing off is usually enough to recover.
+const DELIVERY_SLOW_FACTOR = 2.5;
+
 type CampaignInfo = {
   running:               boolean;
   index:                 number;
@@ -240,6 +293,7 @@ type CampaignInfo = {
   consecutiveWaFailures: number;
   startedAt:             number;   // Date.now() ms
   recentOutcomes:        ("sent" | "failed")[];  // rolling window for quality monitoring
+  deliverySlowMode?:     boolean;  // set by the delivery guard — widens every gap
   skipDailyDedup?:       boolean;  // bypass cross-campaign daily dedup (used by send-remaining)
 };
 const activeCampaigns = new Map<string, CampaignInfo>();
@@ -703,8 +757,12 @@ router.post("/:id/start", async (req, res) => {
   if (!campaign) return res.status(404).json({ error: "Not found" });
   if (!campaign.contactGroupId) return res.status(400).json({ error: "No contact group assigned" });
 
-  const contacts = await db.select().from(contactsTable).where(eq(contactsTable.groupId, campaign.contactGroupId));
-  if (!contacts.length) return res.status(400).json({ error: "لا توجد أرقام في القائمة" });
+  // status != "active" means the number failed WhatsApp validation — sending to
+  // it burns a slot from the daily allowance and feeds the failure rate. The
+  // resume path already filtered these; start, send-remaining and retry did not.
+  const contacts = await db.select().from(contactsTable)
+    .where(and(eq(contactsTable.groupId, campaign.contactGroupId), eq(contactsTable.status, "active")));
+  if (!contacts.length) return res.status(400).json({ error: "لا توجد أرقام صالحة في القائمة" });
 
   // ── Media file validation ─────────────────────────────────────────
   // Validate BEFORE starting the loop — prevents all contacts from
@@ -856,7 +914,7 @@ router.post("/:id/send-remaining", async (req, res) => {
   const allContacts = await db
     .select({ phone: contactsTable.phone, name: contactsTable.name })
     .from(contactsTable)
-    .where(eq(contactsTable.groupId, campaign.contactGroupId));
+    .where(and(eq(contactsTable.groupId, campaign.contactGroupId), eq(contactsTable.status, "active")));
 
   if (!allContacts.length) return res.status(400).json({ error: "قائمة الأرقام فارغة" });
 
@@ -991,6 +1049,10 @@ router.get("/:id/quality", async (req, res) => {
   // Use the worse of the two rates for risk assessment
   const effectiveFailureRate = Math.max(overallFailureRate, recentFailureRate);
 
+  // Delivery health — sends that succeeded but never arrived. Invisible to the
+  // failure rates above, and the earlier signal of the two.
+  const delivery = await assessDeliveryHealth(id).catch(() => null);
+
   // Risk level
   let riskLevel: "low" | "medium" | "high" | "critical";
   let riskScore: number;
@@ -1016,6 +1078,21 @@ router.get("/:id/quality", async (req, res) => {
     recommendationEn = "review"; recommendationColor = "red";
   }
 
+  // A collapsing delivery rate outranks a clean failure rate: the campaign can
+  // look perfect by send-time errors while nothing is reaching anyone.
+  if (delivery && delivery.level !== "insufficient_data" && delivery.reason) {
+    if (delivery.level === "critical" && riskLevel !== "critical") {
+      riskLevel = "critical"; recommendationEn = "review"; recommendationColor = "red";
+      recommendation = delivery.reason;
+    } else if (delivery.level === "high_risk" && (riskLevel === "low" || riskLevel === "medium")) {
+      riskLevel = "high"; recommendationEn = "pause"; recommendationColor = "orange";
+      recommendation = delivery.reason;
+    } else if (delivery.level === "degraded" && riskLevel === "low") {
+      riskLevel = "medium"; recommendationEn = "slow_down"; recommendationColor = "yellow";
+      recommendation = delivery.reason;
+    }
+  }
+
   // In-memory real-time recentOutcomes (if campaign is actively running)
   const key = campaignKey(userId, id);
   const activeInfo = activeCampaigns.get(key);
@@ -1037,6 +1114,15 @@ router.get("/:id/quality", async (req, res) => {
     // Live window (if running)
     liveWindowSize: liveWindow.length,
     liveFailureRate: liveFailRate !== null ? Math.round(liveFailRate * 100) : null,
+    // Delivery health — null until enough messages are old enough to judge
+    delivery: delivery && delivery.level !== "insufficient_data" ? {
+      level:        delivery.level,
+      sample:       delivery.sample,
+      delivered:    delivery.delivered,
+      deliveryRate: Math.round(delivery.deliveryRate * 100),
+    } : null,
+    deliveryPending: delivery ? delivery.level === "insufficient_data" : true,
+    deliveryMinSample: DELIVERY_MIN_SAMPLE,
     // Assessment
     riskLevel,
     riskScore,
@@ -1169,6 +1255,52 @@ async function runCampaign(userId: number, campaign: any, contacts: any[], info:
       // ── Quality tracking: record success ──────────────────────────
       info.recentOutcomes.push("sent");
       if (info.recentOutcomes.length > QUALITY_WINDOW) info.recentOutcomes.shift();
+
+      // ── Delivery guard ────────────────────────────────────────────
+      // Reads back the receipts recorded in message_logs.deliveredAt. Early in
+      // a campaign nothing is mature enough to judge, so this reports
+      // insufficient_data and changes nothing until there is real evidence.
+      if (sentThisRun > 0 && sentThisRun % DELIVERY_CHECK_EVERY === 0) {
+        try {
+          const health = await assessDeliveryHealth(campaign.id);
+
+          if (health.level !== "insufficient_data") {
+            logger.info(
+              { campaignId: campaign.id, level: health.level, deliveredPct: Math.round(health.deliveryRate * 100), sample: health.sample },
+              "Delivery guard check",
+            );
+          }
+
+          if (health.shouldPause) {
+            logger.warn({ campaignId: campaign.id, reason: health.reason }, "Delivery guard: auto-pausing campaign");
+            info.running = false;
+            activeCampaigns.delete(key);
+            try {
+              await withDbRetry(() =>
+                db.update(campaignsTable)
+                  .set({ status: "auto_paused", autoPauseReason: health.reason })
+                  .where(eq(campaignsTable.id, campaign.id))
+              );
+            } catch { /* watchdog will pick it up */ }
+            return; // exit runCampaign
+          }
+
+          // Degraded but recoverable — widen the gaps rather than stop.
+          if (health.shouldSlow && !info.deliverySlowMode) {
+            info.deliverySlowMode = true;
+            logger.warn(
+              { campaignId: campaign.id, deliveredPct: Math.round(health.deliveryRate * 100) },
+              "Delivery guard: entering slow mode",
+            );
+          } else if (!health.shouldSlow && info.deliverySlowMode) {
+            info.deliverySlowMode = false;
+            logger.info({ campaignId: campaign.id }, "Delivery guard: delivery recovered — normal pace");
+          }
+        } catch (err) {
+          // Never let a monitoring query kill a running campaign.
+          logger.warn({ campaignId: campaign.id, err }, "Delivery guard check failed — continuing");
+        }
+      }
       logger.info(
         {
           campaignId: campaign.id,
@@ -1284,20 +1416,26 @@ async function runCampaign(userId: number, campaign: any, contacts: any[], info:
       }
     }
 
+    // When the delivery guard has flagged degradation, every gap below is
+    // stretched. Sending slower into a number that is already being throttled
+    // is what gives it room to recover.
+    const paceFactor = info.deliverySlowMode ? DELIVERY_SLOW_FACTOR : 1;
+
     if (i > 0 && (i + 1) % LONG_BREAK_EVERY === 0 && info.running && i < contacts.length - 1) {
       // ── Long break every 40 msgs (2–5 min) ───────────────────────
-      // Simulates "away from desk" — the strongest human-behaviour signal.
-      const breakMs = randomDelay(120_000, 300_000);
-      logger.info({ campaignId: campaign.id, msgIndex: i + 1, breakSeconds: Math.round(breakMs / 1000) }, "استراحة طويلة (حماية من الحظر)");
+      const breakMs = Math.round(randomDelay(120_000, 300_000) * paceFactor);
+      logger.info({ campaignId: campaign.id, msgIndex: i + 1, breakSeconds: Math.round(breakMs / 1000), slowMode: !!info.deliverySlowMode }, "استراحة طويلة (حماية من الحظر)");
       await interruptibleSleep(breakMs, info);
     } else if (i > 0 && (i + 1) % MICRO_BREAK_EVERY === 0 && info.running && i < contacts.length - 1) {
       // ── Micro-break every 12 msgs (30–90 s) ──────────────────────
-      // Simulates "quick phone check / distraction" between batches.
-      const microMs = randomDelay(30_000, 90_000);
-      logger.info({ campaignId: campaign.id, msgIndex: i + 1, microBreakSeconds: Math.round(microMs / 1000) }, "استراحة قصيرة (محاكاة بشرية)");
+      const microMs = Math.round(randomDelay(30_000, 90_000) * paceFactor);
+      logger.info({ campaignId: campaign.id, msgIndex: i + 1, microBreakSeconds: Math.round(microMs / 1000), slowMode: !!info.deliverySlowMode }, "استراحة قصيرة (محاكاة بشرية)");
       await interruptibleSleep(microMs, info);
     } else if (i < contacts.length - 1 && info.running) {
-      await sleep(humanDelay(campaign.delayMin * 1_000, campaign.delayMax * 1_000));
+      await interruptibleSleep(
+        Math.round(humanDelay(campaign.delayMin * 1_000, campaign.delayMax * 1_000) * paceFactor),
+        info,
+      );
     }
   }
 
@@ -1481,7 +1619,7 @@ router.post("/:id/retry-failed", async (req, res) => {
   const allContacts = await withDbRetry(() =>
     db.select()
       .from(contactsTable)
-      .where(eq(contactsTable.groupId, campaign.contactGroupId!))
+      .where(and(eq(contactsTable.groupId, campaign.contactGroupId!), eq(contactsTable.status, "active")))
   );
   const contactsToRetry = allContacts.filter((c) => retryablePhones.has(c.phone));
 

@@ -623,6 +623,69 @@ class WhatsAppInstance {
    * Calls sock.sendMessage() directly and waits for messages.upsert confirmation.
    * Returns a step-by-step trace so we can see EXACTLY where it fails.
    */
+  /**
+   * Bulk-check which numbers actually exist on WhatsApp.
+   *
+   * The per-send check already rejects dead numbers, but only after the
+   * campaign has spent a slot on them: a list that is 20% junk burns 20% of
+   * the daily allowance on nothing and pushes up the failure rate that gets
+   * numbers banned. Running this first turns that into a one-off cleanup.
+   *
+   * Returns one entry per input number. `exists: null` means the check could
+   * not be completed (network/timeout) — callers must treat that as "unknown"
+   * and leave the contact alone rather than marking it invalid.
+   */
+  async checkNumbers(
+    phones: string[],
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<Array<{ phone: string; exists: boolean | null }>> {
+    if (!this.state.socket || !this.state.connected) {
+      throw new Error("WA_DISCONNECTED: واتساب غير متصل — لا يمكن فحص الأرقام");
+    }
+
+    const CHUNK = 25;
+    const out: Array<{ phone: string; exists: boolean | null }> = [];
+
+    for (let i = 0; i < phones.length; i += CHUNK) {
+      const batch = phones.slice(i, i + CHUNK);
+
+      try {
+        const res = await Promise.race([
+          this.state.socket.onWhatsApp(...batch),
+          new Promise<never>((_, rej) =>
+            setTimeout(() => rej(new Error("ONWHATSAPP_TIMEOUT")), 20_000)
+          ),
+        ]);
+
+        // WA answers only for numbers it recognises, and the jid it echoes back
+        // can be normalised, so match on the leading digits rather than equality.
+        const found = new Map<string, boolean>();
+        for (const r of (res ?? []) as Array<{ jid?: string; exists?: boolean }>) {
+          const digits = String(r.jid ?? "").split("@")[0]?.replace(/\D/g, "") ?? "";
+          if (digits) found.set(digits, !!r.exists);
+        }
+
+        for (const phone of batch) {
+          const digits = phone.replace(/\D/g, "");
+          out.push({ phone, exists: found.has(digits) ? found.get(digits)! : false });
+        }
+      } catch (err) {
+        // Unknown, not absent — do not let a timeout delete someone's contacts.
+        this.log.warn({ err, batchStart: i }, "checkNumbers batch failed — marking unknown");
+        for (const phone of batch) out.push({ phone, exists: null });
+      }
+
+      onProgress?.(Math.min(i + CHUNK, phones.length), phones.length);
+
+      // Pace the queries — this is a bulk lookup, not a burst.
+      if (i + CHUNK < phones.length) {
+        await new Promise((r) => setTimeout(r, 1_200 + Math.random() * 800));
+      }
+    }
+
+    return out;
+  }
+
   async directSend(phone: string, message: string): Promise<{
     steps: Array<{ step: number; label: string; ok: boolean; detail?: string }>;
     msgId: string | null;
@@ -2433,6 +2496,11 @@ export function getDiagnosticState(userId: number) { return waManager.get(userId
 export async function directSend(userId: number, phone: string, message: string) { return waManager.get(userId).directSend(phone, message); }
 export function registerDiagListener(userId: number, fn: (event: { type: string; data: unknown; ts: string }) => void) { return waManager.get(userId).registerDiagListener(fn); }
 export function validateSession(userId: number) { return waManager.get(userId).validateSession(); }
+export async function checkNumbers(
+  userId: number,
+  phones: string[],
+  onProgress?: (done: number, total: number) => void,
+) { return waManager.get(userId).checkNumbers(phones, onProgress); }
 
 export async function initWhatsApp(userId: number) { return waManager.get(userId).init(); }
 

@@ -46,6 +46,52 @@ WhatsApp closes that handshake with 428 before a QR is ever issued, and a stale
 client version closes it with 405. Both were live in the original code at once.
 
 
+## Sending safety
+
+The goal these serve is 1500 messages a day without losing the number. What
+actually gets a WhatsApp number banned is recipient behaviour — blocks, reports
+and undelivered mail — not message content, so that is what these watch.
+
+**Delivery guard** (`artifacts/api-server/src/lib/delivery-health.ts`)
+The important failure mode is silent: when WhatsApp throttles a number, sends
+keep succeeding and nothing arrives. The failure-rate guard cannot see this at
+all — it only counts send-time errors, and there are none. So the campaign loop
+re-reads `message_logs.deliveredAt` every 25 sends and acts on the delivery rate:
+
+| Delivered | Action |
+|---|---|
+| ≥ 75% | continue |
+| 55–75% | slow mode — every gap ×2.5 |
+| 35–55% | auto-pause (`high_risk`) |
+| < 35% | auto-pause (`critical`) |
+
+Messages younger than 20 minutes are excluded (a receipt needs time to return)
+and fewer than 25 mature messages is treated as no evidence, so ordinary
+offline recipients cannot trip it.
+
+**Sending hours** — default 09:00–21:00 `Asia/Dubai`. Previously a no-op, so
+campaigns ran overnight; a 03:00 marketing message earns blocks and reports far
+out of proportion to its reach. Override with `SENDING_HOUR_START`,
+`SENDING_HOUR_END`, `SENDING_TIMEZONE`, or `SENDING_HOURS_ENABLED=false`.
+
+**List validation** — `POST /api/contacts/:id/validate` asks WhatsApp which
+numbers in a group are real and parks the rest as `status="invalid"`. Dead
+numbers cost twice: each consumes one of the day's 1500 slots and adds to the
+failure rate. Numbers the check cannot resolve are left alone. All four
+contact-selection paths (start, resume, send-remaining, retry) now skip
+non-active contacts — previously only resume did.
+
+Already present and unchanged: warm-up ramp (50/day on day 0, +30%/day, 1500
+ceiling), opt-out enforcement, cross-campaign 72h dedup, per-send number check.
+
+Run the checks:
+
+```bash
+pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/delivery-health.test.ts
+pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/sending-hours.test.ts
+```
+
+
 ## Deploy (standalone — no Replit)
 
 Ports and production commands, previously held in the Replit artifact manifests:

@@ -1,8 +1,10 @@
 import { Router } from "express";
 import { db, contactGroupsTable, contactsTable } from "@workspace/db";
-import { eq, count, and } from "drizzle-orm";
+import { eq, count, and, inArray, ne } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 import * as XLSX from "xlsx";
+import { checkNumbers } from "../lib/whatsapp";
+import { logger } from "../lib/logger";
 
 const router = Router();
 router.use(requireAuth);
@@ -126,6 +128,92 @@ router.get("/:id/export", async (req, res) => {
   res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${filename}`);
   res.setHeader("Content-Length", buf.length);
   res.end(buf);
+});
+
+// ── List hygiene ──────────────────────────────────────────────────
+// Asks WhatsApp which of a group's numbers are real accounts, and parks the
+// ones that are not. Dead numbers are expensive twice over: each one consumes
+// a slot from the daily allowance and adds to the failure rate that gets a
+// sender banned, so cleaning the list up front is the cheapest safety measure
+// available.
+//
+// Numbers the check could not resolve are left untouched — a network blip must
+// never quietly disable somebody's contacts.
+router.post("/:id/validate", async (req, res) => {
+  const userId  = req.session.userId!;
+  const groupId = parseInt(req.params.id!);
+
+  const [group] = await db
+    .select()
+    .from(contactGroupsTable)
+    .where(and(eq(contactGroupsTable.id, groupId), eq(contactGroupsTable.userId, userId)));
+  if (!group) return res.status(404).json({ error: "القائمة غير موجودة" });
+
+  const rows = await db
+    .select({ id: contactsTable.id, phone: contactsTable.phone })
+    .from(contactsTable)
+    .where(eq(contactsTable.groupId, groupId));
+
+  if (rows.length === 0) {
+    return res.json({ total: 0, valid: 0, invalid: 0, unknown: 0, invalidPhones: [] });
+  }
+
+  // De-duplicate before querying — the same number can appear more than once.
+  const byPhone = new Map<string, number[]>();
+  for (const r of rows) {
+    const list = byPhone.get(r.phone) ?? [];
+    list.push(r.id);
+    byPhone.set(r.phone, list);
+  }
+  const phones = [...byPhone.keys()];
+
+  let results: Array<{ phone: string; exists: boolean | null }>;
+  try {
+    results = await checkNumbers(userId, phones);
+  } catch (err: any) {
+    const msg = String(err?.message ?? err);
+    req.log?.warn({ err: msg, groupId }, "list validation failed");
+    return res.status(409).json({
+      error: msg.startsWith("WA_DISCONNECTED")
+        ? "واتساب غير متصل — اربط الجهاز أولاً ثم أعد الفحص"
+        : "تعذّر فحص الأرقام، حاول مرة أخرى",
+    });
+  }
+
+  const invalidIds: number[] = [];
+  const validIds:   number[] = [];
+  const invalidPhones: string[] = [];
+  let unknown = 0;
+
+  for (const r of results) {
+    const ids = byPhone.get(r.phone) ?? [];
+    if (r.exists === null)      { unknown += ids.length; continue; }
+    if (r.exists)               { validIds.push(...ids); }
+    else                        { invalidIds.push(...ids); invalidPhones.push(r.phone); }
+  }
+
+  // Park the dead ones; revive any previously-parked number that now resolves,
+  // so a number that was off WhatsApp and came back is not stuck as invalid.
+  if (invalidIds.length) {
+    await db.update(contactsTable).set({ status: "invalid" }).where(inArray(contactsTable.id, invalidIds));
+  }
+  if (validIds.length) {
+    await db.update(contactsTable).set({ status: "active" })
+      .where(and(inArray(contactsTable.id, validIds), ne(contactsTable.status, "active")));
+  }
+
+  logger.info(
+    { groupId, userId, total: rows.length, valid: validIds.length, invalid: invalidIds.length, unknown },
+    "list validated",
+  );
+
+  res.json({
+    total:   rows.length,
+    valid:   validIds.length,
+    invalid: invalidIds.length,
+    unknown,
+    invalidPhones: invalidPhones.slice(0, 100),
+  });
 });
 
 router.delete("/:id", async (req, res) => {
