@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CampaignInputMessageType } from './campaignInputMessageType';
+import type { CampaignInputPacingMode } from './campaignInputPacingMode';
 
 export interface CampaignInput {
   /** @minLength 1 */
@@ -19,6 +20,7 @@ export interface CampaignInput {
   buttons?: string;
   /** JSON string of carousel cards */
   carousel?: string;
+  pacingMode?: CampaignInputPacingMode;
   /** @minimum 1 */
   delayMin?: number;
   /** @minimum 1 */

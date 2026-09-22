@@ -508,6 +508,7 @@ export default function CampaignNew() {
     message: "",
     companyName: "",
     messageType: "text",
+    pacingMode: "auto" as "auto" | "manual",
     delayMin: 15,
     delayMax: 45,
     scheduledAt: "",
@@ -615,6 +616,7 @@ export default function CampaignNew() {
       message: c.message ?? "",
       companyName: c.companyName ?? "",
       messageType: c.messageType === "image_button" ? "image" : (c.messageType ?? "text"),
+      pacingMode: (c.pacingMode === "manual" ? "manual" : "auto") as "auto" | "manual",
       delayMin: c.delayMin ?? 15,
       delayMax: c.delayMax ?? 45,
       scheduledAt: c.scheduledAt ? new Date(c.scheduledAt).toISOString().slice(0, 16) : "",
@@ -713,6 +715,7 @@ export default function CampaignNew() {
       name: form.name,
       message: finalMessage,
       messageType: finalMsgType,
+      pacingMode: form.pacingMode,
       delayMin: form.delayMin,
       delayMax: form.delayMax,
       companyName: form.companyName || undefined,
@@ -1256,9 +1259,50 @@ export default function CampaignNew() {
             </div>
           )}
 
-          {/* Delay settings */}
+          {/* Pacing */}
           <div className="bg-card border border-card-border rounded-xl p-4 space-y-4">
-            <p className="text-sm font-semibold">⏱ إعدادات التأخير بين الرسائل</p>
+            <p className="text-sm font-semibold">⏱ إيقاع الإرسال</p>
+
+            {/* Auto / manual */}
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { mode: "auto",   title: "تلقائي",  desc: "يوزّع الحصة اليومية على ساعات الإرسال" },
+                { mode: "manual", title: "يدوي",    desc: "تحدّد المدة بين الرسائل بنفسك" },
+              ] as const).map((o) => (
+                <button
+                  key={o.mode}
+                  type="button"
+                  onClick={() => setForm({ ...form, pacingMode: o.mode })}
+                  className={`text-right p-3 rounded-lg border transition-colors ${
+                    form.pacingMode === o.mode
+                      ? "bg-primary/10 border-primary"
+                      : "border-card-border hover:border-primary/50"
+                  }`}
+                >
+                  <span className={`block text-sm font-semibold ${form.pacingMode === o.mode ? "text-primary" : ""}`}>
+                    {o.title}
+                  </span>
+                  <span className="block text-[11px] text-muted-foreground mt-0.5 leading-snug">{o.desc}</span>
+                </button>
+              ))}
+            </div>
+
+            {form.pacingMode === "auto" && (
+              <div className="rounded-lg bg-muted/40 border border-card-border p-3 space-y-1.5">
+                <p className="text-xs text-foreground leading-relaxed">
+                  يحسب النظام المدة قبل كل رسالة من عدد الرسائل المتبقية وحصتك اليومية
+                  والوقت الباقي في نافذة الإرسال — ويعيد الحساب بعد كل رسالة.
+                </p>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  1500 رسالة على نافذة 12 ساعة ≈ فاصل 19 ثانية. إن توقّفت الحملة وعادت،
+                  يعيد توزيع المتبقي على ما تبقّى من الوقت بدل أن ينتهي مبكراً أو يتجاوز النافذة.
+                  ولا ينزل تحت 12 ثانية مهما ضاق الوقت.
+                </p>
+              </div>
+            )}
+
+            {form.pacingMode === "manual" && (
+            <>
             {/* Presets */}
             <div className="flex flex-wrap gap-2">
               {[
@@ -1307,8 +1351,11 @@ export default function CampaignNew() {
               })}
             </div>
             <p className="text-xs text-muted-foreground">
-              النظام يختار وقتاً عشوائياً بين الحدَّين — الوضع "عشوائي" يحاكي سلوك بشري حقيقي ويُقلل خطر الحظر
+              النظام يختار وقتاً عشوائياً بين الحدَّين. الوضع اليدوي لا يلاحق الحصة اليومية —
+              إن أردت بلوغ 1500 رسالة استخدم الإيقاع التلقائي.
             </p>
+            </>
+            )}
           </div>
 
           {/* Message limit */}

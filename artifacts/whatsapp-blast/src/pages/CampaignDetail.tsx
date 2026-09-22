@@ -589,7 +589,9 @@ export default function CampaignDetail() {
             </span>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            {campaign.contactGroupName || "—"} &bull; تأخير {campaign.delayMin >= 60 ? `${Math.floor(campaign.delayMin/60)}:${String(campaign.delayMin%60).padStart(2,"0")}د` : `${campaign.delayMin}ث`}–{campaign.delayMax >= 60 ? `${Math.floor(campaign.delayMax/60)}:${String(campaign.delayMax%60).padStart(2,"0")}د` : `${campaign.delayMax}ث`}
+            {campaign.contactGroupName || "—"} &bull; {campaign.pacingMode === "manual"
+              ? <>تأخير {campaign.delayMin >= 60 ? `${Math.floor(campaign.delayMin/60)}:${String(campaign.delayMin%60).padStart(2,"0")}د` : `${campaign.delayMin}ث`}–{campaign.delayMax >= 60 ? `${Math.floor(campaign.delayMax/60)}:${String(campaign.delayMax%60).padStart(2,"0")}د` : `${campaign.delayMax}ث`}</>
+              : <>إيقاع تلقائي</>}
           </p>
         </div>
         <div className="flex items-center gap-2">

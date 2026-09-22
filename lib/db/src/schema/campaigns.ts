@@ -16,6 +16,10 @@ export const campaignsTable = pgTable("campaigns", {
   buttons: text("buttons"),
   carousel: text("carousel"),
   companyName: varchar("company_name", { length: 255 }),
+  // "auto" derives the gap from the daily allowance and the time left in the
+  // sending window, recomputed per message. "manual" uses delayMin/delayMax,
+  // which are kept so an existing campaign can be pinned to a fixed pace.
+  pacingMode: varchar("pacing_mode", { length: 10 }).default("auto").notNull(),
   delayMin: integer("delay_min").default(5).notNull(),
   delayMax: integer("delay_max").default(15).notNull(),
   messageLimit: integer("message_limit"),

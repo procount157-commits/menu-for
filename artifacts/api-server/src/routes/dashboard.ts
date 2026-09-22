@@ -41,6 +41,7 @@ router.get("/stats", async (req, res) => {
       mediaUrl: campaignsTable.mediaUrl,
       buttons: campaignsTable.buttons,
       carousel: campaignsTable.carousel,
+      pacingMode: campaignsTable.pacingMode,
       delayMin: campaignsTable.delayMin,
       delayMax: campaignsTable.delayMax,
       scheduledAt: campaignsTable.scheduledAt,

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CampaignMessageType } from './campaignMessageType';
+import type { CampaignPacingMode } from './campaignPacingMode';
 import type { CampaignStatus } from './campaignStatus';
 
 export interface Campaign {
@@ -30,7 +31,9 @@ export interface Campaign {
      * @nullable
      */
   carousel?: string | null;
-  /** Min delay between messages in seconds */
+  /** auto derives the gap from the remaining daily allowance and the time left in the sending window, recomputed per message; manual uses delayMin/delayMax. */
+  pacingMode?: CampaignPacingMode;
+  /** Min delay between messages in seconds (manual pacing only) */
   delayMin: number;
   /** Max delay between messages in seconds */
   delayMax: number;

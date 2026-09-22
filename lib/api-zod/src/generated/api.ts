@@ -160,7 +160,8 @@ export const ListCampaignsResponseItem = zod.object({
   "mediaUrl": zod.string().nullish(),
   "buttons": zod.string().nullish().describe('JSON array of button objects'),
   "carousel": zod.string().nullish().describe('JSON array of carousel cards'),
-  "delayMin": zod.number().describe('Min delay between messages in seconds'),
+  "pacingMode": zod.enum(['auto', 'manual']).optional().describe('auto derives the gap from the remaining daily allowance and the time left in the sending window, recomputed per message; manual uses delayMin\/delayMax.'),
+  "delayMin": zod.number().describe('Min delay between messages in seconds (manual pacing only)'),
   "delayMax": zod.number().describe('Max delay between messages in seconds'),
   "messageLimit": zod.number().nullish().describe('Max messages to send per run (null = send all)'),
   "scheduledAt": zod.string().nullish(),
@@ -178,6 +179,7 @@ export const ListCampaignsResponse = zod.array(ListCampaignsResponseItem)
 
 
 export const createCampaignBodyMessageTypeDefault = `text`;
+export const createCampaignBodyPacingModeDefault = `auto`;
 export const createCampaignBodyDelayMinDefault = 5;
 
 export const createCampaignBodyDelayMaxDefault = 15;
@@ -193,6 +195,7 @@ export const CreateCampaignBody = zod.object({
   "mediaUrl": zod.string().optional(),
   "buttons": zod.string().optional().describe('JSON string of buttons array'),
   "carousel": zod.string().optional().describe('JSON string of carousel cards'),
+  "pacingMode": zod.enum(['auto', 'manual']).default(createCampaignBodyPacingModeDefault),
   "delayMin": zod.number().min(1).default(createCampaignBodyDelayMinDefault),
   "delayMax": zod.number().min(1).default(createCampaignBodyDelayMaxDefault),
   "messageLimit": zod.number().min(1).optional().describe('Stop after sending this many messages (optional)'),
@@ -218,7 +221,8 @@ export const GetCampaignResponse = zod.object({
   "mediaUrl": zod.string().nullish(),
   "buttons": zod.string().nullish().describe('JSON array of button objects'),
   "carousel": zod.string().nullish().describe('JSON array of carousel cards'),
-  "delayMin": zod.number().describe('Min delay between messages in seconds'),
+  "pacingMode": zod.enum(['auto', 'manual']).optional().describe('auto derives the gap from the remaining daily allowance and the time left in the sending window, recomputed per message; manual uses delayMin\/delayMax.'),
+  "delayMin": zod.number().describe('Min delay between messages in seconds (manual pacing only)'),
   "delayMax": zod.number().describe('Max delay between messages in seconds'),
   "messageLimit": zod.number().nullish().describe('Max messages to send per run (null = send all)'),
   "scheduledAt": zod.string().nullish(),
@@ -244,6 +248,7 @@ export const UpdateCampaignBody = zod.object({
   "buttons": zod.string().optional(),
   "carousel": zod.string().optional(),
   "companyName": zod.string().optional(),
+  "pacingMode": zod.enum(['auto', 'manual']).optional(),
   "delayMin": zod.number().optional(),
   "delayMax": zod.number().optional(),
   "messageLimit": zod.number().optional().describe('Stop after sending this many messages (optional)'),
@@ -261,7 +266,8 @@ export const UpdateCampaignResponse = zod.object({
   "mediaUrl": zod.string().nullish(),
   "buttons": zod.string().nullish().describe('JSON array of button objects'),
   "carousel": zod.string().nullish().describe('JSON array of carousel cards'),
-  "delayMin": zod.number().describe('Min delay between messages in seconds'),
+  "pacingMode": zod.enum(['auto', 'manual']).optional().describe('auto derives the gap from the remaining daily allowance and the time left in the sending window, recomputed per message; manual uses delayMin\/delayMax.'),
+  "delayMin": zod.number().describe('Min delay between messages in seconds (manual pacing only)'),
   "delayMax": zod.number().describe('Max delay between messages in seconds'),
   "messageLimit": zod.number().nullish().describe('Max messages to send per run (null = send all)'),
   "scheduledAt": zod.string().nullish(),
@@ -362,7 +368,8 @@ export const GetDashboardStatsResponse = zod.object({
   "mediaUrl": zod.string().nullish(),
   "buttons": zod.string().nullish().describe('JSON array of button objects'),
   "carousel": zod.string().nullish().describe('JSON array of carousel cards'),
-  "delayMin": zod.number().describe('Min delay between messages in seconds'),
+  "pacingMode": zod.enum(['auto', 'manual']).optional().describe('auto derives the gap from the remaining daily allowance and the time left in the sending window, recomputed per message; manual uses delayMin\/delayMax.'),
+  "delayMin": zod.number().describe('Min delay between messages in seconds (manual pacing only)'),
   "delayMax": zod.number().describe('Max delay between messages in seconds'),
   "messageLimit": zod.number().nullish().describe('Max messages to send per run (null = send all)'),
   "scheduledAt": zod.string().nullish(),

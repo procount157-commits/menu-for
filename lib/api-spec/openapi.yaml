@@ -625,9 +625,16 @@ components:
         carousel:
           type: ["string", "null"]
           description: JSON array of carousel cards
+        pacingMode:
+          type: string
+          enum: [auto, manual]
+          description: >-
+            auto derives the gap from the remaining daily allowance and the time
+            left in the sending window, recomputed per message; manual uses
+            delayMin/delayMax.
         delayMin:
           type: integer
-          description: Min delay between messages in seconds
+          description: Min delay between messages in seconds (manual pacing only)
         delayMax:
           type: integer
           description: Max delay between messages in seconds
@@ -680,6 +687,10 @@ components:
         carousel:
           type: string
           description: JSON string of carousel cards
+        pacingMode:
+          type: string
+          enum: [auto, manual]
+          default: auto
         delayMin:
           type: integer
           default: 5
@@ -717,6 +728,9 @@ components:
           type: string
         companyName:
           type: string
+        pacingMode:
+          type: string
+          enum: [auto, manual]
         delayMin:
           type: integer
         delayMax:

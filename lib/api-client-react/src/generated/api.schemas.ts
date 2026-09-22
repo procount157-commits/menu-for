@@ -125,6 +125,17 @@ export const CampaignMessageType = {
   button: 'button',
 } as const;
 
+/**
+ * auto derives the gap from the remaining daily allowance and the time left in the sending window, recomputed per message; manual uses delayMin/delayMax.
+ */
+export type CampaignPacingMode = typeof CampaignPacingMode[keyof typeof CampaignPacingMode];
+
+
+export const CampaignPacingMode = {
+  auto: 'auto',
+  manual: 'manual',
+} as const;
+
 export interface Campaign {
   id: number;
   name: string;
@@ -147,7 +158,9 @@ export interface Campaign {
      * @nullable
      */
   carousel?: string | null;
-  /** Min delay between messages in seconds */
+  /** auto derives the gap from the remaining daily allowance and the time left in the sending window, recomputed per message; manual uses delayMin/delayMax. */
+  pacingMode?: CampaignPacingMode;
+  /** Min delay between messages in seconds (manual pacing only) */
   delayMin: number;
   /** Max delay between messages in seconds */
   delayMax: number;
@@ -175,6 +188,14 @@ export const CampaignInputMessageType = {
   button: 'button',
 } as const;
 
+export type CampaignInputPacingMode = typeof CampaignInputPacingMode[keyof typeof CampaignInputPacingMode];
+
+
+export const CampaignInputPacingMode = {
+  auto: 'auto',
+  manual: 'manual',
+} as const;
+
 export interface CampaignInput {
   /** @minLength 1 */
   name: string;
@@ -187,6 +208,7 @@ export interface CampaignInput {
   buttons?: string;
   /** JSON string of carousel cards */
   carousel?: string;
+  pacingMode?: CampaignInputPacingMode;
   /** @minimum 1 */
   delayMin?: number;
   /** @minimum 1 */
@@ -210,6 +232,14 @@ export const CampaignUpdateMessageType = {
   button: 'button',
 } as const;
 
+export type CampaignUpdatePacingMode = typeof CampaignUpdatePacingMode[keyof typeof CampaignUpdatePacingMode];
+
+
+export const CampaignUpdatePacingMode = {
+  auto: 'auto',
+  manual: 'manual',
+} as const;
+
 export interface CampaignUpdate {
   name?: string;
   message?: string;
@@ -218,6 +248,7 @@ export interface CampaignUpdate {
   buttons?: string;
   carousel?: string;
   companyName?: string;
+  pacingMode?: CampaignUpdatePacingMode;
   delayMin?: number;
   delayMax?: number;
   /** Stop after sending this many messages (optional) */

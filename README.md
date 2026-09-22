@@ -69,6 +69,20 @@ Messages younger than 20 minutes are excluded (a receipt needs time to return)
 and fewer than 25 mature messages is treated as no evidence, so ordinary
 offline recipients cannot trip it.
 
+**Adaptive pacing** (`artifacts/api-server/src/lib/pacing.ts`)
+Campaigns default to `pacingMode: "auto"` and derive the gap before each
+message from three things that all move while the campaign runs: contacts
+still unsent, allowance still unspent today, and time still left in the
+sending window. No fixed delayMin/delayMax pair can track a daily target —
+a campaign that loses an hour to a disconnect needs a different gap than it
+started with.
+
+1500 messages across a 12-hour window works out to a ~19s gap, with the
+loop's own breaks (~4h of them) already subtracted. Never faster than 12s
+however the arithmetic comes out, never slower than 3 minutes, and multiplied
+by the delivery guard's slow factor when it engages. Set `pacingMode` to
+`"manual"` to pin a campaign to delayMin/delayMax instead.
+
 **Sending hours** — default 09:00–21:00 `Asia/Dubai`. Previously a no-op, so
 campaigns ran overnight; a 03:00 marketing message earns blocks and reports far
 out of proportion to its reach. Override with `SENDING_HOUR_START`,
@@ -87,6 +101,7 @@ ceiling), opt-out enforcement, cross-campaign 72h dedup, per-send number check.
 Run the checks:
 
 ```bash
+pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/pacing.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/delivery-health.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/sending-hours.test.ts
 ```

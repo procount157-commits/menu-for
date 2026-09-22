@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CampaignUpdateMessageType } from './campaignUpdateMessageType';
+import type { CampaignUpdatePacingMode } from './campaignUpdatePacingMode';
 
 export interface CampaignUpdate {
   name?: string;
@@ -15,6 +16,7 @@ export interface CampaignUpdate {
   buttons?: string;
   carousel?: string;
   companyName?: string;
+  pacingMode?: CampaignUpdatePacingMode;
   delayMin?: number;
   delayMax?: number;
   /** Stop after sending this many messages (optional) */
