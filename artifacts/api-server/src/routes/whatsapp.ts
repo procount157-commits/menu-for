@@ -146,6 +146,69 @@ router.get("/extract-contacts", async (req, res) => {
   res.json({ phones, count: phones.length });
 });
 
+// ── import-phones: import a caller-supplied set of numbers ───────────────
+// The Conversations page has always posted here, but the route did not exist,
+// so both "import selected" and "import all" returned 404 and the numbers the
+// extractor had found could not be turned into a campaign list at all.
+//
+// Distinct from /import-contacts below, which ignores the request body and
+// imports everything the extractor knows about.
+router.post("/import-phones", async (req, res) => {
+  const userId = req.session.userId!;
+  const { listName, phones } = req.body as { listName?: string; phones?: unknown };
+
+  if (!Array.isArray(phones) || phones.length === 0) {
+    return res.status(400).json({ error: "لم تصل أي أرقام" });
+  }
+  const name = String(listName ?? "").trim();
+  if (!name) return res.status(400).json({ error: "أدخل اسم القائمة" });
+
+  // Normalise and de-duplicate before touching the DB — the same number can
+  // arrive from a conversation and from an incoming message.
+  const unique = [...new Set(
+    phones
+      .map((p) => String(p).replace(/\D/g, ""))
+      .filter((p) => p.length >= 7 && p.length <= 15),
+  )];
+  if (unique.length === 0) {
+    return res.status(400).json({ error: "لا يوجد رقم صالح بين الأرقام المرسلة" });
+  }
+
+  // Names, where WhatsApp gave us one.
+  const nameRows = await db
+    .select({ phone: waContactsTable.phone, name: waContactsTable.name })
+    .from(waContactsTable)
+    .where(eq(waContactsTable.userId, userId));
+  const nameMap = new Map(nameRows.map((r) => [r.phone, r.name]));
+
+  const [group] = await db
+    .insert(contactGroupsTable)
+    .values({ userId, name, description: "مستوردة من محادثات واتساب" })
+    .returning();
+
+  const BATCH = 200;
+  for (let i = 0; i < unique.length; i += BATCH) {
+    await db.insert(contactsTable).values(
+      unique.slice(i, i + BATCH).map((phone) => ({
+        groupId: group!.id,
+        phone,
+        name: nameMap.get(phone) ?? null,
+        status: "active",
+      })),
+    );
+  }
+
+  req.log?.info({ userId, groupId: group!.id, requested: phones.length, imported: unique.length }, "phones imported from conversations");
+
+  res.json({
+    success:   true,
+    groupId:   group!.id,
+    count:     unique.length,
+    duplicates: phones.length - unique.length,
+    listName:  name,
+  });
+});
+
 // ── import-contacts: يقرأ من DB ──────────────────────────────────────────
 router.post("/import-contacts", async (req, res) => {
   const userId = req.session.userId!;

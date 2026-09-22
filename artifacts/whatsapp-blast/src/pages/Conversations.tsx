@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   MessageSquare, Search, CheckSquare, Square,
@@ -30,7 +30,7 @@ interface CombinedEntry {
   name: string | null;
   lastText: string;
   lastAt: number;
-  source: "conversation" | "incoming" | "both";
+  source: "conversation" | "incoming" | "both" | "contact";
 }
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -55,7 +55,13 @@ const SOURCE_LABEL: Record<string, string> = {
   conversation: "محادثة",
   incoming: "رسالة واردة",
   both: "محادثة + وارد",
+  contact: "جهة اتصال",
 };
+
+// Rows are rendered in slices. The full set still drives search, select-all and
+// import — this only limits how much DOM exists at once, because the extractor
+// routinely returns five figures of contacts.
+const PAGE = 300;
 
 export default function Conversations() {
   const [search, setSearch]       = useState("");
@@ -69,7 +75,13 @@ export default function Conversations() {
   const { data: msgData, isLoading: msgLoading, refetch: refetchMsgs } =
     useQuery({ queryKey: ["incoming-messages"], queryFn: () => apiFetch("/api/whatsapp/extractor/messages") });
 
-  const loading = convLoading || msgLoading;
+  // wa_contacts: every number WhatsApp knows about, not just those with a
+  // thread. This is by far the largest source and the page previously ignored it.
+  const { data: contactData, isLoading: contactLoading, refetch: refetchContacts } =
+    useQuery({ queryKey: ["wa-contacts"], queryFn: () => apiFetch("/api/whatsapp/extractor") });
+
+  const loading = convLoading || msgLoading || contactLoading;
+  const [visible, setVisible] = useState(PAGE);
 
   // دمج المحادثات والرسائل الواردة في قائمة موحدة
   const combined = useMemo<CombinedEntry[]>(() => {
@@ -104,8 +116,24 @@ export default function Conversations() {
       }
     }
 
+    for (const k of (contactData?.contacts ?? []) as Array<{ phone: string; name: string | null; lastMessageAt?: number }>) {
+      const existing = map.get(k.phone);
+      if (existing) {
+        // Keep the richer entry; only fill in a name it was missing.
+        if (!existing.name && k.name) map.set(k.phone, { ...existing, name: k.name });
+      } else {
+        map.set(k.phone, {
+          phone: k.phone,
+          name: k.name ?? null,
+          lastText: "",
+          lastAt: k.lastMessageAt ?? 0,
+          source: "contact",
+        });
+      }
+    }
+
     return Array.from(map.values()).sort((a, b) => b.lastAt - a.lastAt);
-  }, [convData, msgData]);
+  }, [convData, msgData, contactData]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return combined;
@@ -114,6 +142,8 @@ export default function Conversations() {
       c.phone.includes(q) || (c.name ?? "").toLowerCase().includes(q) || c.lastText.toLowerCase().includes(q)
     );
   }, [combined, search]);
+
+  useEffect(() => { setVisible(PAGE); }, [search]);
 
   const allSelected  = filtered.length > 0 && filtered.every(c => selected.has(c.phone));
   const someSelected = filtered.some(c => selected.has(c.phone));
@@ -327,7 +357,7 @@ export default function Conversations() {
           </div>
         ) : (
           <div className="divide-y divide-border/40 max-h-[520px] overflow-y-auto">
-            {filtered.map(c => {
+            {filtered.slice(0, visible).map(c => {
               const isSelected = selected.has(c.phone);
               return (
                 <div
@@ -386,6 +416,22 @@ export default function Conversations() {
         )}
 
         {/* Footer count */}
+        {filtered.length > visible && (
+          <div className="px-4 py-3 border-t border-card-border text-center">
+            <button
+              type="button"
+              onClick={() => setVisible((v) => v + PAGE)}
+              className="px-4 py-2 rounded-lg text-sm border border-card-border hover:border-primary/50 transition-colors"
+            >
+              عرض {Math.min(PAGE, filtered.length - visible).toLocaleString()} إضافية
+              <span className="opacity-60"> (ظاهر {visible.toLocaleString()} من {filtered.length.toLocaleString()})</span>
+            </button>
+            <p className="text-[11px] text-muted-foreground mt-2">
+              البحث و«تحديد الكل» والاستيراد تعمل على القائمة كاملة — لا على الظاهر فقط
+            </p>
+          </div>
+        )}
+
         {filtered.length > 0 && (
           <div className="px-4 py-2.5 border-t border-card-border bg-muted/20 flex items-center justify-between">
             <span className="text-xs text-muted-foreground">

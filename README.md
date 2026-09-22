@@ -107,6 +107,35 @@ pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__test
 ```
 
 
+## Sync constraints (important)
+
+Four constraints the code depends on were never declared in the Drizzle
+schemas, so the tables were created without them:
+
+| Table | Constraint | Effect when missing |
+|---|---|---|
+| `wa_conversations` | PK `(user_id, phone)` | every chat silently discarded |
+| `wa_contacts` | PK `(user_id, phone)` | every contact silently discarded |
+| `wa_thread_messages` | unique `(user_id, message_id)` | history duplicated per reconnect |
+| `incoming_messages` | unique `(user_id, message_id)` | duplicates |
+
+The first two are upserted with `ON CONFLICT (user_id, phone)`, which Postgres
+rejects outright without a matching constraint. The sync counters in
+`wa_sync_state` were incremented before the write and the error was swallowed,
+so the app reported thousands of synced chats and contacts while both tables
+stayed empty. Counters now reflect what was actually written.
+
+```bash
+psql "$DATABASE_URL" -f lib/db/migrations/002_sync_constraints.sql
+```
+
+Run this on any database created before the fix — including production. It
+collapses duplicates first, then adds the constraints, and is safe to re-run.
+Existing data that was already dropped does not come back: WhatsApp only
+replays full history on a fresh pairing, so recovering it means re-scanning
+the QR.
+
+
 ## Deploy (standalone — no Replit)
 
 Ports and production commands, previously held in the Replit artifact manifests:

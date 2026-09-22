@@ -436,7 +436,8 @@ class WhatsAppInstance {
 
   private async writeConversationsToDb(entries: Map<string, { name?: string; lastMsgAt: number; lastText?: string }>) {
     if (entries.size === 0) return;
-    this.syncStats.convsFlushedToDb += entries.size;
+    // Counted after the write, not before: these counters previously reported
+    // thousands of synced chats while every insert was being rejected.
     const rows = Array.from(entries.entries())
       .filter(([phone]) => !phone.includes("@"))  // تجاهل @lid / @s.whatsapp.net
       .map(([phone, d]) => ({
@@ -449,6 +450,7 @@ class WhatsAppInstance {
       updatedAt: new Date(),
     }));
     const CHUNK = 500;
+    let written = 0, failed = 0;
     for (let i = 0; i < rows.length; i += CHUNK) {
       await db
         .insert(waConversationsTable)
@@ -463,16 +465,22 @@ class WhatsAppInstance {
             updatedAt: sql`NOW()`,
           },
         })
+        .then(() => { written += rows.slice(i, i + CHUNK).length; })
         .catch((err) => {
-          this.log.error({ err, batchSize: rows.slice(i, i + CHUNK).length }, "CRITICAL: conversations DB write failed — check wa_conversations table exists");
+          failed += rows.slice(i, i + CHUNK).length;
+          this.log.error(
+            { err, batchSize: rows.slice(i, i + CHUNK).length },
+            "CRITICAL: conversations DB write failed — is the (user_id, phone) primary key present? see lib/db/migrations/002_sync_constraints.sql",
+          );
         });
     }
-    this.log.info({ count: rows.length }, "conversations flushed to DB ✓");
+    this.syncStats.convsFlushedToDb += written;
+    if (failed > 0) this.log.error({ written, failed }, "conversations flush INCOMPLETE");
+    else            this.log.info({ count: written }, "conversations flushed to DB ✓");
   }
 
   private async writeContactsToDb(entries: Map<string, { name?: string; lastMessageAt: number; source: "phonebook" | "chat" }>) {
     if (entries.size === 0) return;
-    this.syncStats.contactsFlushedToDb += entries.size;
     const now = Math.floor(Date.now() / 1000);
     const rows = Array.from(entries.entries())
       .filter(([phone]) => !phone.includes("@"))
@@ -484,6 +492,7 @@ class WhatsAppInstance {
         source:        d.source,
       }));
     if (rows.length === 0) return;
+    let written = 0, failed = 0;
     for (let i = 0; i < rows.length; i += 500) {
       const batch = rows.slice(i, i + 500);
       await db
@@ -498,11 +507,18 @@ class WhatsAppInstance {
             updatedAt:     sql`NOW()`,
           },
         })
+        .then(() => { written += batch.length; })
         .catch((err) => {
-          this.log.error({ err, batchSize: batch.length }, "CRITICAL: contacts DB write failed — check wa_contacts table exists");
+          failed += batch.length;
+          this.log.error(
+            { err, batchSize: batch.length },
+            "CRITICAL: contacts DB write failed — is the (user_id, phone) primary key present? see lib/db/migrations/002_sync_constraints.sql",
+          );
         });
     }
-    this.log.info({ count: rows.length }, "contacts flushed to DB ✓");
+    this.syncStats.contactsFlushedToDb += written;
+    if (failed > 0) this.log.error({ written, failed }, "contacts flush INCOMPLETE");
+    else            this.log.info({ count: written }, "contacts flushed to DB ✓");
   }
 
   // المزامنة الفورية — تُكتب كل جهات الاتصال الحالية إلى DB الآن

@@ -1,4 +1,4 @@
-import { pgTable, integer, text, bigint, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, integer, text, bigint, timestamp, primaryKey } from "drizzle-orm/pg-core";
 
 export const waContactsTable = pgTable("wa_contacts", {
   userId:        integer("user_id").notNull(),
@@ -7,4 +7,7 @@ export const waContactsTable = pgTable("wa_contacts", {
   lastMessageAt: bigint("last_message_at", { mode: "number" }).default(0),
   source:        text("source").default("chat"),
   updatedAt:     timestamp("updated_at").defaultNow(),
-});
+}, (t) => [
+  // Required by the ON CONFLICT (user_id, phone) upsert in writeContactsToDb.
+  primaryKey({ columns: [t.userId, t.phone] }),
+]);
