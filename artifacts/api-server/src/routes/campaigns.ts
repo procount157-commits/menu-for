@@ -3,6 +3,7 @@ import { db, campaignsTable, contactGroupsTable, contactsTable, messageLogs, uns
 import { assessDeliveryHealth, assessAccountHealth, MATURITY_MINUTES, MIN_SAMPLE as DELIVERY_MIN_SAMPLE } from "../lib/delivery-health";
 import { computeGap } from "../lib/pacing";
 import { isWithinSendingHours, hourInSendingTz, msLeftInSendingWindow, SENDING_TZ, SENDING_HOUR_START, SENDING_HOUR_END } from "../lib/sending-hours";
+import { getEffectiveDailyLimit, getDailySentCount, DAILY_LIMIT_MAX } from "../lib/daily-limit";
 import { objectExists, objectNameFromUrl } from "../lib/storage";
 import * as XLSX from "xlsx";
 import { eq, desc, count, sql, and, gte, inArray, lt, max, asc } from "drizzle-orm";
@@ -48,39 +49,6 @@ async function withDbRetry<T>(fn: () => Promise<T>, maxAttempts = 5): Promise<T>
     }
   }
   throw new Error("withDbRetry: unreachable");
-}
-
-// ── Daily rate limit — warm-up aware ────────────────────────────
-// New WA numbers start with a low daily limit and grow 30%/day up
-// to the global ceiling.  This prevents instant bans on day 1.
-//   Day 0 →  50 msgs   Day 1 → 65   Day 2 → 85   Day 5 → 185
-//   Day 7 → 310        Day 10 → 680  Day 14 → 1500 (ceiling)
-const DAILY_LIMIT_MAX   = 1_500;
-const WARMUP_DAY0_LIMIT = 50;
-const WARMUP_DAILY_GROW = 1.30; // 30% per day
-
-async function getEffectiveDailyLimit(userId: number): Promise<number> {
-  try {
-    const [firstConn] = await db
-      .select({ createdAt: waSessionEventsTable.createdAt })
-      .from(waSessionEventsTable)
-      .where(and(
-        eq(waSessionEventsTable.userId, userId),
-        eq(waSessionEventsTable.event, "connected"),
-      ))
-      .orderBy(asc(waSessionEventsTable.createdAt))
-      .limit(1);
-
-    if (!firstConn) return WARMUP_DAY0_LIMIT; // never connected yet — very new
-
-    const daysSince = Math.floor(
-      (Date.now() - new Date(firstConn.createdAt).getTime()) / (24 * 60 * 60 * 1_000),
-    );
-    const warmup = Math.round(WARMUP_DAY0_LIMIT * Math.pow(WARMUP_DAILY_GROW, daysSince));
-    return Math.min(DAILY_LIMIT_MAX, warmup);
-  } catch {
-    return DAILY_LIMIT_MAX; // DB error — fall back to global max
-  }
 }
 
 /**
@@ -153,22 +121,6 @@ function arabicSynonymVariation(text: string, seed: number): string {
 // every campaign pausing at exactly the same message count.
 const MICRO_BREAK_EVERY = 12;
 
-
-async function getDailySentCount(userId: number): Promise<number> {
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1_000);
-  const [row] = await db
-    .select({ total: count() })
-    .from(messageLogs)
-    .innerJoin(campaignsTable, eq(messageLogs.campaignId, campaignsTable.id))
-    .where(
-      and(
-        eq(campaignsTable.userId, userId),
-        eq(messageLogs.status, "sent"),
-        gte(messageLogs.sentAt, cutoff),
-      )
-    );
-  return Number(row?.total ?? 0);
-}
 
 // Typed error thrown when WA is disconnected after all retry attempts —
 // campaign loop catches this, keeps status="running", and auto-restarts.

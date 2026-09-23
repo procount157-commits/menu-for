@@ -10,11 +10,12 @@
 import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
 import {
   db, leadSourcesTable, followUpSequencesTable, followUpJobsTable,
-  unsubscribedPhonesTable, incomingMessagesTable,
+  unsubscribedPhonesTable, incomingMessagesTable, contactsTable, contactGroupsTable,
   type FollowUpStep,
 } from "@workspace/db";
 import { logger } from "./logger";
 import { isWithinSendingHours } from "./sending-hours";
+import { getDailyRemaining } from "./daily-limit";
 import { classify, INTENT_LABELS_AR, type Intent } from "./intent";
 import { sendMessage, getStatus, registerInboundHook } from "./whatsapp";
 
@@ -176,6 +177,104 @@ export async function cancelPendingFollowUps(userId: number, phone: string, reas
   return cancelled.length;
 }
 
+// ── Enrolling an imported list ────────────────────────────────────
+// Leads from an ad lead form arrive as a spreadsheet, not as a WhatsApp
+// message, so they never reach handleInbound and would otherwise be the one
+// group of ad leads that never gets followed up.
+//
+// Worth being clear about what this is: these people have not opened a
+// conversation. Whether following up with them is contact they asked for or
+// unsolicited messaging depends entirely on where the list came from, which
+// the file cannot tell us — hence `source` being declared by the caller. The
+// worker's guards (allowance, warm-up, sending hours, opt-out) apply either
+// way, and are what keeps a large import from behaving like a blast.
+
+export interface GroupEnrolResult {
+  total: number; enrolled: number; skippedOptedOut: number; skippedExisting: number;
+  estimatedDays: number;
+}
+
+export async function enrolGroup(
+  userId: number,
+  sequenceId: number,
+  groupId: number,
+  source: "ad" | "organic" = "ad",
+): Promise<GroupEnrolResult> {
+  const [seq] = await db.select().from(followUpSequencesTable)
+    .where(and(eq(followUpSequencesTable.id, sequenceId), eq(followUpSequencesTable.userId, userId)));
+  if (!seq) throw new Error("SEQUENCE_NOT_FOUND: التسلسل غير موجود");
+  if (!seq.isActive) throw new Error("SEQUENCE_INACTIVE: فعّل التسلسل أولاً");
+
+  const [group] = await db.select().from(contactGroupsTable)
+    .where(and(eq(contactGroupsTable.id, groupId), eq(contactGroupsTable.userId, userId)));
+  if (!group) throw new Error("GROUP_NOT_FOUND: القائمة غير موجودة");
+
+  const contacts = await db.select({ phone: contactsTable.phone })
+    .from(contactsTable)
+    .where(and(eq(contactsTable.groupId, groupId), eq(contactsTable.status, "active")));
+
+  const optedOut = new Set(
+    (await db.select({ phone: unsubscribedPhonesTable.phone })
+      .from(unsubscribedPhonesTable)
+      .where(eq(unsubscribedPhonesTable.userId, userId))).map((r) => r.phone),
+  );
+
+  const phones = [...new Set(contacts.map((c) => c.phone))].filter((p) => !optedOut.has(p));
+  const skippedOptedOut = contacts.length - phones.length;
+
+  const steps = (seq.steps as FollowUpStep[]) ?? [];
+  if (phones.length === 0 || steps.length === 0) {
+    return { total: contacts.length, enrolled: 0, skippedOptedOut, skippedExisting: 0, estimatedDays: 0 };
+  }
+
+  // Record where they came from, so reporting can tell an imported ad lead
+  // from someone who messaged in.
+  for (let i = 0; i < phones.length; i += 500) {
+    await db.insert(leadSourcesTable)
+      .values(phones.slice(i, i + 500).map((phone) => ({ userId, phone, source })))
+      .onConflictDoNothing();
+  }
+
+  // Spread the base time across an hour so a large import does not produce one
+  // instant where every step-0 falls due together.
+  const now = Date.now();
+  const spreadMs = Math.min(60 * 60_000, phones.length * 5_000);
+
+  let enrolled = 0;
+  for (let i = 0; i < phones.length; i += 500) {
+    const batch = phones.slice(i, i + 500);
+    const rows = batch.flatMap((phone, k) => {
+      const offset = ((i + k) / phones.length) * spreadMs;
+      return steps.map((step, stepIndex) => ({
+        userId, sequenceId, phone, stepIndex,
+        dueAt: new Date(now + offset + step.offsetMinutes * 60_000),
+      }));
+    });
+    const done = await db.insert(followUpJobsTable).values(rows)
+      .onConflictDoNothing()
+      .returning({ id: followUpJobsTable.id });
+    enrolled += done.length;
+  }
+
+  const skippedExisting = phones.length * steps.length - enrolled;
+  const remaining = await getDailyRemaining(userId);
+  const perDay = Math.max(1, remaining || 1);
+
+  logger.info(
+    { userId, sequenceId, groupId, total: contacts.length, enrolled, skippedOptedOut, source },
+    "contact group enrolled in follow-up",
+  );
+
+  return {
+    total: contacts.length,
+    enrolled: Math.round(enrolled / steps.length),   // leads, not individual messages
+    skippedOptedOut,
+    skippedExisting: Math.round(skippedExisting / steps.length),
+    // Rough: the allowance is shared with campaigns, so this is a ceiling.
+    estimatedDays: Math.ceil(phones.length / perDay),
+  };
+}
+
 // ── Inbound handling ──────────────────────────────────────────────
 
 /**
@@ -295,11 +394,23 @@ export async function runDueFollowUps(now = new Date()): Promise<{ sent: number;
 
   const fresh = due.filter((j) => !stale.includes(j));
   const perUser = new Map<number, number>();
+  // Cached per tick: the allowance is shared with campaigns, so it has to be
+  // read rather than assumed, but re-reading it per job would be wasteful.
+  const remainingByUser = new Map<number, number>();
 
   for (const job of fresh) {
     const used = perUser.get(job.userId) ?? 0;
     if (used >= MAX_PER_TICK_PER_USER) continue;   // next tick
     if (!getStatus(job.userId).connected) continue; // stays pending
+
+    // Follow-ups come off the same number as campaigns and count toward the
+    // same warm-up ramp and daily ceiling. Without this a sequence enrolled
+    // with an imported list would push hundreds a day straight past both.
+    if (!remainingByUser.has(job.userId)) {
+      remainingByUser.set(job.userId, await getDailyRemaining(job.userId));
+    }
+    const left = remainingByUser.get(job.userId)!;
+    if (left <= 0) continue;                        // stays pending for tomorrow
 
     // Opt-out wins over any schedule.
     const [optedOut] = await db.select({ phone: unsubscribedPhonesTable.phone })
@@ -333,6 +444,7 @@ export async function runDueFollowUps(now = new Date()): Promise<{ sent: number;
         .where(eq(followUpJobsTable.id, job.id));
       result.sent++;
       perUser.set(job.userId, used + 1);
+      remainingByUser.set(job.userId, left - 1);
       logger.info({ userId: job.userId, phone: job.phone, step: job.stepIndex, sequenceId: seq.id }, "follow-up sent");
     } catch (err: any) {
       await db.update(followUpJobsTable)

@@ -138,6 +138,7 @@ pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__test
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/account-health.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/follow-up.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/intent.test.ts
+pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/enrol-group.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/sending-hours.test.ts
 ```
 
@@ -169,9 +170,28 @@ the referral data is coming through.
 | `GET/POST /api/follow-ups/sequences` | list / create (no `steps` → the default cadence) |
 | `PATCH/DELETE /api/follow-ups/sequences/:id` | edit, activate, remove |
 | `POST /api/follow-ups/sequences/:id/enrol` | enrol a number by hand — how to try a sequence before any ad exists |
+| `POST /api/follow-ups/sequences/:id/enrol-group` | enrol a whole contact list (an ad lead-form export) |
 | `POST /api/follow-ups/cancel` | drop a lead's remaining steps |
 | `GET /api/follow-ups/leads` | detected leads and their source |
 | `GET /api/follow-ups/jobs` | what is scheduled, sent, cancelled |
+
+**Lead-form leads arrive as a spreadsheet.** Someone who fills in a Meta lead
+form never messages on WhatsApp, so they never reach the inbound path and were
+the one kind of ad lead getting no follow-up at all. `enrol-group` takes a
+contact list and schedules the sequence for everyone in it, skipping opted-out
+numbers and anyone already enrolled, with due times spread over up to an hour
+so a large import does not land as one instant.
+
+A spreadsheet cannot say whether its numbers asked to be contacted, so
+`source` is declared by the caller and the worker's guards do the rest.
+
+**Follow-ups share the daily allowance with campaigns.** One number, one
+budget: `lib/daily-limit.ts` counts campaign sends and follow-up sends
+together against the same warm-up ramp and 1500 ceiling. This mattered the
+moment lists could be enrolled — the worker would otherwise have pushed 300 an
+hour straight past a ramp campaigns were carefully respecting, and campaigns
+would not have seen those sends either. Enrolment reports how many days a list
+will take at the current allowance rather than implying it goes out at once.
 
 The worker ticks every minute and is deliberately cautious: it sends nothing
 outside sending hours (a 3am follow-up becomes a 9am one rather than being

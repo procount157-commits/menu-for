@@ -10,7 +10,7 @@ import {
   DEFAULT_FOLLOW_UP_OFFSETS, type FollowUpStep,
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
-import { enrolLead, cancelPendingFollowUps } from "../lib/follow-up-engine";
+import { enrolLead, enrolGroup, cancelPendingFollowUps } from "../lib/follow-up-engine";
 import { classify, classifyIntent, INTENT_LABELS_AR, type Intent } from "../lib/intent";
 import { logger } from "../lib/logger";
 
@@ -159,6 +159,40 @@ router.post("/sequences/:id/enrol", async (req, res) => {
   const scheduled = await enrolLead(userId, phone, seq.sourceFilter === "all" ? "organic" : "ad");
   logger.info({ userId, phone, sequenceId: id, scheduled }, "manual follow-up enrolment");
   res.json({ success: true, scheduled });
+});
+
+/**
+ * Enrol a whole contact list — an ad lead-form export, or any imported sheet.
+ *
+ * Leads from a Meta lead form arrive as a spreadsheet rather than a WhatsApp
+ * message, so they never pass through the inbound path and were the one kind
+ * of ad lead that got no follow-up at all.
+ *
+ * `source` is declared by the caller because a spreadsheet cannot say whether
+ * its numbers asked to be contacted. The worker's guards apply regardless.
+ */
+router.post("/sequences/:id/enrol-group", async (req, res) => {
+  const userId = req.session.userId!;
+  const id = parseInt(req.params.id!);
+  const groupId = parseInt(String(req.body?.groupId ?? ""));
+  const source = req.body?.source === "organic" ? "organic" : "ad";
+
+  if (!Number.isFinite(groupId)) return res.status(400).json({ error: "groupId مطلوب" });
+
+  try {
+    const r = await enrolGroup(userId, id, groupId, source);
+    res.json({
+      success: true,
+      ...r,
+      note: r.estimatedDays > 1
+        ? `سيستغرق ${r.estimatedDays} يوماً تقريباً — المتابعات تشارك الحصة اليومية مع الحملات وتحترم التدرّج`
+        : null,
+    });
+  } catch (err: any) {
+    const msg = String(err?.message ?? err);
+    const code = /NOT_FOUND/.test(msg) ? 404 : /INACTIVE/.test(msg) ? 400 : 500;
+    res.status(code).json({ error: msg.replace(/^[A-Z_]+:\s*/, "") });
+  }
 });
 
 router.post("/cancel", async (req, res) => {
