@@ -18,3 +18,7 @@ ALTER TABLE follow_up_sequences
   ADD COLUMN IF NOT EXISTS use_ai BOOLEAN NOT NULL DEFAULT false;
 
 CREATE INDEX IF NOT EXISTS idx_lead_sources_intent ON lead_sources (user_id, last_intent);
+
+-- The fixed sequence follows up with WhatsApp leads generally, not only ad
+-- clicks; sourceFilter='ad' remains available to narrow it back.
+ALTER TABLE follow_up_sequences ALTER COLUMN source_filter SET DEFAULT 'all';

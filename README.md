@@ -149,6 +149,9 @@ Follows up with a lead on a cadence after first contact — by default 1h, 6h,
 sequence that keeps firing at someone who already answered is not a follow-up,
 so `stopOnReply` defaults on and cancellation is re-checked at send time.
 
+Sequences cover everyone who messages on WhatsApp by default
+(`sourceFilter: "all"`). Set it to `"ad"` to follow up only with ad traffic.
+
 **Ad leads identify themselves.** A click-to-WhatsApp ad stamps the first
 incoming message with referral data (`contextInfo.externalAdReply` plus
 `entryPointConversionSource`), so `sourceFilter: "ad"` needs no manual tagging.
@@ -184,8 +187,11 @@ psql "$DATABASE_URL" -f lib/db/migrations/003_follow_ups.sql
 
 ## Reply intent
 
-Every reply is classified, and the sequence reacts to it instead of continuing
-regardless. Intents: `opt_out`, `complaint`, `not_interested`, `interested`,
+Every inbound message is classified — the opening one included. First contact
+used to enrol and return without reading what was said, which skipped the most
+informative message a lead ever sends: "ابغى اطلب" straight off an ad click, or
+"كم السعر". An opening refusal, complaint or stop request is recorded but is
+not enrolled in a seven-step sequence. Intents: `opt_out`, `complaint`, `not_interested`, `interested`,
 `question`, `greeting`, `unclear`.
 
 By default a greeting or an unreadable message keeps the follow-ups running —

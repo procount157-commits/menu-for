@@ -70,7 +70,7 @@ router.get("/sequences", async (req, res) => {
 /** Create a sequence. With no steps supplied, uses the 1h→6h→12h→1d→3d→1w→1mo cadence. */
 router.post("/sequences", async (req, res) => {
   const userId = req.session.userId!;
-  const { name, steps, sourceFilter = "ad", stopOnReply = true, isActive = false,
+  const { name, steps, sourceFilter = "all", stopOnReply = true, isActive = false,
           continueOnIntents, useAi = false } = req.body ?? {};
 
   if (!String(name ?? "").trim()) return res.status(400).json({ error: "اسم التسلسل مطلوب" });

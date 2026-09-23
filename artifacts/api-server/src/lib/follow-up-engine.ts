@@ -196,19 +196,15 @@ export async function handleInbound(ev: { userId: number; phone: string; text: s
   const { userId, phone, text } = ev;
   const ref = extractReferral(ev.message);
   const source = await recordLead(userId, phone, ref);
+  const first = await isFirstContact(userId, phone);
 
-  if (await isFirstContact(userId, phone)) {
-    await enrolLead(userId, phone, source);
-    return;
-  }
-
-  // ── They answered ─────────────────────────────────────────────
-  // Whether that ends the sequence depends on what they said. A bare "مرحبا"
-  // is not engagement and the follow-ups should carry on; anything with real
-  // content means a person should take over, so the queue is dropped.
   const sequences = await db.select().from(followUpSequencesTable)
     .where(and(eq(followUpSequencesTable.userId, userId), eq(followUpSequencesTable.isActive, true)));
 
+  // ── Classify every message, first contact included ────────────
+  // The opening message is usually the most informative one — "ابغى اطلب"
+  // straight off an ad click, or "كم السعر" — and it used to be the one
+  // message that was never read, because first contact enrolled and returned.
   const useAi = sequences.some((s) => s.useAi);
   const verdict = await classify(text, useAi);
 
@@ -222,19 +218,34 @@ export async function handleInbound(ev: { userId: number; phone: string; text: s
     .where(and(eq(leadSourcesTable.userId, userId), eq(leadSourcesTable.phone, phone)));
 
   logger.info(
-    { userId, phone, intent: verdict.intent, confidence: verdict.confidence, via: verdict.source, matched: verdict.matched },
-    "reply classified",
+    { userId, phone, first, intent: verdict.intent, confidence: verdict.confidence, via: verdict.source, matched: verdict.matched },
+    first ? "first message classified" : "reply classified",
   );
 
-  // An explicit stop is honoured here as well as in the opt-out handler, so a
-  // sequence cannot outlive the request through a path that missed it.
+  // An explicit stop is honoured before anything else, on any message.
   if (verdict.intent === "opt_out") {
     await db.insert(unsubscribedPhonesTable)
-      .values({ userId, phone, reason: "طلب الإيقاف في رد على متابعة" })
+      .values({ userId, phone, reason: "طلب الإيقاف" })
       .onConflictDoNothing();
     await cancelPendingFollowUps(userId, phone, "طلب الإيقاف");
     return;
   }
+
+  if (first) {
+    // Someone whose opening line is a refusal or a complaint should not be
+    // enrolled in a seven-step sequence at all.
+    if (verdict.intent === "not_interested" || verdict.intent === "complaint") {
+      logger.info({ userId, phone, intent: verdict.intent }, "not enrolling — opening message is not a lead");
+      return;
+    }
+    await enrolLead(userId, phone, source);
+    return;
+  }
+
+  // ── They answered ─────────────────────────────────────────────
+  // Whether that ends the sequence depends on what they said. A bare "مرحبا"
+  // is not engagement and the follow-ups should carry on; anything with real
+  // content means a person should take over, so the queue is dropped.
 
   // Per-sequence, because two sequences may disagree about what counts.
   for (const seq of sequences) {

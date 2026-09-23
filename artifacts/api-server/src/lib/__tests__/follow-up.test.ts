@@ -151,6 +151,56 @@ check("  and adds them to the opt-out list", !!unsub);
 await db.delete(incomingMessagesTable).where(eq(incomingMessagesTable.userId, USER));
 await db.delete(unsubscribedPhonesTable).where(eq(unsubscribedPhonesTable.userId, USER));
 
+// ── Every message is classified, first contact included ─────────
+async function firstMessage(phone: string, text: string) {
+  await db.insert(incomingMessagesTable).values(
+    { userId: USER, phone, messageId: `f-${phone}-${Date.now()}`, text });
+  await handleInbound({ userId: USER, phone, text, message: { message: { conversation: text } } });
+}
+async function intentOf(phone: string) {
+  const [r] = await db.select().from(leadSourcesTable)
+    .where(and(eq(leadSourcesTable.userId, USER), eq(leadSourcesTable.phone, phone)));
+  return r?.lastIntent ?? null;
+}
+
+// A sequence covering WhatsApp leads generally, not only ad clicks.
+const [openSeq] = await db.insert(followUpSequencesTable).values({
+  userId: USER, name: "كل عملاء واتساب", isActive: true, sourceFilter: "all",
+  steps: DEFAULT_FOLLOW_UP_OFFSETS.map((offsetMinutes) => ({ offsetMinutes, message: `م ${offsetMinutes}` })) as any,
+}).returning();
+await db.update(followUpSequencesTable).set({ isActive: false }).where(eq(followUpSequencesTable.id, seq!.id));
+
+// The opening message used to be the one message never read.
+const P_F1 = "971500000555";
+await firstMessage(P_F1, "كم سعر التوصيل للشارقة");
+check("first message IS classified", (await intentOf(P_F1)) === "question", `intent=${await intentOf(P_F1)}`);
+check("  and an organic lead is enrolled by an all-sources sequence", (await pendingFor(P_F1)) === DEFAULT_FOLLOW_UP_OFFSETS.length, `${await pendingFor(P_F1)} pending`);
+
+// Opening with a refusal must not start a seven-step sequence.
+const P_F2 = "971500000666";
+await firstMessage(P_F2, "لا شكرا مو مهتم");
+check("opening refusal is not enrolled", (await pendingFor(P_F2)) === 0);
+check("  but is still recorded", (await intentOf(P_F2)) === "not_interested");
+
+// Nor should a complaint.
+const P_F3 = "971500000777";
+await firstMessage(P_F3, "عندي مشكله الطلب وصل تالف");
+check("opening complaint is not enrolled", (await pendingFor(P_F3)) === 0);
+check("  but is still recorded", (await intentOf(P_F3)) === "complaint");
+
+// A stop request on the very first message.
+const P_F4 = "971500000888";
+await firstMessage(P_F4, "ايقاف");
+check("opening stop request is not enrolled", (await pendingFor(P_F4)) === 0);
+const [u2] = await db.select().from(unsubscribedPhonesTable)
+  .where(and(eq(unsubscribedPhonesTable.userId, USER), eq(unsubscribedPhonesTable.phone, P_F4)));
+check("  and unsubscribes immediately", !!u2);
+
+await db.delete(followUpSequencesTable).where(eq(followUpSequencesTable.id, openSeq!.id));
+await db.delete(incomingMessagesTable).where(eq(incomingMessagesTable.userId, USER));
+await db.delete(unsubscribedPhonesTable).where(eq(unsubscribedPhonesTable.userId, USER));
+await db.update(followUpSequencesTable).set({ isActive: true }).where(eq(followUpSequencesTable.id, seq!.id));
+
 // An inactive sequence enrols nobody.
 await db.update(followUpSequencesTable).set({ isActive: false }).where(eq(followUpSequencesTable.id, seq!.id));
 check("inactive sequence enrols nobody", (await enrolLead(USER, "971500000999", "ad")) === 0);

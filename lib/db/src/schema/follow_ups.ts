@@ -37,7 +37,7 @@ export const followUpSequencesTable = pgTable("follow_up_sequences", {
   name:         varchar("name", { length: 255 }).notNull(),
   isActive:     boolean("is_active").notNull().default(false),
   // Which leads it enrols: "ad" for ad traffic only, "all" to include organic.
-  sourceFilter: varchar("source_filter", { length: 20 }).notNull().default("ad"),
+  sourceFilter: varchar("source_filter", { length: 20 }).notNull().default("all"),
   steps:        jsonb("steps").notNull(),
   // Someone who answers should stop receiving the rest of the sequence. This
   // is what separates a follow-up from a drip of unwanted messages.
