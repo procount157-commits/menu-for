@@ -19,14 +19,19 @@ const MICRO_BREAK_AVG_MS =  60_000; // randomDelay(30s, 90s)
 // sprinting — the daily cap would stop it anyway, and sprinting is what gets
 // numbers flagged.
 export const MIN_GAP_MS = 12_000;
-// And never crawl: past this, a tiny remaining list would idle for hours.
-export const MAX_GAP_MS = 180_000;
+// Ceiling on the gap. This exists for the warm-up case below, where a small
+// daily allowance spread over a whole day would otherwise imply gaps of many
+// minutes. It is NOT a target: a short list finishes early rather than being
+// stretched to fill the window.
+export const MAX_GAP_MS = 60_000;
 
 export interface PacingInput {
   /** Contacts still unsent in this campaign. */
   remainingContacts: number;
   /** Today's allowance not yet spent (warm-up aware), across all campaigns. */
   dailyRemaining: number;
+  /** Today's full allowance, warm-up aware. Sets the unhurried pace. */
+  dailyLimit: number;
   /** Milliseconds until the sending window closes. */
   windowMsLeft: number;
   /** Multiplier from the delivery guard — 1 when healthy. */
@@ -81,8 +86,24 @@ export function computeGap(input: PacingInput): PacingResult {
     return { gapMs: MIN_GAP_MS * slowFactor, target, breakMs, windowTooShort: true };
   }
 
-  const raw = usableMs / target;
-  const windowTooShort = raw < MIN_GAP_MS;
+  // Two candidate paces, and we take the smaller.
+  //
+  //   spreadGap  — what finishing the remaining work inside the window needs.
+  //   unhurried  — what a FULL day's allowance would need. This is the slowest
+  //                pace that is ever useful.
+  //
+  // Taking the minimum is the whole correction: the daily allowance is a cap,
+  // not a quota to be spread out. A 24-contact campaign with hours left used to
+  // take the spread pace, hit the ceiling and send one message every three
+  // minutes. It should simply finish in ten minutes and stop.
+  const spreadGap = usableMs / target;
+
+  const fullLoad    = Math.max(1, input.dailyLimit);
+  const usableFull  = Math.max(1, input.windowMsLeft - estimateBreakMs(fullLoad));
+  const unhurried   = usableFull / fullLoad;
+
+  const raw = Math.min(spreadGap, unhurried);
+  const windowTooShort = spreadGap < MIN_GAP_MS;
   const gapMs = Math.min(MAX_GAP_MS, Math.max(MIN_GAP_MS, raw)) * slowFactor;
 
   return { gapMs: Math.round(gapMs), target, breakMs, windowTooShort };

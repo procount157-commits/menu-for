@@ -83,6 +83,23 @@ however the arithmetic comes out, never slower than 3 minutes, and multiplied
 by the delivery guard's slow factor when it engages. Set `pacingMode` to
 `"manual"` to pin a campaign to delayMin/delayMax instead.
 
+**Canary batch** — a campaign over 100 contacts sends 30, holds until those
+receipts mature, and only then releases the rest. Without it the delivery guard
+is blind for its first ~20 minutes, which at a 19s pace is another ~60 messages
+sent before anything can be judged. Small lists skip the hold entirely.
+
+**Account-wide circuit breaker** — WhatsApp bans a number, not a campaign. Two
+campaigns at 73% and 27% delivery each look survivable alone; together they are
+50% and the number is in trouble. Every 60 sends the aggregate across all of the
+account's campaigns in the last 6 hours is checked, and a collapse stops all of
+them, not just the current one.
+
+**Known contacts first** — recipients who already have a thread in
+`wa_conversations` are ordered to the front of the queue. They are very unlikely
+to block or report, the non-contact ratio is part of what enforcement keys on,
+and if a guard stops the campaign early the budget was spent on the safest
+recipients rather than at random.
+
 **Sending hours** — default 09:00–21:00 `Asia/Dubai`. Previously a no-op, so
 campaigns ran overnight; a 03:00 marketing message earns blocks and reports far
 out of proportion to its reach. Override with `SENDING_HOUR_START`,
@@ -98,12 +115,27 @@ non-active contacts — previously only resume did.
 Already present and unchanged: warm-up ramp (50/day on day 0, +30%/day, 1500
 ceiling), opt-out enforcement, cross-campaign 72h dedup, per-send number check.
 
+## Campaign reports
+
+`GET /api/campaigns/:id/report` returns the funnel — attempted, sent, failed,
+delivered, read, and how many are still awaiting a receipt — with delivery and
+read rates, timing (duration, average gap, messages/hour) and failures grouped
+by cause. `GET /api/campaigns/:id/report/export` is the same as an Excel file
+with a summary sheet and a per-recipient sheet, reachable from the campaign
+page. Every figure comes from `message_logs` rather than the counter columns on
+the campaign row, which drift when a receipt lands during a restart.
+
+Note `readOfDelivered` alongside `readRate`: the first is engagement among
+people who actually received the message, the second is diluted by undelivered
+mail.
+
 Run the checks:
 
 ```bash
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/storage.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/pacing.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/delivery-health.test.ts
+pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/account-health.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/sending-hours.test.ts
 ```
 

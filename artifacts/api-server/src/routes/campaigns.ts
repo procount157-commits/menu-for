@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { db, campaignsTable, contactGroupsTable, contactsTable, messageLogs, unsubscribedPhonesTable, waSessionEventsTable, campaignButtonResponsesTable } from "@workspace/db";
-import { assessDeliveryHealth, MIN_SAMPLE as DELIVERY_MIN_SAMPLE } from "../lib/delivery-health";
+import { assessDeliveryHealth, assessAccountHealth, MATURITY_MINUTES, MIN_SAMPLE as DELIVERY_MIN_SAMPLE } from "../lib/delivery-health";
 import { computeGap } from "../lib/pacing";
 import { objectExists, objectNameFromUrl } from "../lib/storage";
+import * as XLSX from "xlsx";
 import { eq, desc, count, sql, and, gte, inArray, lt, max, asc } from "drizzle-orm";
 import { sendMessage, getStatus, waitForConnection, registerOnConnectHook, initWhatsApp } from "../lib/whatsapp";
 import { requireAuth } from "../lib/auth";
@@ -305,6 +306,21 @@ const FAILURE_THRESHOLD = 0.40; // 40% failure rate triggers auto-pause
 // throttled number keeps reporting successful sends while nothing arrives,
 // so delivery receipts are checked separately, every N sends.
 const DELIVERY_CHECK_EVERY = 25;
+
+// ── Canary ────────────────────────────────────────────────────────
+// The delivery guard cannot see anything until receipts mature, which at a 19s
+// pace is another ~60 messages sent blind. On a large list that is most of a
+// bad outcome already spent. So a big campaign sends a small batch, waits for
+// those receipts, and only then releases the rest.
+//
+// Small lists skip this entirely — a 30-message campaign is its own canary,
+// and a 20-minute hold on it would be pure annoyance.
+const CANARY_MIN_LIST = 100;
+const CANARY_SIZE     = 30;
+
+// How often the account-wide check runs. Less frequent than the per-campaign
+// one because it is a heavier query and a slower-moving signal.
+const ACCOUNT_CHECK_EVERY = 60;
 // When delivery sags but has not collapsed, stretch the gaps instead of
 // stopping — backing off is usually enough to recover.
 const DELIVERY_SLOW_FACTOR = 2.5;
@@ -317,6 +333,7 @@ type CampaignInfo = {
   startedAt:             number;   // Date.now() ms
   recentOutcomes:        ("sent" | "failed")[];  // rolling window for quality monitoring
   deliverySlowMode?:     boolean;  // set by the delivery guard — widens every gap
+  canaryCleared?:        boolean;  // canary batch assessed and released
   skipDailyDedup?:       boolean;  // bypass cross-campaign daily dedup (used by send-remaining)
 };
 const activeCampaigns = new Map<string, CampaignInfo>();
@@ -787,8 +804,23 @@ router.post("/:id/start", async (req, res) => {
   // status != "active" means the number failed WhatsApp validation — sending to
   // it burns a slot from the daily allowance and feeds the failure rate. The
   // resume path already filtered these; start, send-remaining and retry did not.
+  // Recipients who already have a thread with this number go first.
+  //
+  // Two reasons, both about the ban signal rather than about them: someone who
+  // has messaged you before is very unlikely to block or report, and the ratio
+  // of messages to non-contacts is one of the things enforcement actually keys
+  // on. Opening a campaign on known contacts builds positive engagement before
+  // it reaches cold numbers — and if a guard stops the campaign early, the
+  // budget was spent on the safest recipients rather than at random.
   const contacts = await db.select().from(contactsTable)
-    .where(and(eq(contactsTable.groupId, campaign.contactGroupId), eq(contactsTable.status, "active")));
+    .where(and(eq(contactsTable.groupId, campaign.contactGroupId), eq(contactsTable.status, "active")))
+    .orderBy(
+      sql`(exists (
+        select 1 from wa_conversations wc
+        where wc.user_id = ${userId} and wc.phone = ${contactsTable.phone}
+      )) desc`,
+      contactsTable.id,
+    );
   if (!contacts.length) return res.status(400).json({ error: "لا توجد أرقام صالحة في القائمة" });
 
   // ── Media file validation ─────────────────────────────────────────
@@ -1017,8 +1049,10 @@ router.get("/:id/stats", async (req, res) => {
   // records eliminates all counter-drift issues permanently.
   const [realCounts] = await db
     .select({
-      realSentCount:   sql<number>`count(*) filter (where ${messageLogs.status} = 'sent')`,
-      realFailedCount: sql<number>`count(*) filter (where ${messageLogs.status} = 'failed')`,
+      realSentCount:      sql<number>`count(*) filter (where ${messageLogs.status} = 'sent')`,
+      realFailedCount:    sql<number>`count(*) filter (where ${messageLogs.status} = 'failed')`,
+      realDeliveredCount: sql<number>`count(${messageLogs.deliveredAt})`,
+      realReadCount:      sql<number>`count(${messageLogs.readAt})`,
     })
     .from(messageLogs)
     .where(eq(messageLogs.campaignId, id));
@@ -1039,21 +1073,189 @@ router.get("/:id/stats", async (req, res) => {
     } catch { /* non-critical — proceed with real counts */ }
   }
 
+  // Counted from the logs for the same reason sent/failed are: the columns on
+  // the campaign row drift whenever a receipt lands during a restart.
+  const actualDelivered = Number(realCounts?.realDeliveredCount ?? campaign.deliveredCount);
+  const actualRead      = Number(realCounts?.realReadCount      ?? campaign.readCount);
+
   const recentLogs = await db.select().from(messageLogs).where(eq(messageLogs.campaignId, id)).orderBy(desc(messageLogs.createdAt)).limit(50);
-  const successRate  = campaign.totalCount > 0 ? Math.round((actualSent   / campaign.totalCount) * 100) : 0;
-  const deliveryRate = actualSent > 0          ? Math.round((campaign.deliveredCount / actualSent)  * 100) : 0;
-  const readRate     = actualSent > 0          ? Math.round((campaign.readCount      / actualSent)  * 100) : 0;
+  const successRate  = campaign.totalCount > 0 ? Math.round((actualSent      / campaign.totalCount) * 100) : 0;
+  const deliveryRate = actualSent > 0          ? Math.round((actualDelivered / actualSent)  * 100) : 0;
+  const readRate     = actualSent > 0          ? Math.round((actualRead      / actualSent)  * 100) : 0;
 
   res.json({
     id: campaign.id, name: campaign.name, status: campaign.status,
     sentCount: actualSent, failedCount: actualFailed, totalCount: campaign.totalCount,
-    deliveredCount: campaign.deliveredCount, readCount: campaign.readCount,
+    deliveredCount: actualDelivered, readCount: actualRead,
     successRate, deliveryRate, readRate,
     recentLogs: recentLogs.map((l) => ({
       id: l.id, phone: l.phone, status: l.status, error: l.error, sentAt: l.sentAt,
       deliveredAt: l.deliveredAt, readAt: l.readAt,
     })),
   });
+});
+
+// ── Campaign report ───────────────────────────────────────────────
+// The funnel a campaign is actually judged on: how many were attempted, how
+// many WhatsApp accepted, how many reached a device, how many were opened.
+// Every figure is derived from message_logs rather than the counter columns,
+// which drift when a receipt lands during a restart.
+
+/** Collapse an error string to the code it starts with, for grouping. */
+function failureReason(err: string | null): string {
+  if (!err) return "غير محدد";
+  const code = /^([A-Z_]{4,})/.exec(err.trim())?.[1];
+  const LABELS: Record<string, string> = {
+    NOT_ON_WHATSAPP:  "الرقم غير مسجل على واتساب",
+    MEDIA_NOT_FOUND:  "ملف الوسائط مفقود",
+    MEDIA_CONFIG_ERR: "إعدادات التخزين غير صحيحة",
+    SEND_TIMEOUT:     "انتهت مهلة الإرسال",
+    WA_DISCONNECTED:  "انقطع اتصال واتساب",
+  };
+  if (code && LABELS[code]) return LABELS[code];
+  if (code) return code;
+  return err.slice(0, 60);
+}
+
+async function buildReport(userId: number, id: number) {
+  const [campaign] = await db
+    .select()
+    .from(campaignsTable)
+    .where(and(eq(campaignsTable.id, id), eq(campaignsTable.userId, userId)));
+  if (!campaign) return null;
+
+  const logs = await db
+    .select()
+    .from(messageLogs)
+    .where(eq(messageLogs.campaignId, id))
+    .orderBy(messageLogs.createdAt);
+
+  const sent      = logs.filter((l) => l.status === "sent");
+  const failed    = logs.filter((l) => l.status === "failed");
+  const delivered = sent.filter((l) => l.deliveredAt);
+  const read      = sent.filter((l) => l.readAt);
+
+  const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
+
+  // Timing, from the first to the last accepted send.
+  const stamps = sent.map((l) => new Date(l.sentAt ?? l.createdAt).getTime()).sort((a, b) => a - b);
+  const firstAt = stamps[0] ?? null;
+  const lastAt  = stamps[stamps.length - 1] ?? null;
+  const spanMs  = firstAt && lastAt ? lastAt - firstAt : 0;
+
+  const byReason = new Map<string, number>();
+  for (const f of failed) {
+    const r = failureReason(f.error);
+    byReason.set(r, (byReason.get(r) ?? 0) + 1);
+  }
+
+  return {
+    campaign,
+    logs,
+    report: {
+      campaign: {
+        id: campaign.id, name: campaign.name, status: campaign.status,
+        messageType: campaign.messageType, createdAt: campaign.createdAt,
+        pacingMode: campaign.pacingMode,
+      },
+      funnel: {
+        total:     campaign.totalCount,
+        attempted: logs.length,
+        sent:      sent.length,
+        failed:    failed.length,
+        delivered: delivered.length,
+        read:      read.length,
+        // Accepted by WhatsApp but no delivery receipt yet: either still in
+        // flight, or the recipient's device has not come online.
+        awaitingDelivery: sent.length - delivered.length,
+      },
+      rates: {
+        successRate:      pct(sent.length, logs.length),
+        failureRate:      pct(failed.length, logs.length),
+        deliveryRate:     pct(delivered.length, sent.length),
+        readRate:         pct(read.length, sent.length),
+        // Of the messages that actually arrived, how many were opened. This is
+        // the engagement number; readRate above is diluted by undelivered mail.
+        readOfDelivered:  pct(read.length, delivered.length),
+      },
+      timing: {
+        firstSentAt: firstAt ? new Date(firstAt).toISOString() : null,
+        lastSentAt:  lastAt  ? new Date(lastAt).toISOString()  : null,
+        durationMinutes: spanMs ? Math.round(spanMs / 60_000) : 0,
+        avgGapSeconds:   sent.length > 1 ? Math.round(spanMs / (sent.length - 1) / 1000) : 0,
+        messagesPerHour: spanMs > 0 ? Math.round((sent.length / spanMs) * 3_600_000) : 0,
+      },
+      failures: [...byReason.entries()]
+        .map(([reason, count]) => ({ reason, count }))
+        .sort((a, b) => b.count - a.count),
+    },
+  };
+}
+
+router.get("/:id/report", async (req, res) => {
+  const built = await buildReport(req.session.userId!, parseInt(req.params.id!));
+  if (!built) return res.status(404).json({ error: "الحملة غير موجودة" });
+  res.json(built.report);
+});
+
+// ── Campaign report as Excel ──────────────────────────────────────
+router.get("/:id/report/export", async (req, res) => {
+  const built = await buildReport(req.session.userId!, parseInt(req.params.id!));
+  if (!built) return res.status(404).json({ error: "الحملة غير موجودة" });
+
+  const { campaign, logs, report } = built;
+  const fmt = (d: Date | string | null) =>
+    d ? new Date(d).toLocaleString("ar-AE", { timeZone: "Asia/Dubai" }) : "";
+
+  const summary = [
+    { البند: "اسم الحملة",             القيمة: campaign.name },
+    { البند: "الحالة",                  القيمة: campaign.status },
+    { البند: "إجمالي الأرقام",          القيمة: report.funnel.total },
+    { البند: "جرت محاولة إرسالها",      القيمة: report.funnel.attempted },
+    { البند: "أُرسلت بنجاح",            القيمة: report.funnel.sent },
+    { البند: "فشلت",                    القيمة: report.funnel.failed },
+    { البند: "وصلت للجهاز",             القيمة: report.funnel.delivered },
+    { البند: "قُرئت",                   القيمة: report.funnel.read },
+    { البند: "بانتظار التسليم",          القيمة: report.funnel.awaitingDelivery },
+    { البند: "نسبة التسليم %",          القيمة: report.rates.deliveryRate },
+    { البند: "نسبة القراءة %",          القيمة: report.rates.readRate },
+    { البند: "نسبة القراءة ممن وصلتهم %", القيمة: report.rates.readOfDelivered },
+    { البند: "نسبة الفشل %",            القيمة: report.rates.failureRate },
+    { البند: "أول إرسال",               القيمة: fmt(report.timing.firstSentAt) },
+    { البند: "آخر إرسال",               القيمة: fmt(report.timing.lastSentAt) },
+    { البند: "المدة (دقيقة)",           القيمة: report.timing.durationMinutes },
+    { البند: "متوسط الفاصل (ثانية)",    القيمة: report.timing.avgGapSeconds },
+    { البند: "رسالة/ساعة",              القيمة: report.timing.messagesPerHour },
+    ...report.failures.map((f) => ({ البند: `سبب فشل: ${f.reason}`, القيمة: f.count })),
+  ];
+
+  const detail = logs.map((l, i) => ({
+    "#": i + 1,
+    الهاتف: l.phone,
+    الحالة: l.status === "sent" ? "أُرسلت" : l.status === "failed" ? "فشلت" : l.status,
+    "وصلت؟": l.deliveredAt ? "نعم" : "لا",
+    "قُرئت؟": l.readAt ? "نعم" : "لا",
+    "وقت الإرسال": fmt(l.sentAt),
+    "وقت الوصول": fmt(l.deliveredAt),
+    "وقت القراءة": fmt(l.readAt),
+    السبب: l.error ? failureReason(l.error) : "",
+  }));
+
+  const wb = XLSX.utils.book_new();
+  const wsS = XLSX.utils.json_to_sheet(summary);
+  wsS["!cols"] = [{ wch: 30 }, { wch: 26 }];
+  XLSX.utils.book_append_sheet(wb, wsS, "الملخص");
+
+  const wsD = XLSX.utils.json_to_sheet(detail.length ? detail : [{ ملاحظة: "لا توجد رسائل بعد" }]);
+  wsD["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 10 }, { wch: 9 }, { wch: 9 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 28 }];
+  XLSX.utils.book_append_sheet(wb, wsD, "التفاصيل");
+
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const filename = encodeURIComponent(`تقرير - ${campaign.name}`) + ".xlsx";
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${filename}`);
+  res.setHeader("Content-Length", buf.length);
+  res.end(buf);
 });
 
 // ── Campaign Quality Center ───────────────────────────────────────
@@ -1336,6 +1538,90 @@ async function runCampaign(userId: number, campaign: any, contacts: any[], info:
           logger.warn({ campaignId: campaign.id, err }, "Delivery guard check failed — continuing");
         }
       }
+
+      // ── Canary hold ───────────────────────────────────────────────
+      // Bounded: the wait happens once, and only on a list big enough for the
+      // blind window to matter.
+      if (
+        !info.canaryCleared &&
+        contacts.length >= CANARY_MIN_LIST &&
+        sentThisRun >= CANARY_SIZE
+      ) {
+        logger.info(
+          { campaignId: campaign.id, canarySize: sentThisRun, waitMinutes: MATURITY_MINUTES },
+          "canary batch sent — holding for delivery receipts before releasing the rest",
+        );
+
+        // Interruptible, so pausing during the hold takes effect immediately.
+        const until = Date.now() + (MATURITY_MINUTES + 1) * 60_000;
+        while (info.running && Date.now() < until) {
+          await interruptibleSleep(30_000, info);
+          info.lastProgressAt = Date.now(); // waiting deliberately, not stalled
+        }
+        if (!info.running) break;
+
+        const canary = await assessDeliveryHealth(campaign.id).catch(() => null);
+        if (canary && canary.shouldPause) {
+          const reason = `فحص الدفعة التجريبية: ${canary.reason ?? "تسليم ضعيف"}`;
+          logger.warn({ campaignId: campaign.id, reason }, "canary failed — campaign stopped before the bulk was sent");
+          info.running = false;
+          activeCampaigns.delete(key);
+          try {
+            await withDbRetry(() =>
+              db.update(campaignsTable)
+                .set({ status: "auto_paused", autoPauseReason: reason })
+                .where(eq(campaignsTable.id, campaign.id))
+            );
+          } catch { /* watchdog will pick it up */ }
+          return;
+        }
+        if (canary?.shouldSlow) info.deliverySlowMode = true;
+        info.canaryCleared = true;
+        logger.info(
+          { campaignId: campaign.id, level: canary?.level ?? "insufficient_data", slowMode: !!info.deliverySlowMode },
+          "canary cleared — releasing the rest of the list",
+        );
+      }
+
+      // ── Account-wide guard ────────────────────────────────────────
+      // A campaign can look survivable while the number behind it is not.
+      if (sentThisRun > 0 && sentThisRun % ACCOUNT_CHECK_EVERY === 0) {
+        try {
+          const acct = await assessAccountHealth(userId);
+          if (acct.shouldHalt) {
+            logger.error({ userId, campaignId: campaign.id, reason: acct.reason }, "account health critical — halting every running campaign for this number");
+            // Stop everything this number is sending, not just this campaign.
+            // CampaignInfo carries no userId; the map key is `${userId}:${id}`.
+            const prefix = `${userId}:`;
+            for (const [k, other] of activeCampaigns) {
+              if (k.startsWith(prefix)) {
+                other.running = false;
+                activeCampaigns.delete(k);
+              }
+            }
+            const ids = [...new Set([campaign.id])];
+            try {
+              await withDbRetry(() =>
+                db.update(campaignsTable)
+                  .set({ status: "auto_paused", autoPauseReason: acct.reason })
+                  .where(and(eq(campaignsTable.userId, userId), eq(campaignsTable.status, "running")))
+              );
+              await withDbRetry(() =>
+                db.update(campaignsTable)
+                  .set({ status: "auto_paused", autoPauseReason: acct.reason })
+                  .where(inArray(campaignsTable.id, ids))
+              );
+            } catch { /* watchdog will pick it up */ }
+            return;
+          }
+          if (acct.level === "degraded" && !info.deliverySlowMode) {
+            info.deliverySlowMode = true;
+            logger.warn({ userId, deliveredPct: Math.round(acct.deliveryRate * 100) }, "account delivery degraded — slowing every campaign");
+          }
+        } catch (err) {
+          logger.warn({ userId, err }, "account health check failed — continuing");
+        }
+      }
       logger.info(
         {
           campaignId: campaign.id,
@@ -1481,6 +1767,7 @@ async function runCampaign(userId: number, campaign: any, contacts: any[], info:
           remainingContacts: contacts.length - i - 1,
           // dailySent was read at the top of this iteration, before this send.
           dailyRemaining:    Math.max(0, effectiveLimit - (dailySent + 1)),
+          dailyLimit:        effectiveLimit,
           windowMsLeft:      msLeftInSendingWindow(),
           slowFactor:        paceFactor,
         });

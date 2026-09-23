@@ -10,8 +10,8 @@
 // the campaign when that collapses. This is the difference between losing 30
 // messages and losing the number.
 
-import { and, eq, isNotNull, lt, sql } from "drizzle-orm";
-import { db, messageLogs } from "@workspace/db";
+import { and, eq, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
+import { db, messageLogs, campaignsTable } from "@workspace/db";
 
 // A receipt needs time to come back, and it only arrives once the recipient's
 // device next reaches the network. Messages younger than this are not evidence
@@ -110,4 +110,82 @@ export async function assessDeliveryHealth(
     shouldPause: true, shouldSlow: true,
     reason: `انهيار التسليم: ${detail}. هذا نمط حظر شبه مؤكد — أوقفنا الحملة فوراً. لا تعِد التشغيل قبل مراجعة القائمة ومصدر الأرقام.`,
   };
+}
+
+
+// ── Account-level health ──────────────────────────────────────────
+// WhatsApp bans a number, not a campaign. Per-campaign guards let a user run
+// three campaigns off one number where each looks individually tolerable while
+// the number as a whole is being throttled, so this aggregates every campaign
+// the account sent from inside a recent window.
+
+export const ACCOUNT_WINDOW_HOURS = 6;
+export const ACCOUNT_MIN_SAMPLE   = 40;
+
+export interface AccountHealth {
+  sample:       number;
+  delivered:    number;
+  deliveryRate: number;
+  level:        DeliveryLevel;
+  shouldHalt:   boolean;
+  reason:       string | null;
+}
+
+/**
+ * Delivery rate across everything this account sent recently.
+ *
+ * Uses a larger minimum sample than the per-campaign check because halting an
+ * account stops all of its work — it should take more evidence, not less.
+ */
+export async function assessAccountHealth(
+  userId: number,
+  windowHours = ACCOUNT_WINDOW_HOURS,
+): Promise<AccountHealth> {
+  const matureBefore = new Date(Date.now() - MATURITY_MINUTES * 60_000);
+  const windowStart  = new Date(Date.now() - windowHours * 60 * 60_000);
+
+  const campaignIds = await db
+    .select({ id: campaignsTable.id })
+    .from(campaignsTable)
+    .where(eq(campaignsTable.userId, userId));
+
+  if (campaignIds.length === 0) {
+    return { sample: 0, delivered: 0, deliveryRate: 0, level: "insufficient_data", shouldHalt: false, reason: null };
+  }
+
+  const rows = await db
+    .select({ delivered: sql<number>`(${messageLogs.deliveredAt} is not null)::int` })
+    .from(messageLogs)
+    .where(and(
+      inArray(messageLogs.campaignId, campaignIds.map((c) => c.id)),
+      eq(messageLogs.status, "sent"),
+      isNotNull(messageLogs.sentAt),
+      lt(messageLogs.sentAt, matureBefore),
+      gte(messageLogs.sentAt, windowStart),
+    ));
+
+  const sample    = rows.length;
+  const delivered = rows.reduce((n, r) => n + Number(r.delivered), 0);
+
+  if (sample < ACCOUNT_MIN_SAMPLE) {
+    return { sample, delivered, deliveryRate: 0, level: "insufficient_data", shouldHalt: false, reason: null };
+  }
+
+  const deliveryRate = delivered / sample;
+  const pct = Math.round(deliveryRate * 100);
+  const detail = `${delivered} من ${sample} رسالة (${pct}%) خلال آخر ${windowHours} ساعات، عبر كل حملاتك`;
+
+  if (deliveryRate >= RATE_DEGRADED) {
+    return { sample, delivered, deliveryRate, level: "healthy", shouldHalt: false, reason: null };
+  }
+  if (deliveryRate >= RATE_HIGH_RISK) {
+    return { sample, delivered, deliveryRate, level: "degraded", shouldHalt: false,
+      reason: `تسليم الرقم ككل منخفض — ${detail}` };
+  }
+  if (deliveryRate >= RATE_CRITICAL) {
+    return { sample, delivered, deliveryRate, level: "high_risk", shouldHalt: true,
+      reason: `تسليم رقمك منخفض عبر كل الحملات: ${detail}. أوقفنا الإرسال بالكامل — المشكلة في الرقم لا في حملة بعينها.` };
+  }
+  return { sample, delivered, deliveryRate, level: "critical", shouldHalt: true,
+    reason: `انهيار تسليم على مستوى الرقم: ${detail}. أوقفنا كل الإرسال فوراً. لا تستأنف قبل مراجعة مصدر الأرقام.` };
 }

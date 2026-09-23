@@ -13,7 +13,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight, Play, Pause, Send, XCircle, Users, TrendingUp, Loader2, RefreshCw,
   ShieldCheck, ShieldAlert, ShieldX, AlertOctagon, BarChart2, AlertTriangle,
-  CheckCheck, Eye, RotateCcw, RotateCw, FlaskConical, X, Pencil, ThumbsUp, ThumbsDown,
+  CheckCheck, Eye, RotateCcw, RotateCw, FlaskConical, X, Pencil, ThumbsUp, ThumbsDown, FileDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -595,6 +595,16 @@ export default function CampaignDetail() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {(stats?.sentCount ?? 0) > 0 && (
+            <a
+              href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/api/campaigns/${id}/report/export`}
+              className="flex items-center gap-2 px-4 py-2 bg-muted text-muted-foreground border border-card-border rounded-lg text-sm font-medium hover:bg-muted/80 transition-colors"
+              title="تقرير Excel: ملخص الحملة + تفاصيل كل رقم (وصلت؟ قُرئت؟ متى؟ وسبب الفشل)"
+            >
+              <FileDown className="w-4 h-4" />
+              تحميل التقرير
+            </a>
+          )}
           {isRunning ? (
             <button
               onClick={() => pauseMutation.mutate({ id })}
