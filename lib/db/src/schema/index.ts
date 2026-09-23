@@ -13,3 +13,4 @@ export * from "./wa_conversations";
 export * from "./wa_thread_messages";
 export * from "./wa_sync_state";
 export * from "./campaign_responses";
+export * from "./follow_ups";

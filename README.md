@@ -136,7 +136,48 @@ pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__test
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/pacing.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/delivery-health.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/account-health.test.ts
+pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/follow-up.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/sending-hours.test.ts
+```
+
+
+## Follow-up sequences
+
+Follows up with a lead on a cadence after first contact — by default 1h, 6h,
+12h, 1 day, 3 days, 1 week, 1 month — and stops the moment they reply. A
+sequence that keeps firing at someone who already answered is not a follow-up,
+so `stopOnReply` defaults on and cancellation is re-checked at send time.
+
+**Ad leads identify themselves.** A click-to-WhatsApp ad stamps the first
+incoming message with referral data (`contextInfo.externalAdReply` plus
+`entryPointConversionSource`), so `sourceFilter: "ad"` needs no manual tagging.
+Detection accepts any of a `ctwaClid`, a `sourceId`, or an entry point naming
+an ad surface, and looks for the referral on whichever message variant carries
+it rather than assuming `extendedTextMessage`.
+
+The raw referral payload is stored on every lead, ad or not. Before the first
+ad runs there is nothing real to verify against, so `GET /follow-ups/leads`
+reports `adDetected` — watch it leave zero when ads start, rather than assuming
+the referral data is coming through.
+
+| Route | |
+|---|---|
+| `GET/POST /api/follow-ups/sequences` | list / create (no `steps` → the default cadence) |
+| `PATCH/DELETE /api/follow-ups/sequences/:id` | edit, activate, remove |
+| `POST /api/follow-ups/sequences/:id/enrol` | enrol a number by hand — how to try a sequence before any ad exists |
+| `POST /api/follow-ups/cancel` | drop a lead's remaining steps |
+| `GET /api/follow-ups/leads` | detected leads and their source |
+| `GET /api/follow-ups/jobs` | what is scheduled, sent, cancelled |
+
+The worker ticks every minute and is deliberately cautious: it sends nothing
+outside sending hours (a 3am follow-up becomes a 9am one rather than being
+dropped), at most 5 per user per tick so a hundred leads hitting their one-hour
+mark together do not go out as a burst, never to an opted-out number, and
+never at all if WhatsApp is disconnected — those stay pending. Anything more
+than a week overdue is skipped rather than sent late.
+
+```bash
+psql "$DATABASE_URL" -f lib/db/migrations/003_follow_ups.sql
 ```
 
 

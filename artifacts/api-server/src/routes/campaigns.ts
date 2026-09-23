@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, campaignsTable, contactGroupsTable, contactsTable, messageLogs, unsubscribedPhonesTable, waSessionEventsTable, campaignButtonResponsesTable } from "@workspace/db";
 import { assessDeliveryHealth, assessAccountHealth, MATURITY_MINUTES, MIN_SAMPLE as DELIVERY_MIN_SAMPLE } from "../lib/delivery-health";
 import { computeGap } from "../lib/pacing";
+import { isWithinSendingHours, hourInSendingTz, msLeftInSendingWindow, SENDING_TZ, SENDING_HOUR_START, SENDING_HOUR_END } from "../lib/sending-hours";
 import { objectExists, objectNameFromUrl } from "../lib/storage";
 import * as XLSX from "xlsx";
 import { eq, desc, count, sql, and, gte, inArray, lt, max, asc } from "drizzle-orm";
@@ -80,54 +81,6 @@ async function getEffectiveDailyLimit(userId: number): Promise<number> {
   } catch {
     return DAILY_LIMIT_MAX; // DB error — fall back to global max
   }
-}
-
-// ── Sending hours ─────────────────────────────────────────────────
-// A marketing message at 03:00 gets blocked and reported at a far higher rate
-// than the same message at 11:00, and block/report rate is what actually gets
-// a number banned. This gate was previously a no-op, so campaigns ran through
-// the night. Configurable, and can be turned off with SENDING_HOURS_ENABLED=false.
-const SENDING_HOURS_ENABLED = process.env["SENDING_HOURS_ENABLED"] !== "false";
-const SENDING_TZ            = process.env["SENDING_TIMEZONE"] ?? "Asia/Dubai";
-const SENDING_HOUR_START    = Number(process.env["SENDING_HOUR_START"] ?? 9);   // inclusive
-const SENDING_HOUR_END      = Number(process.env["SENDING_HOUR_END"]   ?? 21);  // exclusive
-
-/** Current hour (0–23) in the configured sending timezone. */
-function hourInSendingTz(now = new Date()): number {
-  return Number(
-    new Intl.DateTimeFormat("en-GB", { timeZone: SENDING_TZ, hour: "2-digit", hour12: false }).format(now),
-  );
-}
-
-/**
- * Milliseconds until the sending window closes.
- *
- * With sending hours off this returns the time to midnight in the configured
- * zone, which keeps auto-pacing anchored to a daily boundary rather than
- * spreading a day's allowance over an open-ended horizon.
- */
-export function msLeftInSendingWindow(now = new Date()): number {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: SENDING_TZ, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-  }).formatToParts(now);
-  const num = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
-  const nowSecs = num("hour") * 3600 + num("minute") * 60 + num("second");
-
-  const endSecsRaw = (SENDING_HOURS_ENABLED ? SENDING_HOUR_END : 24) * 3600;
-  // Window end already past today means it closes tomorrow — covers both the
-  // disabled case and a window that wraps midnight.
-  const endSecs = endSecsRaw > nowSecs ? endSecsRaw : endSecsRaw + 24 * 3600;
-  return (endSecs - nowSecs) * 1_000;
-}
-
-export function isWithinSendingHours(now = new Date()): boolean {
-  if (!SENDING_HOURS_ENABLED) return true;
-  const h = hourInSendingTz(now);
-  // Handles a window that wraps past midnight (e.g. 20 -> 2) as well as a
-  // normal daytime one.
-  return SENDING_HOUR_START <= SENDING_HOUR_END
-    ? h >= SENDING_HOUR_START && h < SENDING_HOUR_END
-    : h >= SENDING_HOUR_START || h < SENDING_HOUR_END;
 }
 
 /**

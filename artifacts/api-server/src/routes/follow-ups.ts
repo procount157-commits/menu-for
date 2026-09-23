@@ -1,128 +1,211 @@
+// ── Follow-up sequences ───────────────────────────────────────────
+// Replaces an earlier version of this file that queried follow_up_templates
+// and message_logs.replied_at — neither of which was ever created, so every
+// route in it returned an error.
+
 import { Router } from "express";
-import { db, campaignsTable } from "@workspace/db";
-import { sql, eq, and } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
+import {
+  db, leadSourcesTable, followUpSequencesTable, followUpJobsTable,
+  DEFAULT_FOLLOW_UP_OFFSETS, type FollowUpStep,
+} from "@workspace/db";
 import { requireAuth } from "../lib/auth";
+import { enrolLead, cancelPendingFollowUps } from "../lib/follow-up-engine";
 import { logger } from "../lib/logger";
-import { sendMessage } from "../lib/whatsapp";
 
 const router = Router();
 router.use(requireAuth);
 
-// ── No-reply contacts for a campaign ─────────────────────────────
-router.get("/campaigns/:id/no-reply", async (req, res) => {
-  const userId   = req.session.userId!;
-  const campId   = parseInt(req.params.id);
-  const { days = "5" } = req.query;
+const LABELS: Record<number, string> = {
+  60: "بعد ساعة", 360: "بعد 6 ساعات", 720: "بعد 12 ساعة",
+  1440: "بعد يوم", 4320: "بعد 3 أيام", 10080: "بعد أسبوع", 43200: "بعد شهر",
+};
+export const offsetLabel = (m: number) =>
+  LABELS[m] ?? (m < 60 ? `بعد ${m} دقيقة` : m < 1440 ? `بعد ${Math.round(m / 60)} ساعة` : `بعد ${Math.round(m / 1440)} يوم`);
 
-  const result = await db.execute(sql`
-    SELECT ml.phone, ml.sent_at, ml.id, ml.follow_up_no
-    FROM message_logs ml
-    INNER JOIN campaigns c ON c.id = ml.campaign_id
-    WHERE ml.campaign_id = ${campId}
-      AND c.user_id      = ${userId}
-      AND ml.status      = 'sent'
-      AND ml.replied_at  IS NULL
-      AND ml.sent_at     < NOW() - INTERVAL '1 day' * ${parseInt(String(days))}
-    ORDER BY ml.sent_at DESC
-    LIMIT 500
-  `);
+function parseSteps(input: unknown): FollowUpStep[] | null {
+  if (!Array.isArray(input)) return null;
+  const steps: FollowUpStep[] = [];
+  for (const raw of input) {
+    const offsetMinutes = Number((raw as any)?.offsetMinutes);
+    const message = String((raw as any)?.message ?? "").trim();
+    if (!Number.isFinite(offsetMinutes) || offsetMinutes < 1 || !message) return null;
+    steps.push({ offsetMinutes: Math.round(offsetMinutes), message });
+  }
+  // Ordered, so step 0 is always the earliest.
+  return steps.sort((a, b) => a.offsetMinutes - b.offsetMinutes);
+}
 
-  res.json({ contacts: result.rows, count: result.rows.length });
+// ── Sequences ─────────────────────────────────────────────────────
+
+router.get("/sequences", async (req, res) => {
+  const userId = req.session.userId!;
+  const rows = await db.select().from(followUpSequencesTable)
+    .where(eq(followUpSequencesTable.userId, userId))
+    .orderBy(desc(followUpSequencesTable.createdAt));
+
+  // Per-sequence job counts, so the UI can show what each one is doing.
+  const counts = await db
+    .select({
+      sequenceId: followUpJobsTable.sequenceId,
+      status:     followUpJobsTable.status,
+      n:          sql<number>`count(*)`,
+    })
+    .from(followUpJobsTable)
+    .where(eq(followUpJobsTable.userId, userId))
+    .groupBy(followUpJobsTable.sequenceId, followUpJobsTable.status);
+
+  res.json(rows.map((s) => {
+    const mine = counts.filter((c) => c.sequenceId === s.id);
+    const by = (st: string) => Number(mine.find((c) => c.status === st)?.n ?? 0);
+    return {
+      ...s,
+      steps: (s.steps as FollowUpStep[]).map((st) => ({ ...st, label: offsetLabel(st.offsetMinutes) })),
+      stats: { pending: by("pending"), sent: by("sent"), cancelled: by("cancelled"), failed: by("failed"), skipped: by("skipped") },
+    };
+  }));
 });
 
-// ── Follow-up templates ───────────────────────────────────────────
-router.get("/templates", async (req, res) => {
+/** Create a sequence. With no steps supplied, uses the 1h→6h→12h→1d→3d→1w→1mo cadence. */
+router.post("/sequences", async (req, res) => {
   const userId = req.session.userId!;
-  const result = await db.execute(sql`
-    SELECT * FROM follow_up_templates WHERE user_id = ${userId} ORDER BY created_at DESC
-  `);
-  res.json(result.rows);
+  const { name, steps, sourceFilter = "ad", stopOnReply = true, isActive = false } = req.body ?? {};
+
+  if (!String(name ?? "").trim()) return res.status(400).json({ error: "اسم التسلسل مطلوب" });
+
+  const parsed = steps === undefined
+    ? DEFAULT_FOLLOW_UP_OFFSETS.map((offsetMinutes) => ({
+        offsetMinutes,
+        message: `مرحباً 👋 هل لديك أي استفسار؟ (متابعة ${offsetLabel(offsetMinutes)})`,
+      }))
+    : parseSteps(steps);
+
+  if (!parsed || parsed.length === 0) {
+    return res.status(400).json({ error: "الخطوات غير صالحة — كل خطوة تحتاج offsetMinutes ورسالة" });
+  }
+
+  const [row] = await db.insert(followUpSequencesTable).values({
+    userId,
+    name: String(name).trim(),
+    steps: parsed as any,
+    sourceFilter: sourceFilter === "all" ? "all" : "ad",
+    stopOnReply: !!stopOnReply,
+    isActive: !!isActive,
+  }).returning();
+
+  res.json(row);
 });
 
-router.post("/templates", async (req, res) => {
+router.patch("/sequences/:id", async (req, res) => {
   const userId = req.session.userId!;
-  const { name, message, messageType = "text", delayDays = 5, attempt = 1, campaignId } = req.body;
-  if (!name?.trim() || !message?.trim()) return res.status(400).json({ error: "الاسم والرسالة مطلوبان" });
-  const result = await db.execute(sql`
-    INSERT INTO follow_up_templates (user_id, campaign_id, name, message, message_type, delay_days, attempt)
-    VALUES (${userId}, ${campaignId ?? null}, ${name}, ${message}, ${messageType}, ${delayDays}, ${attempt})
-    RETURNING *
-  `);
-  res.status(201).json(result.rows[0]);
+  const id = parseInt(req.params.id!);
+  const [own] = await db.select().from(followUpSequencesTable)
+    .where(and(eq(followUpSequencesTable.id, id), eq(followUpSequencesTable.userId, userId)));
+  if (!own) return res.status(404).json({ error: "التسلسل غير موجود" });
+
+  const updates: Record<string, unknown> = {};
+  if (req.body.name        !== undefined) updates.name = String(req.body.name).trim();
+  if (req.body.isActive    !== undefined) updates.isActive = !!req.body.isActive;
+  if (req.body.stopOnReply !== undefined) updates.stopOnReply = !!req.body.stopOnReply;
+  if (req.body.sourceFilter!== undefined) updates.sourceFilter = req.body.sourceFilter === "all" ? "all" : "ad";
+  if (req.body.steps       !== undefined) {
+    const parsed = parseSteps(req.body.steps);
+    if (!parsed || parsed.length === 0) return res.status(400).json({ error: "الخطوات غير صالحة" });
+    updates.steps = parsed;
+  }
+  if (Object.keys(updates).length === 0) return res.status(400).json({ error: "لا يوجد تغيير" });
+
+  const [row] = await db.update(followUpSequencesTable).set(updates)
+    .where(eq(followUpSequencesTable.id, id)).returning();
+  res.json(row);
 });
 
-router.patch("/templates/:id", async (req, res) => {
+router.delete("/sequences/:id", async (req, res) => {
   const userId = req.session.userId!;
-  const id     = parseInt(req.params.id);
-  const { name, message, messageType, delayDays, attempt, enabled } = req.body;
-  const updates: Record<string, any> = {};
-  if (name !== undefined)        updates.name         = name;
-  if (message !== undefined)     updates.message      = message;
-  if (messageType !== undefined) updates.message_type = messageType;
-  if (delayDays !== undefined)   updates.delay_days   = delayDays;
-  if (attempt !== undefined)     updates.attempt      = attempt;
-  if (enabled !== undefined)     updates.enabled      = enabled;
-  if (!Object.keys(updates).length) return res.status(400).json({ error: "لا توجد تحديثات" });
-  const sets = Object.entries(updates).map(([k, v]) => sql`${sql.identifier(k)} = ${v}`);
-  const result = await db.execute(sql`
-    UPDATE follow_up_templates SET ${sql.join(sets, sql`, `)}
-    WHERE id = ${id} AND user_id = ${userId}
-    RETURNING *
-  `);
-  if (!result.rows.length) return res.status(404).json({ error: "القالب غير موجود" });
-  res.json(result.rows[0]);
-});
-
-router.delete("/templates/:id", async (req, res) => {
-  const userId = req.session.userId!;
-  const id = parseInt(req.params.id);
-  await db.execute(sql`DELETE FROM follow_up_templates WHERE id = ${id} AND user_id = ${userId}`);
+  const id = parseInt(req.params.id!);
+  await db.delete(followUpSequencesTable)
+    .where(and(eq(followUpSequencesTable.id, id), eq(followUpSequencesTable.userId, userId)));
   res.json({ success: true });
 });
 
-// ── Send follow-up NOW to no-reply contacts ───────────────────────
-router.post("/campaigns/:id/send-follow-up", async (req, res) => {
+/**
+ * Enrol a number by hand.
+ *
+ * Exists because a sequence cannot otherwise be tried before the first ad ever
+ * runs: normally enrolment happens when an ad lead messages in.
+ */
+router.post("/sequences/:id/enrol", async (req, res) => {
   const userId = req.session.userId!;
-  const campId = parseInt(req.params.id);
-  const { message, messageType = "text", mediaUrl, afterDays = 0 } = req.body;
-  if (!message?.trim()) return res.status(400).json({ error: "الرسالة مطلوبة" });
+  const id = parseInt(req.params.id!);
+  const phone = String(req.body?.phone ?? "").replace(/\D/g, "");
+  if (phone.length < 7) return res.status(400).json({ error: "رقم غير صالح" });
 
-  // Verify campaign belongs to user
-  const [camp] = await db.select({ id: campaignsTable.id }).from(campaignsTable).where(and(eq(campaignsTable.id, campId), eq(campaignsTable.userId as any, userId)));
-  if (!camp) return res.status(404).json({ error: "الحملة غير موجودة" });
+  const [seq] = await db.select().from(followUpSequencesTable)
+    .where(and(eq(followUpSequencesTable.id, id), eq(followUpSequencesTable.userId, userId)));
+  if (!seq) return res.status(404).json({ error: "التسلسل غير موجود" });
+  if (!seq.isActive) return res.status(400).json({ error: "فعّل التسلسل أولاً" });
 
-  // Get no-reply contacts
-  const cutoff = afterDays > 0 ? `AND ml.sent_at < NOW() - INTERVAL '${afterDays} days'` : "";
-  const result = await db.execute(sql`
-    SELECT DISTINCT ml.phone
-    FROM message_logs ml
-    WHERE ml.campaign_id = ${campId}
-      AND ml.status      = 'sent'
-      AND ml.replied_at  IS NULL
-  `);
+  const scheduled = await enrolLead(userId, phone, seq.sourceFilter === "all" ? "organic" : "ad");
+  logger.info({ userId, phone, sequenceId: id, scheduled }, "manual follow-up enrolment");
+  res.json({ success: true, scheduled });
+});
 
-  const phones: string[] = result.rows.map((r: any) => r.phone);
-  if (!phones.length) return res.json({ success: true, sent: 0, message: "لا توجد أرقام لم ترد" });
+router.post("/cancel", async (req, res) => {
+  const userId = req.session.userId!;
+  const phone = String(req.body?.phone ?? "").replace(/\D/g, "");
+  if (!phone) return res.status(400).json({ error: "رقم غير صالح" });
+  const cancelled = await cancelPendingFollowUps(userId, phone, "إلغاء يدوي");
+  res.json({ success: true, cancelled });
+});
 
-  // Send in background
-  let sent = 0;
-  let failed = 0;
-  (async () => {
-    for (const phone of phones) {
-      try {
-        await sendMessage(userId, phone, message, messageType, mediaUrl ?? null, null, null);
-        await db.execute(sql`
-          UPDATE message_logs SET follow_up_no = COALESCE(follow_up_no, 0) + 1
-          WHERE campaign_id = ${campId} AND phone = ${phone}
-        `);
-        sent++;
-      } catch { failed++; }
-      await new Promise(r => setTimeout(r, 5000 + Math.random() * 10000));
-    }
-    logger.info({ userId, campId, sent, failed }, "Follow-up sending complete");
-  })();
+// ── Leads ─────────────────────────────────────────────────────────
 
-  res.json({ success: true, queued: phones.length, message: `تم بدء الإرسال لـ ${phones.length} رقم في الخلفية` });
+/**
+ * Detected leads and where they came from.
+ *
+ * `adDetected` is the number to watch once ads start running: it stays at zero
+ * until a click-to-WhatsApp lead actually arrives, which is how you confirm the
+ * referral data is coming through rather than assuming it.
+ */
+router.get("/leads", async (req, res) => {
+  const userId = req.session.userId!;
+  const source = String(req.query.source ?? "");
+
+  const where = source === "ad" || source === "organic"
+    ? and(eq(leadSourcesTable.userId, userId), eq(leadSourcesTable.source, source))
+    : eq(leadSourcesTable.userId, userId);
+
+  const rows = await db.select().from(leadSourcesTable).where(where)
+    .orderBy(desc(leadSourcesTable.firstSeenAt)).limit(500);
+
+  const [totals] = await db
+    .select({
+      total: sql<number>`count(*)`,
+      ad:    sql<number>`count(*) filter (where ${leadSourcesTable.source} = 'ad')`,
+    })
+    .from(leadSourcesTable)
+    .where(eq(leadSourcesTable.userId, userId));
+
+  res.json({
+    leads: rows,
+    total:      Number(totals?.total ?? 0),
+    adDetected: Number(totals?.ad ?? 0),
+  });
+});
+
+// ── Scheduled jobs ────────────────────────────────────────────────
+
+router.get("/jobs", async (req, res) => {
+  const userId = req.session.userId!;
+  const status = String(req.query.status ?? "");
+  const where = status
+    ? and(eq(followUpJobsTable.userId, userId), eq(followUpJobsTable.status, status))
+    : eq(followUpJobsTable.userId, userId);
+
+  const rows = await db.select().from(followUpJobsTable).where(where)
+    .orderBy(desc(followUpJobsTable.dueAt)).limit(500);
+
+  res.json(rows);
 });
 
 export default router;

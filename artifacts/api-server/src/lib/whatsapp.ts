@@ -1860,6 +1860,11 @@ class WhatsAppInstance {
 
         // Only process opt-out / chatbot for live messages
         if (!isLive) continue;
+
+        // Let the follow-up engine see every live inbound message: a new lead
+        // to enrol, or a reply that should stop a sequence. Fired before the
+        // opt-out and chatbot branches below, both of which `continue`.
+        emitInbound({ userId: this.userId, phone, text: text ?? "", message: msg });
         if (!text) continue;
 
         // ── Opt-out detection ──────────────────────────────────────
@@ -2585,6 +2590,34 @@ export async function sendMessage(
 type ConnectHook = (userId: number) => void;
 const onConnectHooks: ConnectHook[] = [];
 export function registerOnConnectHook(fn: ConnectHook) { onConnectHooks.push(fn); }
+
+// ── Inbound hooks ─────────────────────────────────────────────────
+// Called for every incoming message. Lets the follow-up engine react to new
+// leads and replies while depending on this module one-way, rather than this
+// module importing it back.
+export type InboundHook = (ev: {
+  userId: number;
+  phone: string;
+  text: string;
+  message: unknown;      // the raw Baileys message, for referral extraction
+}) => void | Promise<void>;
+
+const inboundHooks: InboundHook[] = [];
+export function registerInboundHook(fn: InboundHook) { inboundHooks.push(fn); }
+
+export function emitInbound(ev: Parameters<InboundHook>[0]) {
+  for (const fn of inboundHooks) {
+    // A hook must never be able to break message handling.
+    try {
+      const r = fn(ev);
+      if (r && typeof (r as Promise<void>).catch === "function") {
+        (r as Promise<void>).catch((err) => appLogger.warn({ err }, "inbound hook failed"));
+      }
+    } catch (err) {
+      appLogger.warn({ err }, "inbound hook threw");
+    }
+  }
+}
 export function notifyUserConnected(userId: number) {
   for (const fn of onConnectHooks) {
     try { fn(userId); } catch { /* ignore hook errors */ }

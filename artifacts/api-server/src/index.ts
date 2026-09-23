@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { restoreAllSessions, getActiveUserIds, getStatus, initWhatsApp } from "./lib/whatsapp";
 import { resumeRunningCampaigns } from "./routes/campaigns";
+import { startFollowUpEngine } from "./lib/follow-up-engine";
 import { runAutoMaintenance } from "./lib/diagnosis-engine";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
@@ -105,6 +106,7 @@ function startListening() {
 
     // Resume any campaigns that were running before the server restarted
     void resumeRunningCampaigns();
+    startFollowUpEngine();
 
     // Auto-seed admin on startup if env vars are set
     void seedAdminIfConfigured();
