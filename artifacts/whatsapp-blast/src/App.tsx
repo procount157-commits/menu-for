@@ -13,6 +13,7 @@ import ContactDetail from "@/pages/ContactDetail";
 import CampaignsList from "@/pages/CampaignsList";
 import CampaignNew from "@/pages/CampaignNew";
 import CampaignDetail from "@/pages/CampaignDetail";
+import FollowUps from "@/pages/FollowUps";
 import ChatbotsList from "@/pages/ChatbotsList";
 import ChatbotBuilder from "@/pages/ChatbotBuilder";
 import AdminPage from "@/pages/AdminPage";
@@ -168,6 +169,7 @@ function AuthenticatedRoutes() {
           <Route path="/templates"      component={Templates} />
           <Route path="/campaigns/:id/edit" component={CampaignNew} />
           <Route path="/campaigns/:id"  component={CampaignDetail} />
+          <Route path="/follow-ups"     component={FollowUps} />
           <Route path="/chatbots"       component={ChatbotsList} />
           <Route path="/chatbots/new"   component={ChatbotBuilder} />
           <Route path="/chatbots/:id"   component={ChatbotBuilder} />

@@ -175,6 +175,10 @@ the referral data is coming through.
 | `GET /api/follow-ups/leads` | detected leads and their source |
 | `GET /api/follow-ups/jobs` | what is scheduled, sent, cancelled |
 
+The `/follow-ups` page manages all of this: sequences and their steps, which
+intents let a sequence continue, enrolling a contact list, and a probe that
+shows how a given reply would be classified and which cues matched.
+
 **Lead-form leads arrive as a spreadsheet.** Someone who fills in a Meta lead
 form never messages on WhatsApp, so they never reach the inbound path and were
 the one kind of ad lead getting no follow-up at all. `enrol-group` takes a
@@ -242,6 +246,43 @@ only و and ف allowed as prefixes on two-letter cues — "وكم" is a question
 "لكم" in "شكرا لكم" is not. Text is normalised first (hamza forms, ta marbuta,
 alef maqsura, diacritics, tatweel, Arabic-Indic digits). Every one of these
 traps is pinned in `intent.test.ts`.
+
+
+## Backups
+
+The Replit deployment is gone, so this database is the only copy of everything
+— accounts, contacts, campaign history, and the WhatsApp auth state, losing
+which means re-pairing and losing chat history a second time. It lives in an
+anonymous Docker volume, which `docker system prune --volumes` or a Docker
+Desktop reset would remove without warning.
+
+`scripts/ops/backup-db.sh` dumps, compresses, and then *verifies* — a dump that
+does not decompress or does not end the way pg_dump ends a complete dump is
+deleted rather than kept, because an unverified backup is not a backup. It
+prunes anything older than 30 days.
+
+A LaunchAgent runs it daily at 04:30:
+
+```bash
+launchctl list | grep whatsapp-marketer          # is it loaded
+cat ~/Library/Application\ Support/whatsapp-marketer/backup.log
+sh scripts/ops/backup-db.sh                       # run one now
+```
+
+The script and the backups live under `~/Library/Application Support/whatsapp-marketer/`
+rather than `~/Documents`, because macOS refuses LaunchAgents access to
+`~/Documents` without Full Disk Access — granting that to `/bin/sh` is a much
+broader permission than this needs.
+
+To restore:
+
+```bash
+gzip -dc <backup>.sql.gz | docker exec -i wam-postgres psql -U wam -d whatsapp_marketer
+```
+
+Restoring into a scratch database and comparing row counts is worth doing
+occasionally; it is how the current backup was confirmed to carry all 33,141
+WhatsApp auth keys and the table constraints.
 
 
 ## Sync constraints (important)
