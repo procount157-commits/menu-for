@@ -79,3 +79,31 @@ export interface FollowUpStep { offsetMinutes: number; message: string }
 
 /** The cadence asked for: 1h, 6h, 12h, 1d, 3d, 1w, 1mo — offsets in minutes. */
 export const DEFAULT_FOLLOW_UP_OFFSETS = [60, 360, 720, 1_440, 4_320, 10_080, 43_200] as const;
+
+/**
+ * Starting copy for each step.
+ *
+ * Written out rather than generated from the interval, because the earlier
+ * version built every message from one template and leaked the step label into
+ * the text — seven identical messages ending in "(متابعة بعد 6 ساعات)". These
+ * escalate instead: a warm check straight after contact, softer and further
+ * apart as time passes, and an explicit way out once the gap is long enough
+ * that a reminder could be unwelcome. Owners are expected to edit them; the
+ * point is that the starting point reads like a person wrote it.
+ */
+export const DEFAULT_FOLLOW_UP_STEPS: ReadonlyArray<{ offsetMinutes: number; message: string }> = [
+  { offsetMinutes: 60,
+    message: "شكراً لتواصلك معنا 🌿\nهل وصلتك المعلومات التي تحتاجها، أم تحب أشرح لك أكثر؟" },
+  { offsetMinutes: 360,
+    message: "مرحباً مجدداً 👋\nلو عندك أي سؤال عن الخدمة أو الأسعار، أنا جاهز أرد عليك الآن." },
+  { offsetMinutes: 720,
+    message: "حابين نطمئن عليك 🙏\nتحتاج مساعدة في اختيار الأنسب لك؟ اكتب لي وأرتبها لك." },
+  { offsetMinutes: 1_440,
+    message: "صباح الخير ☀️\nما زال عرضنا متاحاً لك. تحب أحجز لك موعداً أو أرسل لك التفاصيل كاملة؟" },
+  { offsetMinutes: 4_320,
+    message: "مرّت أيام على تواصلك معنا 🌱\nإن كان الوقت غير مناسب الآن، قل لي متى أعاود التواصل وسأحترم ذلك." },
+  { offsetMinutes: 10_080,
+    message: "تحية طيبة 🌟\nما زلنا في خدمتك متى احتجتنا. للإيقاف عن الرسائل أرسل «إيقاف»." },
+  { offsetMinutes: 43_200,
+    message: "مرحباً 👋\nمرّ شهر على تواصلك، وأحببنا نذكّرك أننا موجودون لو احتجت شيئاً. للإيقاف أرسل «إيقاف»." },
+];

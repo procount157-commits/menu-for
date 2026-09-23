@@ -139,6 +139,7 @@ pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__test
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/follow-up.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/intent.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/enrol-group.test.ts
+pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/knowledge.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/sending-hours.test.ts
 ```
 
@@ -283,6 +284,62 @@ gzip -dc <backup>.sql.gz | docker exec -i wam-postgres psql -U wam -d whatsapp_m
 Restoring into a scratch database and comparing row counts is worth doing
 occasionally; it is how the current backup was confirmed to carry all 33,141
 WhatsApp auth keys and the table constraints.
+
+
+## Bot knowledge
+
+The bot answers from entries the owner writes, and from nothing else. That is
+what stops it inventing a price, and it is also why it works before anyone
+signs up for an API key: retrieval is local.
+
+`/knowledge` holds a business profile (name, trade, tone, things the bot must
+never say) and the entries themselves, which can be pasted in bulk — blank
+line between topics, first line the title. A probe asks a question the way a
+customer would and shows the answer plus the entries it came from, so a wrong
+answer points at the entry that caused it.
+
+**With no model configured** the best matching entry is sent verbatim. Correct,
+just not conversational. **With a free key** the same entries are turned into a
+sentence:
+
+| | | |
+|---|---|---|
+| Gemini | `GEMINI_API_KEY` | best Arabic, generous free tier |
+| Groq | `GROQ_API_KEY` | fastest |
+| OpenRouter | `OPENROUTER_API_KEY` | free models |
+
+A truly keyless option was tried and rejected. `text.pollinations.ai` answered
+three trivial prompts in a row, then failed all six realistic knowledge-base
+questions including retries with backoff, and sometimes returned HTML instead
+of JSON. It is still reachable behind `ALLOW_POLLINATIONS=true`, but not as
+anything customer replies depend on.
+
+### Matching
+
+Arabic retrieval needed more care than term overlap. Three things were wrong
+and each was found by a question whose answer sat in the knowledge base
+verbatim:
+
+- `normalizeArabic` keeps `؟` for the intent classifier, so `الجمعه؟` never
+  matched `الجمعه`. Retrieval strips it.
+- `ادفع` and `الدفع` are one root wearing different affixes. Light stemming
+  connects them; both forms stay indexed so exact hits survive.
+- Acceptance is by **coverage**, not hit count. With a handful of entries,
+  inverse document frequency calls everything rare. "هل عندكم خدمة نقل أثاث؟"
+  overlaps the swimming-pool entry on "خدمة" alone — one word of four — and
+  was answered confidently and wrongly with the pool price. A match must now
+  account for 40% of the question's topical words, where question words and
+  ways of asking ("كم", "ابغى", "ممكن") are not topical.
+
+Silence when nothing matches is the intended behaviour, not a gap.
+
+### Auto-reply
+
+Off by default. It never answers a complaint, a refusal or a stop request —
+those go to a person — and it stays quiet when nothing matches rather than
+guessing. Capped at 8 replies per contact per hour, because the other end may
+be a bot too, and two auto-repliers will happily talk to each other. Every
+reply is logged with the entries it used.
 
 
 ## Sync constraints (important)

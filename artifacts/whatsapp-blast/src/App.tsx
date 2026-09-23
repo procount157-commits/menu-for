@@ -14,6 +14,7 @@ import CampaignsList from "@/pages/CampaignsList";
 import CampaignNew from "@/pages/CampaignNew";
 import CampaignDetail from "@/pages/CampaignDetail";
 import FollowUps from "@/pages/FollowUps";
+import Knowledge from "@/pages/Knowledge";
 import ChatbotsList from "@/pages/ChatbotsList";
 import ChatbotBuilder from "@/pages/ChatbotBuilder";
 import AdminPage from "@/pages/AdminPage";
@@ -170,6 +171,7 @@ function AuthenticatedRoutes() {
           <Route path="/campaigns/:id/edit" component={CampaignNew} />
           <Route path="/campaigns/:id"  component={CampaignDetail} />
           <Route path="/follow-ups"     component={FollowUps} />
+          <Route path="/knowledge"      component={Knowledge} />
           <Route path="/chatbots"       component={ChatbotsList} />
           <Route path="/chatbots/new"   component={ChatbotBuilder} />
           <Route path="/chatbots/:id"   component={ChatbotBuilder} />

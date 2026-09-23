@@ -7,16 +7,17 @@
 // Ad leads identify themselves: a click-to-WhatsApp ad stamps the first
 // incoming message with referral data, which is what sourceFilter="ad" keys on.
 
-import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import {
   db, leadSourcesTable, followUpSequencesTable, followUpJobsTable,
-  unsubscribedPhonesTable, incomingMessagesTable, contactsTable, contactGroupsTable,
+  unsubscribedPhonesTable, incomingMessagesTable, contactsTable, contactGroupsTable, autoReplyLogTable,
   type FollowUpStep,
 } from "@workspace/db";
 import { logger } from "./logger";
 import { isWithinSendingHours } from "./sending-hours";
 import { getDailyRemaining } from "./daily-limit";
 import { classify, INTENT_LABELS_AR, type Intent } from "./intent";
+import { answerFromKnowledge, shouldAutoReply, logAutoReply } from "./knowledge";
 import { sendMessage, getStatus, registerInboundHook } from "./whatsapp";
 
 // How often the worker looks for due jobs.
@@ -291,6 +292,50 @@ async function isFirstContact(userId: number, phone: string): Promise<boolean> {
   return Number(row?.n ?? 0) <= 1;
 }
 
+// ── Auto-reply ────────────────────────────────────────────────────
+// Capped per contact per hour. The cap is not about cost — it is about the
+// other end possibly being a bot too, in which case two auto-repliers will
+// talk to each other until someone notices.
+const AUTO_REPLY_MAX_PER_HOUR = 8;
+
+async function autoReplyIfAppropriate(userId: number, phone: string, text: string, intent: Intent) {
+  const gate = await shouldAutoReply(userId, intent);
+  if (!gate.ok) {
+    if (gate.reason && !/غير مفعّل/.test(gate.reason)) {
+      await logAutoReply({ userId, phone, incoming: text, intent, skipped: gate.reason });
+    }
+    return;
+  }
+
+  const [recent] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(autoReplyLogTable)
+    .where(and(
+      eq(autoReplyLogTable.userId, userId),
+      eq(autoReplyLogTable.phone, phone),
+      isNotNull(autoReplyLogTable.reply),
+      gte(autoReplyLogTable.createdAt, new Date(Date.now() - 60 * 60_000)),
+    ));
+  if (Number(recent?.n ?? 0) >= AUTO_REPLY_MAX_PER_HOUR) {
+    await logAutoReply({ userId, phone, incoming: text, intent, skipped: "تجاوز حد الردود في الساعة" });
+    return;
+  }
+
+  const answer = await answerFromKnowledge(userId, text);
+  if (!answer.reply) {
+    await logAutoReply({ userId, phone, incoming: text, intent, skipped: answer.reason ?? "لا رد" });
+    return;
+  }
+
+  try {
+    await sendMessage(userId, phone, answer.reply);
+    await logAutoReply({ userId, phone, incoming: text, reply: answer.reply, provider: answer.provider, kbIds: answer.kbIds, intent });
+    logger.info({ userId, phone, provider: answer.provider, kb: answer.kbIds }, "auto-reply sent");
+  } catch (err: any) {
+    await logAutoReply({ userId, phone, incoming: text, intent, skipped: `فشل الإرسال: ${String(err?.message).slice(0, 40)}` });
+  }
+}
+
 export async function handleInbound(ev: { userId: number; phone: string; text: string; message: unknown }) {
   const { userId, phone, text } = ev;
   const ref = extractReferral(ev.message);
@@ -329,6 +374,10 @@ export async function handleInbound(ev: { userId: number; phone: string; text: s
     await cancelPendingFollowUps(userId, phone, "طلب الإيقاف");
     return;
   }
+
+  // Answer them, if the account has auto-reply on and the knowledge base has
+  // something relevant. Deliberately after the opt-out branch above.
+  await autoReplyIfAppropriate(userId, phone, text, verdict.intent);
 
   if (first) {
     // Someone whose opening line is a refusal or a complaint should not be

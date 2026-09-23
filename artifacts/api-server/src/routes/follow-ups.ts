@@ -7,7 +7,7 @@ import { Router } from "express";
 import { and, desc, eq, sql } from "drizzle-orm";
 import {
   db, leadSourcesTable, followUpSequencesTable, followUpJobsTable,
-  DEFAULT_FOLLOW_UP_OFFSETS, type FollowUpStep,
+  DEFAULT_FOLLOW_UP_OFFSETS, DEFAULT_FOLLOW_UP_STEPS, type FollowUpStep,
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
 import { enrolLead, enrolGroup, cancelPendingFollowUps } from "../lib/follow-up-engine";
@@ -75,12 +75,7 @@ router.post("/sequences", async (req, res) => {
 
   if (!String(name ?? "").trim()) return res.status(400).json({ error: "اسم التسلسل مطلوب" });
 
-  const parsed = steps === undefined
-    ? DEFAULT_FOLLOW_UP_OFFSETS.map((offsetMinutes) => ({
-        offsetMinutes,
-        message: `مرحباً 👋 هل لديك أي استفسار؟ (متابعة ${offsetLabel(offsetMinutes)})`,
-      }))
-    : parseSteps(steps);
+  const parsed = steps === undefined ? [...DEFAULT_FOLLOW_UP_STEPS] : parseSteps(steps);
 
   if (!parsed || parsed.length === 0) {
     return res.status(400).json({ error: "الخطوات غير صالحة — كل خطوة تحتاج offsetMinutes ورسالة" });
