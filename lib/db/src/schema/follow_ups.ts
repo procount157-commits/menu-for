@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, varchar, text, boolean, timestamp, jsonb, primaryKey, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, varchar, text, boolean, timestamp, jsonb, numeric, primaryKey, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
 // ── Where a lead came from ────────────────────────────────────────
@@ -18,6 +18,11 @@ export const leadSourcesTable = pgTable("lead_sources", {
   // The raw referral payload, kept so a lead that was not recognised as an ad
   // can still be inspected afterwards — useful before the first ad runs.
   rawReferral: jsonb("raw_referral"),
+  // What the lead's most recent reply meant, from lib/intent.ts.
+  lastIntent:       varchar("last_intent", { length: 20 }),
+  lastIntentAt:     timestamp("last_intent_at", { withTimezone: true }),
+  intentConfidence: numeric("intent_confidence", { precision: 3, scale: 2 }),
+  lastMessage:      text("last_message"),
   firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   primaryKey({ columns: [t.userId, t.phone] }),
@@ -37,6 +42,13 @@ export const followUpSequencesTable = pgTable("follow_up_sequences", {
   // Someone who answers should stop receiving the rest of the sequence. This
   // is what separates a follow-up from a drip of unwanted messages.
   stopOnReply:  boolean("stop_on_reply").notNull().default(true),
+  // Intents that do NOT stop the sequence. A greeting is not engagement, so
+  // the bot keeps following up; anything else hands the lead to a human.
+  continueOnIntents: jsonb("continue_on_intents").notNull().default(["greeting", "unclear"]),
+  // Ask the free endpoint for a second opinion on low-confidence replies.
+  // Off by default: it is rate-limited to one request per IP and sends the
+  // customer's message to a third party.
+  useAi: boolean("use_ai").notNull().default(false),
   createdAt:    timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

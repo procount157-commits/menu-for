@@ -15,6 +15,7 @@ import {
 } from "@workspace/db";
 import { logger } from "./logger";
 import { isWithinSendingHours } from "./sending-hours";
+import { classify, INTENT_LABELS_AR, type Intent } from "./intent";
 import { sendMessage, getStatus, registerInboundHook } from "./whatsapp";
 
 // How often the worker looks for due jobs.
@@ -192,7 +193,7 @@ async function isFirstContact(userId: number, phone: string): Promise<boolean> {
 }
 
 export async function handleInbound(ev: { userId: number; phone: string; text: string; message: unknown }) {
-  const { userId, phone } = ev;
+  const { userId, phone, text } = ev;
   const ref = extractReferral(ev.message);
   const source = await recordLead(userId, phone, ref);
 
@@ -201,8 +202,55 @@ export async function handleInbound(ev: { userId: number; phone: string; text: s
     return;
   }
 
-  // They answered. Anything still queued for them is now unwanted.
-  await cancelPendingFollowUps(userId, phone, "ردّ العميل");
+  // ── They answered ─────────────────────────────────────────────
+  // Whether that ends the sequence depends on what they said. A bare "مرحبا"
+  // is not engagement and the follow-ups should carry on; anything with real
+  // content means a person should take over, so the queue is dropped.
+  const sequences = await db.select().from(followUpSequencesTable)
+    .where(and(eq(followUpSequencesTable.userId, userId), eq(followUpSequencesTable.isActive, true)));
+
+  const useAi = sequences.some((s) => s.useAi);
+  const verdict = await classify(text, useAi);
+
+  await db.update(leadSourcesTable)
+    .set({
+      lastIntent:       verdict.intent,
+      lastIntentAt:     new Date(),
+      intentConfidence: String(verdict.confidence) as any,
+      lastMessage:      text.slice(0, 1_000),
+    })
+    .where(and(eq(leadSourcesTable.userId, userId), eq(leadSourcesTable.phone, phone)));
+
+  logger.info(
+    { userId, phone, intent: verdict.intent, confidence: verdict.confidence, via: verdict.source, matched: verdict.matched },
+    "reply classified",
+  );
+
+  // An explicit stop is honoured here as well as in the opt-out handler, so a
+  // sequence cannot outlive the request through a path that missed it.
+  if (verdict.intent === "opt_out") {
+    await db.insert(unsubscribedPhonesTable)
+      .values({ userId, phone, reason: "طلب الإيقاف في رد على متابعة" })
+      .onConflictDoNothing();
+    await cancelPendingFollowUps(userId, phone, "طلب الإيقاف");
+    return;
+  }
+
+  // Per-sequence, because two sequences may disagree about what counts.
+  for (const seq of sequences) {
+    if (!seq.stopOnReply) continue;
+    const carryOn = (seq.continueOnIntents as Intent[] | null) ?? ["greeting", "unclear"];
+    if (carryOn.includes(verdict.intent)) continue;
+
+    await db.update(followUpJobsTable)
+      .set({ status: "cancelled", error: `رد العميل: ${INTENT_LABELS_AR[verdict.intent]}` })
+      .where(and(
+        eq(followUpJobsTable.userId, userId),
+        eq(followUpJobsTable.phone, phone),
+        eq(followUpJobsTable.sequenceId, seq.id),
+        eq(followUpJobsTable.status, "pending"),
+      ));
+  }
 }
 
 // ── Worker ────────────────────────────────────────────────────────

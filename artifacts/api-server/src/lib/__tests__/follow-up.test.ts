@@ -92,6 +92,65 @@ const after = await db.select().from(followUpJobsTable)
   .where(and(eq(followUpJobsTable.userId, USER), eq(followUpJobsTable.status, "pending")));
 check("  nothing left pending", after.length === 0);
 
+// ── Reply intent decides whether the sequence continues ──────────
+import { handleInbound } from "../follow-up-engine";
+import { incomingMessagesTable, unsubscribedPhonesTable } from "@workspace/db";
+
+async function replyWith(phone: string, text: string) {
+  // handleInbound treats a lead with one inbound row as first contact, so seed
+  // two to make this a reply.
+  await db.insert(incomingMessagesTable).values([
+    { userId: USER, phone, messageId: `m1-${phone}-${Date.now()}`, text: "اول رساله" },
+    { userId: USER, phone, messageId: `m2-${phone}-${Date.now()}`, text },
+  ]);
+  await handleInbound({ userId: USER, phone, text, message: { message: { conversation: text } } });
+}
+
+async function pendingFor(phone: string) {
+  const r = await db.select().from(followUpJobsTable)
+    .where(and(eq(followUpJobsTable.userId, USER), eq(followUpJobsTable.phone, phone), eq(followUpJobsTable.status, "pending")));
+  return r.length;
+}
+
+await db.update(followUpSequencesTable).set({ isActive: true }).where(eq(followUpSequencesTable.id, seq!.id));
+
+// A greeting is not engagement — the bot should keep following up.
+const P_HI = "971500000111";
+await recordLead(USER, P_HI, extractReferral(ctwaFull));
+await enrolLead(USER, P_HI, "ad");
+await replyWith(P_HI, "السلام عليكم");
+check("a greeting does NOT stop the sequence", (await pendingFor(P_HI)) === DEFAULT_FOLLOW_UP_OFFSETS.length, `${await pendingFor(P_HI)} still pending`);
+
+// A real question means a person should take over.
+const P_Q = "971500000222";
+await recordLead(USER, P_Q, extractReferral(ctwaFull));
+await enrolLead(USER, P_Q, "ad");
+await replyWith(P_Q, "كم السعر وهل فيه توصيل");
+check("a real question stops the sequence", (await pendingFor(P_Q)) === 0);
+
+// A buying signal likewise.
+const P_BUY = "971500000333";
+await recordLead(USER, P_BUY, extractReferral(ctwaFull));
+await enrolLead(USER, P_BUY, "ad");
+await replyWith(P_BUY, "ابغى اطلب اثنين كيف الدفع");
+check("a buying signal stops the sequence", (await pendingFor(P_BUY)) === 0);
+const [buyLead] = await db.select().from(leadSourcesTable)
+  .where(and(eq(leadSourcesTable.userId, USER), eq(leadSourcesTable.phone, P_BUY)));
+check("  and is recorded as interested", buyLead?.lastIntent === "interested", `intent=${buyLead?.lastIntent}`);
+
+// A stop request must both cancel and unsubscribe.
+const P_STOP = "971500000444";
+await recordLead(USER, P_STOP, extractReferral(ctwaFull));
+await enrolLead(USER, P_STOP, "ad");
+await replyWith(P_STOP, "ايقاف");
+check("a stop request cancels the sequence", (await pendingFor(P_STOP)) === 0);
+const [unsub] = await db.select().from(unsubscribedPhonesTable)
+  .where(and(eq(unsubscribedPhonesTable.userId, USER), eq(unsubscribedPhonesTable.phone, P_STOP)));
+check("  and adds them to the opt-out list", !!unsub);
+
+await db.delete(incomingMessagesTable).where(eq(incomingMessagesTable.userId, USER));
+await db.delete(unsubscribedPhonesTable).where(eq(unsubscribedPhonesTable.userId, USER));
+
 // An inactive sequence enrols nobody.
 await db.update(followUpSequencesTable).set({ isActive: false }).where(eq(followUpSequencesTable.id, seq!.id));
 check("inactive sequence enrols nobody", (await enrolLead(USER, "971500000999", "ad")) === 0);

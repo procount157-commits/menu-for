@@ -11,6 +11,7 @@ import {
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
 import { enrolLead, cancelPendingFollowUps } from "../lib/follow-up-engine";
+import { classify, classifyIntent, INTENT_LABELS_AR, type Intent } from "../lib/intent";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -69,7 +70,8 @@ router.get("/sequences", async (req, res) => {
 /** Create a sequence. With no steps supplied, uses the 1h→6h→12h→1d→3d→1w→1mo cadence. */
 router.post("/sequences", async (req, res) => {
   const userId = req.session.userId!;
-  const { name, steps, sourceFilter = "ad", stopOnReply = true, isActive = false } = req.body ?? {};
+  const { name, steps, sourceFilter = "ad", stopOnReply = true, isActive = false,
+          continueOnIntents, useAi = false } = req.body ?? {};
 
   if (!String(name ?? "").trim()) return res.status(400).json({ error: "اسم التسلسل مطلوب" });
 
@@ -91,6 +93,10 @@ router.post("/sequences", async (req, res) => {
     sourceFilter: sourceFilter === "all" ? "all" : "ad",
     stopOnReply: !!stopOnReply,
     isActive: !!isActive,
+    continueOnIntents: (Array.isArray(continueOnIntents)
+      ? continueOnIntents.filter((i: string) => i in INTENT_LABELS_AR)
+      : ["greeting", "unclear"]) as any,
+    useAi: !!useAi,
   }).returning();
 
   res.json(row);
@@ -108,6 +114,11 @@ router.patch("/sequences/:id", async (req, res) => {
   if (req.body.isActive    !== undefined) updates.isActive = !!req.body.isActive;
   if (req.body.stopOnReply !== undefined) updates.stopOnReply = !!req.body.stopOnReply;
   if (req.body.sourceFilter!== undefined) updates.sourceFilter = req.body.sourceFilter === "all" ? "all" : "ad";
+  if (req.body.useAi       !== undefined) updates.useAi = !!req.body.useAi;
+  if (req.body.continueOnIntents !== undefined) {
+    if (!Array.isArray(req.body.continueOnIntents)) return res.status(400).json({ error: "continueOnIntents يجب أن تكون قائمة" });
+    updates.continueOnIntents = req.body.continueOnIntents.filter((i: string) => i in INTENT_LABELS_AR);
+  }
   if (req.body.steps       !== undefined) {
     const parsed = parseSteps(req.body.steps);
     if (!parsed || parsed.length === 0) return res.status(400).json({ error: "الخطوات غير صالحة" });
@@ -186,10 +197,48 @@ router.get("/leads", async (req, res) => {
     .from(leadSourcesTable)
     .where(eq(leadSourcesTable.userId, userId));
 
+  // Grouped by what each lead last said, so the hot ones are findable.
+  const byIntent = await db
+    .select({ intent: leadSourcesTable.lastIntent, n: sql<number>`count(*)` })
+    .from(leadSourcesTable)
+    .where(eq(leadSourcesTable.userId, userId))
+    .groupBy(leadSourcesTable.lastIntent);
+
   res.json({
-    leads: rows,
+    leads: rows.map((l) => ({
+      ...l,
+      intentLabel: l.lastIntent ? INTENT_LABELS_AR[l.lastIntent as Intent] ?? l.lastIntent : null,
+    })),
     total:      Number(totals?.total ?? 0),
     adDetected: Number(totals?.ad ?? 0),
+    byIntent: Object.fromEntries(
+      byIntent.filter((r) => r.intent).map((r) => [r.intent, Number(r.n)]),
+    ),
+  });
+});
+
+/**
+ * Try the classifier on arbitrary text.
+ *
+ * Returns the rules verdict always, and the model's opinion alongside it when
+ * `useAi` is set — shown side by side rather than merged, so a disagreement is
+ * visible instead of silently resolved.
+ */
+router.post("/classify", async (req, res) => {
+  const text = String(req.body?.text ?? "");
+  if (!text.trim()) return res.status(400).json({ error: "أرسل نصاً" });
+
+  const rules = classifyIntent(text);
+  const withAi = req.body?.useAi ? await classify(text, true) : null;
+
+  res.json({
+    rules: { ...rules, label: INTENT_LABELS_AR[rules.intent] },
+    ai: withAi && withAi.source === "ai"
+      ? { ...withAi, label: INTENT_LABELS_AR[withAi.intent] }
+      : null,
+    aiNote: req.body?.useAi && (!withAi || withAi.source !== "ai")
+      ? "الخدمة المجانية لم تستجب (حد طلب واحد لكل IP) — اعتُمد التصنيف المحلي"
+      : null,
   });
 });
 

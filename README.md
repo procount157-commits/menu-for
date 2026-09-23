@@ -137,6 +137,7 @@ pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__test
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/delivery-health.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/account-health.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/follow-up.test.ts
+pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/intent.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/sending-hours.test.ts
 ```
 
@@ -179,6 +180,42 @@ than a week overdue is skipped rather than sent late.
 ```bash
 psql "$DATABASE_URL" -f lib/db/migrations/003_follow_ups.sql
 ```
+
+
+## Reply intent
+
+Every reply is classified, and the sequence reacts to it instead of continuing
+regardless. Intents: `opt_out`, `complaint`, `not_interested`, `interested`,
+`question`, `greeting`, `unclear`.
+
+By default a greeting or an unreadable message keeps the follow-ups running —
+"مرحبا" is not engagement — while anything with real content stops them and
+hands the lead over. Per sequence, via `continueOnIntents`. A stop request
+always cancels and adds the number to the opt-out list, whatever the settings
+say.
+
+**This is rules-based, not a model call, and that is a measured decision.** The
+free endpoint already wired into `routes/ai.ts` (Pollinations, no key) allows
+one request per IP at a time: of six consecutive Arabic classifications, three
+came back `Queue full`, two were empty, and the one that answered took ~5s and
+read "ابغى اطلب اثنين كيف الدفع" — a clear buying signal — as a question. Fine
+for an on-demand "improve this message" button, not for every inbound message.
+Rules run in microseconds, work offline, and keep customers' messages on your
+own server.
+
+`useAi` on a sequence asks that endpoint for a second opinion, but only on
+replies the rules scored below 0.55, and never on the critical path: if it is
+slow, rate-limited or nonsense, the rules verdict stands. `POST
+/api/follow-ups/classify` shows both side by side rather than merging them, so
+a disagreement is visible.
+
+Matching respects word boundaries, which is not optional in Arabic: "كم" hides
+inside عليكم، لكم، كمية and الحكم, and substring matching alone classified
+"السلام عليكم" as a question. Single-word cues must match a whole word, with
+only و and ف allowed as prefixes on two-letter cues — "وكم" is a question,
+"لكم" in "شكرا لكم" is not. Text is normalised first (hamza forms, ta marbuta,
+alef maqsura, diacritics, tatweel, Arabic-Indic digits). Every one of these
+traps is pinned in `intent.test.ts`.
 
 
 ## Sync constraints (important)
