@@ -249,6 +249,44 @@ alef maqsura, diacritics, tatweel, Arabic-Indic digits). Every one of these
 traps is pinned in `intent.test.ts`.
 
 
+## Bot team
+
+The bots are modelled as named staff, because that is how they are used: "the
+first is Hal, the second is Mark". `/employees` is their dashboard.
+
+**هال — sales.** The customer-facing replier. Shows replies sent, how often it
+went quiet, and — the useful part — the actual questions it had no answer for,
+which is the list of what to write next. On duty means three things at once:
+the employee is active, auto-reply is on, and the knowledge base is not empty;
+a sales bot with nothing to say is not working, however many switches are on.
+
+**مارك — monitor.** Runs every 20 minutes over four areas and writes one report
+per run, kept so a problem can be traced back to when the verdict changed.
+
+The connection check is the reason this exists. `connected` is not the same as
+`receiving`: a half-dead linked device keeps emitting connection updates and
+delivery receipts while WhatsApp has quietly stopped routing inbound messages
+to it. It sends fine, so nothing looks wrong until someone notices the replies
+stopped — which is exactly what happened here before the monitor existed. Only
+inbound silence separates the two:
+
+| | |
+|---|---|
+| no socket events at all for 45 min | critical — inert socket |
+| connected, sending, no inbound for 6h | critical — lost its registration |
+| no inbound for 3h | warning — may just be quiet |
+| 3 consecutive send failures | critical |
+| 10 reconnects | warning — flapping precedes deregistration |
+
+Ban risk covers account-wide delivery, failure rate, daily quota, and opt-out
+rate — the last being the strongest signal and the least watched. Over 3% of
+recipients opting out warns; over 6% is critical, and says plainly that pacing
+will not save a list that does not want the messages.
+
+Findings are written as a sentence plus an action rather than as metrics. A
+dashboard of numbers is something you have to remember to read.
+
+
 ## Deploying to a VPS
 
 The whole stack runs from one compose file: Postgres, the API, and nginx

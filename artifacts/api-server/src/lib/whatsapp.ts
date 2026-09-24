@@ -246,6 +246,16 @@ class WhatsAppInstance {
    * if connected but no events for >4h → force rebuild.
    */
   lastEventReceivedAt: Date = new Date();
+  /**
+   * When a message last arrived FROM someone else.
+   *
+   * Separate from lastEventReceivedAt because the failure that matters is
+   * narrower than "no events": a half-dead linked device still emits
+   * connection.update, creds.update and delivery receipts while WhatsApp has
+   * quietly stopped routing inbound messages to it. Only this timestamp
+   * distinguishes "quiet" from "no longer receiving".
+   */
+  lastInboundMessageAt: Date | null = null;
 
   // ── Session Guardian tracking ─────────────────────────────────────
   /** Timestamp of the last message that was successfully sent to WA servers */
@@ -569,6 +579,8 @@ class WhatsAppInstance {
       uptimeSeconds,
       reconnectCount:        this.reconnectCount,
       lastActivityAt:        this.lastActivityAt.toISOString(),
+      lastEventAt:           this.lastEventReceivedAt.toISOString(),
+      lastInboundAt:         this.lastInboundMessageAt?.toISOString() ?? null,
       lastSuccessfulSendAt:  this.lastSuccessfulSendAt?.toISOString() ?? null,
       consecutiveSendFailures: this.consecutiveSendFailures,
     };
@@ -612,6 +624,7 @@ class WhatsAppInstance {
       connectedAt:      this.connectedAt?.toISOString() ?? null,
       lastActivityAt:   this.lastActivityAt.toISOString(),
       lastEventAt:      this.lastEventReceivedAt.toISOString(),
+      lastInboundAt:    this.lastInboundMessageAt?.toISOString() ?? null,
       lastSuccessfulSendAt: this.lastSuccessfulSendAt?.toISOString() ?? null,
       consecutiveSendFailures: this.consecutiveSendFailures,
       loggedOutRetries: this.loggedOutRetries,
@@ -1239,6 +1252,48 @@ class WhatsAppInstance {
     } as any);
 
     this.state.socket = sock;
+
+    // Keep the idle clock honest. Without this, lastEventReceivedAt stays at
+    // construction time and the deep-idle check never fires however long the
+    // socket has been silent — which is how a zombie survived unnoticed.
+    {
+      const gen = myGen;
+      sock.ev.process(async (events) => {
+        if (gen !== this.socketGeneration) return;
+        this.lastEventReceivedAt = new Date();
+        const up = (events as any)["messages.upsert"];
+        if (up?.type === "notify") {
+          for (const m of up.messages ?? []) {
+            if (!m?.key?.fromMe) { this.lastInboundMessageAt = new Date(); break; }
+          }
+        }
+      });
+    }
+
+    // ── Raw event tap ─────────────────────────────────────────────
+    // WA_DEBUG_EVENTS=true logs every event Baileys emits, before any of our
+    // handling. It answers the one question our own logs cannot: when nothing
+    // arrives, is the socket receiving and we are dropping it, or is nothing
+    // reaching the socket at all? Off by default — it is extremely noisy.
+    if (process.env["WA_DEBUG_EVENTS"] === "true") {
+      const gen = myGen;
+      sock.ev.process(async (events) => {
+        if (gen !== this.socketGeneration) return;
+        for (const [name, payload] of Object.entries(events)) {
+          let detail = "";
+          if (name === "messages.upsert") {
+            const p = payload as any;
+            detail = `type=${p?.type} count=${p?.messages?.length ?? 0} from=${p?.messages?.[0]?.key?.remoteJid ?? "?"} fromMe=${p?.messages?.[0]?.key?.fromMe}`;
+          } else if (name === "connection.update") {
+            const p = payload as any;
+            detail = `connection=${p?.connection ?? "-"} qr=${p?.qr ? "yes" : "no"}`;
+          } else if (Array.isArray(payload)) {
+            detail = `n=${payload.length}`;
+          }
+          this.log.info({ rawEvent: name, detail }, "🔌 raw WA event");
+        }
+      });
+    }
 
     // ── Pairing code: must be called immediately after socket creation ────
     // Baileys requires this BEFORE any QR event fires. We use setImmediate

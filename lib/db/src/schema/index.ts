@@ -16,3 +16,5 @@ export * from "./campaign_responses";
 export * from "./follow_ups";
 export * from "./knowledge";
 export * from "./assistant";
+export * from "./monitor";
+export * from "./employees";
