@@ -3,19 +3,66 @@ import { and, desc, eq } from "drizzle-orm";
 import { db, knowledgeBaseTable, businessProfileTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
 import { retrieve, answerFromKnowledge, getProfile, recentAutoReplies } from "../lib/knowledge";
-import { providerStatus, complete, activeProvider } from "../lib/llm";
+import { providerStatus, providerStatusAsync, complete, activeProvider, resolveProvider, invalidateStoredProvider } from "../lib/llm";
+import { db as _db } from "@workspace/db";
+import { llmSettingsTable } from "@workspace/db";
 
 const router = Router();
 router.use(requireAuth);
 
 // ── Which model, if any ───────────────────────────────────────────
-router.get("/provider", (_req, res) => res.json(providerStatus()));
+router.get("/provider", async (_req, res) => res.json(await providerStatusAsync()));
+
+/**
+ * Store a provider key.
+ *
+ * Kept in the database rather than .env so it survives a restart and can be
+ * changed without an SSH session and a redeploy. The key is never read back —
+ * GET returns a masked form only.
+ */
+router.put("/provider", async (req, res) => {
+  const userId = req.session.userId!;
+  const provider = String(req.body?.provider ?? "").trim().toLowerCase();
+  const apiKey   = String(req.body?.apiKey ?? "").trim();
+  const model    = String(req.body?.model ?? "").trim() || null;
+
+  const allowed = ["anthropic", "gemini", "groq", "openrouter", "zhipu", "qwen", "deepseek", "moonshot", "siliconflow"];
+  if (!allowed.includes(provider)) return res.status(400).json({ error: "مزوّد غير مدعوم" });
+  if (apiKey.length < 8) return res.status(400).json({ error: "المفتاح قصير أو فارغ" });
+
+  const values = { userId, provider, apiKey, model, updatedAt: new Date() };
+  await _db.insert(llmSettingsTable).values(values)
+    .onConflictDoUpdate({ target: llmSettingsTable.userId, set: values });
+  invalidateStoredProvider();   // take effect now, not in 30 seconds
+
+  // Prove it works before reporting success — a key that stores but cannot
+  // answer is worse than none, because nothing looks wrong.
+  const out = await complete([
+    { role: "system", content: "أجب بكلمة واحدة بالعربية." },
+    { role: "user",   content: "قل: جاهز" },
+  ], 20_000);
+
+  res.json({
+    saved: true,
+    provider,
+    working: !!out?.text,
+    sample: out?.text?.slice(0, 60) ?? null,
+    error: out ? null : "حُفظ المفتاح لكن المزوّد لم يستجب — تحقق من المفتاح أو اسم النموذج.",
+  });
+});
+
+router.delete("/provider", async (req, res) => {
+  await _db.delete(llmSettingsTable).where(eq(llmSettingsTable.userId, req.session.userId!));
+  invalidateStoredProvider();
+  res.json({ success: true });
+});
 
 /** Round-trip the configured provider so a key can be verified before relying on it. */
 router.post("/provider/test", async (_req, res) => {
-  const p = activeProvider();
-  if (p === "none") {
-    return res.json({ ok: false, provider: p, error: "لا يوجد مزوّد مضبوط — أضف مفتاحاً في .env" });
+  const resolved = await resolveProvider();
+  const p = resolved?.provider ?? "none";
+  if (!resolved) {
+    return res.json({ ok: false, provider: p, error: "لا يوجد مزوّد مضبوط — أضف مفتاحاً من هذه الصفحة" });
   }
   const out = await complete([
     { role: "system", content: "أجب بكلمة واحدة فقط بالعربية." },

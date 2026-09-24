@@ -385,6 +385,12 @@ line between topics, first line the title. A probe asks a question the way a
 customer would and shows the answer plus the entries it came from, so a wrong
 answer points at the entry that caused it.
 
+A key can be set from `/knowledge` and is stored in the database, so it
+survives a restart and does not need an SSH session and a redeploy to change.
+It is never read back — the API returns a masked form. Saving it round-trips
+the provider before reporting success, because a key that stores but cannot
+answer is worse than none: nothing looks wrong.
+
 **With no model configured** the best matching entry is sent verbatim. Correct,
 just not conversational. **With a free key** the same entries are turned into a
 sentence:
@@ -392,7 +398,7 @@ sentence:
 | | | |
 |---|---|---|
 | Claude | `ANTHROPIC_API_KEY` | paid per token — see the note below |
-| Gemini | `GEMINI_API_KEY` | best Arabic, generous free tier |
+| Gemini | `GEMINI_API_KEY` | best Arabic, generous free tier. Default model `gemini-flash-lite-latest` — `gemini-2.0-flash` and `gemini-2.5-flash` are both retired, and the heavier flash models spend their output budget on reasoning and truncate a two-line reply |
 | Zhipu GLM | `ZHIPU_API_KEY` | `glm-4-flash` is free outright, not trial credit |
 | Groq | `GROQ_API_KEY` | fastest |
 | Qwen (Alibaba) | `QWEN_API_KEY` | free quota, good Arabic |

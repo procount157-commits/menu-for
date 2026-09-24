@@ -18,3 +18,4 @@ export * from "./knowledge";
 export * from "./assistant";
 export * from "./monitor";
 export * from "./employees";
+export * from "./llm_settings";

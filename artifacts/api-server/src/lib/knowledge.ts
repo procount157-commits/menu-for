@@ -11,7 +11,7 @@ import {
   type KnowledgeEntry, type BusinessProfile,
 } from "@workspace/db";
 import { normalizeArabic, type Intent } from "./intent";
-import { complete, activeProvider } from "./llm";
+import { complete, resolveProvider } from "./llm";
 import { logger } from "./logger";
 
 // Words too common to tell entries apart; matching on them makes everything
@@ -29,6 +29,10 @@ const STOP = new Set(normalizeArabic([
   // counting them against coverage sank "كم سعر الفيلا؟", where the only
   // topical word in it matched perfectly.
   "كم بكم كيف متى وين اين وش ايش ليش لماذا يكم ياخذ تاخذ",
+  // Greetings and courtesies. They open most messages and say nothing about
+  // the subject, so counting them against coverage sank real questions.
+  "السلام عليكم سلام مرحبا مرحبتين هلا اهلا صباح مساء الخير تحيه شكرا",
+  "تسلم لوسمحت رجاء الرجاء اخوي اختي استاذ دكتور مهندس",
 ].join(" ")).split(" "));
 
 // normalizeArabic keeps "؟" because the intent classifier reads it as a cue.
@@ -79,7 +83,7 @@ function terms(text: string): string[] {
   return [...new Set(words.flatMap((w) => [w, stem(w)]))].filter((w) => w.length > 1);
 }
 
-export interface Scored { entry: KnowledgeEntry; score: number; hits: string[]; maxIdf: number }
+export interface Scored { entry: KnowledgeEntry; score: number; hits: string[]; maxIdf: number; keywordHit: boolean }
 
 /**
  * Find the entries most likely to answer a question.
@@ -111,12 +115,13 @@ export async function retrieve(userId: number, query: string, limit = 4): Promis
   });
 
   const scored: Scored[] = docs.map(({ e, body, keys }) => {
-    let score = 0, maxIdf = 0; const hits: string[] = [];
+    let score = 0, maxIdf = 0, keywordHit = false; const hits: string[] = [];
     for (const { word, forms } of qWords) {
       // One base word counts once, however many forms of it exist.
       const inKeys = forms.some((f) => keys.has(f));
       const inBody = forms.some((f) => body.has(f));
       if (!inBody && !inKeys) continue;
+      if (inKeys) keywordHit = true;
       const idf = Math.max(...forms.map((f) => Math.log(1 + entries.length / (docFreq.get(f) ?? 1))));
       score += idf * (inKeys ? 2 : 1);
       maxIdf = Math.max(maxIdf, idf);
@@ -125,7 +130,7 @@ export async function retrieve(userId: number, query: string, limit = 4): Promis
     // Slight preference for shorter entries at equal overlap: a focused entry
     // is a better answer than a long one that mentions everything.
     if (score > 0) score /= Math.log(10 + normalizeArabic(e.content).length / 40);
-    return { entry: e, score, hits, maxIdf };
+    return { entry: e, score, hits, maxIdf, keywordHit };
   });
 
   // How much of the question an entry actually accounts for. With only a
@@ -136,8 +141,13 @@ export async function retrieve(userId: number, query: string, limit = 4): Promis
   // and wrongly. "كيف ادفع؟" overlaps the payment entry on one word of two,
   // which is the whole question.
   const MIN_COVERAGE = 0.4;
+  // A hit in the keywords field is the owner saying outright that this word
+  // means this entry, so it counts on its own. Without that, a question
+  // spanning two topics — "كم تكلفة تسجيل شركتي؟" touches pricing and
+  // registration — split its coverage below the bar for both and got silence,
+  // even though "تكلفة" was listed against the pricing entry by hand.
   return scored
-    .filter((s) => s.score > 0 && (s.hits.length >= 2 || s.hits.length / qWords.length >= MIN_COVERAGE))
+    .filter((s) => s.score > 0 && (s.keywordHit || s.hits.length >= 2 || s.hits.length / qWords.length >= MIN_COVERAGE))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }
@@ -195,8 +205,11 @@ export async function answerFromKnowledge(userId: number, question: string): Pro
   }
   const kbIds = found.map((f) => f.entry.id);
 
-  const provider = activeProvider();
-  if (provider !== "none") {
+  // Must ask the resolver, not activeProvider(): the latter reads only the
+  // environment, so a key stored from the UI was invisible to it and every
+  // answer silently fell back to the verbatim entry.
+  const provider = await resolveProvider();
+  if (provider) {
     const out = await complete([
       { role: "system", content: buildSystemPrompt(profile, found) },
       { role: "user",   content: question },
