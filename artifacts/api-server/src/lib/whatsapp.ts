@@ -1866,11 +1866,18 @@ class WhatsAppInstance {
       if (type !== "notify" && type !== "append") return;
 
       for (const msg of messages) {
-        // التقاط الرقم من أي رسالة — فقط أرقام @s.whatsapp.net الحقيقية
-        const jid = msg.key?.remoteJid;
-        if (!jid || !jid.endsWith("@s.whatsapp.net")) continue;  // تجاهل @lid / @g.us / @broadcast / @newsletter
-
-        const phone = jid.replace("@s.whatsapp.net", "");
+        // Resolve the sender, including LID-addressed contacts. Dropping
+        // everything that was not @s.whatsapp.net here is what silently broke
+        // inbound once WhatsApp started migrating contacts to LIDs.
+        const sender = await resolveSenderPhone(sock, msg, this.lidToPhone);
+        if (!sender) continue;   // group, broadcast, newsletter or status
+        const { phone } = sender;
+        if (sender.via !== "pn") {
+          this.log.info(
+            { jid: msg.key?.remoteJid, phone, via: sender.via, fromMe: !!msg.key?.fromMe },
+            "LID-addressed message resolved",
+          );
+        }
         const ts = toSecs(msg.messageTimestamp) || Math.floor(Date.now() / 1000);
         this.upsertContact(phone, { name: undefined, lastMessageAt: ts, source: "chat" });
 
@@ -2870,6 +2877,61 @@ async function resolveMedia(mediaUrl: string): Promise<WAMediaUpload> {
   }
   // External URL — pass through as-is
   return { url: mediaUrl };
+}
+
+/**
+ * Work out who a message is from, handling LID addressing.
+ *
+ * WhatsApp is migrating from phone-number JIDs (`9715...@s.whatsapp.net`) to
+ * LIDs (`123...@lid`), and the rollout is per-contact and gradual. Messages
+ * from a migrated contact arrive addressed by LID, and the previous code
+ * dropped anything that was not `@s.whatsapp.net` with a bare `continue` —
+ * silently, in the first two lines of the loop. The socket received the
+ * message, the event fired, and nothing was stored, classified or answered.
+ * That is why inbound stopped working from one day to the next with no error
+ * anywhere.
+ *
+ * Returns null only for addresses that genuinely are not one-to-one chats.
+ */
+async function resolveSenderPhone(
+  sock: any,
+  msg: any,
+  lidMap?: Map<string, string>,
+): Promise<{ phone: string; via: "pn" | "lid-mapped" | "lid-raw" } | null> {
+  const jid: string | undefined = msg?.key?.remoteJid;
+  if (!jid) return null;
+
+  // Groups, broadcasts, newsletters and status are correctly out of scope.
+  if (jid.endsWith("@g.us") || jid.endsWith("@broadcast") || jid.endsWith("@newsletter")) return null;
+
+  if (jid.endsWith("@s.whatsapp.net")) {
+    return { phone: jid.replace("@s.whatsapp.net", ""), via: "pn" };
+  }
+
+  if (jid.endsWith("@lid")) {
+    // The key sometimes carries the phone-number form alongside the LID.
+    const fromKey: string | undefined =
+      msg.key.senderPn ?? msg.key.participantPn ?? msg.key.previousRemoteJid;
+    if (typeof fromKey === "string" && fromKey.includes("@s.whatsapp.net")) {
+      return { phone: fromKey.replace("@s.whatsapp.net", ""), via: "lid-mapped" };
+    }
+    try {
+      const pn: string | null = await sock?.signalRepository?.lidMapping?.getPNForLID?.(jid);
+      if (pn) return { phone: String(pn).replace("@s.whatsapp.net", ""), via: "lid-mapped" };
+    } catch { /* fall through */ }
+
+    // The instance already builds a lid -> phone map from the contact sync;
+    // it often knows a mapping Baileys' store does not.
+    const known = lidMap?.get(jid);
+    if (known) return { phone: known, via: "lid-mapped" };
+
+    // Unmapped. Keep the full LID as the key rather than dropping the message:
+    // formatPhone passes through anything containing "@", so replies still
+    // reach them, and a conversation we can answer beats a clean contact row.
+    return { phone: jid, via: "lid-raw" };
+  }
+
+  return null;
 }
 
 function formatPhone(phone: string): string {
