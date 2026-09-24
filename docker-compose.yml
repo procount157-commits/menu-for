@@ -1,0 +1,69 @@
+# Production stack for a single VPS.
+#
+# Postgres data is a NAMED volume, unlike the anonymous one this ran on
+# locally — an anonymous volume is what `docker system prune --volumes` takes
+# without asking, and it holds the WhatsApp auth state as well as the data.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wam}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-whatsapp_marketer}
+    volumes:
+      - wam_pgdata:/var/lib/postgresql/data
+      - ./deploy/backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wam}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Not published: only the api container needs to reach it.
+    expose: ["5432"]
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wam}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-whatsapp_marketer}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      PORT: "8080"
+      NODE_ENV: production
+      MEDIA_DIR: /data/uploads
+      SENDING_TIMEZONE: ${SENDING_TIMEZONE:-Asia/Dubai}
+      SENDING_HOUR_START: ${SENDING_HOUR_START:-9}
+      SENDING_HOUR_END: ${SENDING_HOUR_END:-21}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      QWEN_API_KEY: ${QWEN_API_KEY:-}
+      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      MOONSHOT_API_KEY: ${MOONSHOT_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+    volumes:
+      - wam_media:/data
+    expose: ["8080"]
+
+  web:
+    image: nginx:alpine
+    restart: unless-stopped
+    depends_on: [api]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/app.locations:/etc/nginx/conf.d/app.locations:ro
+      - ./deploy/www:/usr/share/nginx/html:ro
+      - ./deploy/certbot/conf:/etc/letsencrypt:ro
+      - ./deploy/certbot/www:/var/www/certbot:ro
+
+volumes:
+  wam_pgdata:
+  wam_media:

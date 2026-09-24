@@ -249,6 +249,55 @@ alef maqsura, diacritics, tatweel, Arabic-Indic digits). Every one of these
 traps is pinned in `intent.test.ts`.
 
 
+## Deploying to a VPS
+
+The whole stack runs from one compose file: Postgres, the API, and nginx
+serving the built frontend and proxying `/api`. On a fresh Ubuntu box:
+
+```bash
+git clone <repo> /opt/whatsapp-marketer && cd /opt/whatsapp-marketer
+bash deploy/setup-vps.sh          # docker, node, firewall, .env with generated secrets, cron
+./deploy/deploy.sh                # build, migrate, start
+bash deploy/setup-ssl.sh your-domain.com
+```
+
+`deploy.sh` takes a backup before running migrations and only swaps the
+container in once `/api/healthz` answers — a failed migration against the only
+copy of the data is how a deploy becomes an outage. Postgres uses a **named**
+volume, unlike the anonymous one this ran on locally, which
+`docker system prune --volumes` removes without asking and which holds the
+WhatsApp auth state as well as the data. Port 5432 is never published; only
+the api container reaches the database.
+
+### Heartbeat
+
+`deploy/heartbeat.sh` runs every minute from cron and reads
+`GET /api/health/deep`, which reports the database (with round-trip time),
+how many WhatsApp sessions are linked and how many are online, whether a model
+is configured, and RSS. It is unauthenticated so a monitor can reach it, and
+for that reason reports counts and states only — nothing in it identifies a
+contact.
+
+| status | meaning | heartbeat |
+|---|---|---|
+| `ok` | everything works | nothing |
+| `degraded` | serving, wants attention (no model, no WhatsApp linked) | alerts hourly, never restarts |
+| `error` | database unreachable | restarts after 3 consecutive failures |
+
+The distinction is the point. Restarting because a model key is missing would
+drop every live WhatsApp session to fix something that is not broken, and
+restarting on a single failed probe turns a slow query into a dropped session —
+hence three in a row. Set `HEARTBEAT_WEBHOOK` in `.env` for alerts.
+
+### On first connect
+
+Linking WhatsApp provisions a business profile and a ready-made follow-up
+sequence, left **inactive**. The bot's scaffolding is there so the remaining
+step is a switch rather than a blank page. Auto-reply stays off: with an empty
+knowledge base it would answer nothing anyway, and turning it on for someone
+who has not written a word of it is their decision.
+
+
 ## Backups
 
 The Replit deployment is gone, so this database is the only copy of everything

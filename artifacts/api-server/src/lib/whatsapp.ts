@@ -2455,6 +2455,19 @@ class WhatsAppManager {
     return this.instances.get(userId)!;
   }
 
+  /**
+   * Connection state of every restored session.
+   *
+   * Reads what is already in memory rather than creating instances — the
+   * health check must not bring a session up as a side effect of looking.
+   */
+  allStates(): Array<{ userId: number; connected: boolean; status: string }> {
+    return [...this.instances.entries()].map(([userId, inst]) => {
+      const st = inst.getStatus() as { connected?: boolean; status?: string };
+      return { userId, connected: !!st?.connected, status: st?.status ?? "unknown" };
+    });
+  }
+
   remove(userId: number) {
     const inst = this.instances.get(userId);
     if (inst) { inst.logout().catch(() => {}); this.instances.delete(userId); }

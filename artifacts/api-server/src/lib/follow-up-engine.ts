@@ -18,7 +18,8 @@ import { isWithinSendingHours } from "./sending-hours";
 import { getDailyRemaining } from "./daily-limit";
 import { classify, INTENT_LABELS_AR, type Intent } from "./intent";
 import { answerFromKnowledge, shouldAutoReply, logAutoReply } from "./knowledge";
-import { sendMessage, getStatus, registerInboundHook } from "./whatsapp";
+import { sendMessage, getStatus, registerInboundHook, registerOnConnectHook } from "./whatsapp";
+import { provisionOnConnect } from "./provision";
 
 // How often the worker looks for due jobs.
 const TICK_MS = 60_000;
@@ -514,6 +515,9 @@ let timer: NodeJS.Timeout | null = null;
 
 export function startFollowUpEngine() {
   registerInboundHook(handleInbound);
+  // Every account that links WhatsApp gets the bot's scaffolding, so the only
+  // remaining step is turning it on.
+  registerOnConnectHook((userId) => { void provisionOnConnect(userId); });
 
   if (timer) return;
   timer = setInterval(() => {
