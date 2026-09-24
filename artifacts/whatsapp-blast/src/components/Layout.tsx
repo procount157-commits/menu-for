@@ -27,6 +27,7 @@ const NAV = [
   { href: "/funnel",        label: "الفنال التسويقي",    icon: TrendingUp },
   { href: "/tracking",      label: "تتبع الحملات",       icon: BarChart3 },
   { href: "/wa-link",       label: "رابط واتساب",        icon: MessageCircle },
+  { href: "/assistant",     label: "المساعد الداخلي",    icon: Bot, badge: "جديد" },
   { href: "/ai",            label: "مساعد AI",           icon: Sparkles, badge: "مجاني" },
   { href: "/settings",     label: "الإعدادات",           icon: Settings2 },
   { href: "/diagnostics",  label: "System Diagnostics",  icon: Activity, badge: "DEV" },

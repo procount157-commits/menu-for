@@ -305,8 +305,17 @@ sentence:
 | | | |
 |---|---|---|
 | Gemini | `GEMINI_API_KEY` | best Arabic, generous free tier |
+| Zhipu GLM | `ZHIPU_API_KEY` | `glm-4-flash` is free outright, not trial credit |
 | Groq | `GROQ_API_KEY` | fastest |
-| OpenRouter | `OPENROUTER_API_KEY` | free models |
+| Qwen (Alibaba) | `QWEN_API_KEY` | free quota, good Arabic |
+| SiliconFlow | `SILICONFLOW_API_KEY` | several free models |
+| OpenRouter | `OPENROUTER_API_KEY` | `:free` models |
+| DeepSeek | `DEEPSEEK_API_KEY` | trial credit, then very cheap |
+| Moonshot | `MOONSHOT_API_KEY` | trial credit |
+
+All except Gemini speak the OpenAI chat-completions shape, so they differ only
+by base URL and model name. With `LLM_PROVIDER` unset they are tried in
+preference order, which makes a second key a fallback rather than a conflict.
 
 A truly keyless option was tried and rejected. `text.pollinations.ai` answered
 three trivial prompts in a row, then failed all six realistic knowledge-base
@@ -340,6 +349,27 @@ those go to a person — and it stays quiet when nothing matches rather than
 guessing. Capped at 8 replies per contact per hour, because the other end may
 be a bot too, and two auto-repliers will happily talk to each other. Every
 reply is logged with the entries it used.
+
+
+## Internal assistant
+
+`/assistant` is the operator's own bot — for the owner and their staff, not for
+customers. Threads live on the server, so a conversation survives a reload and
+follows the user between devices; memory that only exists in a browser tab is
+not memory.
+
+Every request carries a snapshot of the account: WhatsApp connection, today's
+allowance and what is left of it, campaign counts by status, lists and
+contacts, the last seven days of sent/failed/delivered/read, leads by source
+and how many are marked interested, scheduled and sent follow-ups, knowledge
+entries, opt-outs. The "ما يعرفه" button shows that snapshot verbatim, because
+an assistant that quotes a delivery rate should be checkable against the number
+it was given.
+
+It is told those figures are real and not to invent others — unlike the
+customer-facing replier it may reason freely, since it is talking to the
+business owner rather than their customers, but the facts are supplied rather
+than recalled.
 
 
 ## Sync constraints (important)

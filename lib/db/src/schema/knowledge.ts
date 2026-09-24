@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, varchar, text, boolean, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, varchar, text, boolean, timestamp, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
 // ── Business knowledge ────────────────────────────────────────────
@@ -51,3 +51,21 @@ export const autoReplyLogTable = pgTable("auto_reply_log", {
 
 export type KnowledgeEntry  = typeof knowledgeBaseTable.$inferSelect;
 export type BusinessProfile = typeof businessProfileTable.$inferSelect;
+
+// ── What the bot remembers about a person ─────────────────────────
+// Recent turns come from wa_thread_messages, which is already written on every
+// message — no second copy to drift. This table is the durable part: the few
+// things worth carrying across conversations weeks apart, like which villa
+// they asked about or that they only answer in the evening.
+export const contactMemoryTable = pgTable("contact_memory", {
+  userId:    integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  phone:     varchar("phone", { length: 50 }).notNull(),
+  // [{ fact, source, at }] — kept as a list rather than prose so single facts
+  // can be corrected or dropped without rewriting the lot.
+  facts:     jsonb("facts").notNull().default([]),
+  summary:   text("summary"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [primaryKey({ columns: [t.userId, t.phone] })]);
+
+export interface MemoryFact { fact: string; source?: string; at?: string }
+export type ContactMemory = typeof contactMemoryTable.$inferSelect;

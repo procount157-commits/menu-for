@@ -17,30 +17,57 @@
 
 import { logger } from "./logger";
 
-export type Provider = "gemini" | "groq" | "openrouter" | "pollinations" | "none";
+export type Provider =
+  | "gemini" | "groq" | "openrouter"
+  | "zhipu" | "qwen" | "deepseek" | "moonshot" | "siliconflow"
+  | "pollinations" | "none";
 
 export interface LlmMessage { role: "system" | "user" | "assistant"; content: string }
 export interface LlmResult  { text: string; provider: Provider }
 
-const KEYS = {
-  gemini:     () => process.env["GEMINI_API_KEY"]     ?? "",
-  groq:       () => process.env["GROQ_API_KEY"]       ?? "",
-  openrouter: () => process.env["OPENROUTER_API_KEY"] ?? "",
+const KEYS: Record<string, () => string> = {
+  gemini:      () => process.env["GEMINI_API_KEY"]      ?? "",
+  groq:        () => process.env["GROQ_API_KEY"]        ?? "",
+  openrouter:  () => process.env["OPENROUTER_API_KEY"]  ?? "",
+  zhipu:       () => process.env["ZHIPU_API_KEY"]       ?? "",
+  qwen:        () => process.env["QWEN_API_KEY"]        ?? "",
+  deepseek:    () => process.env["DEEPSEEK_API_KEY"]    ?? "",
+  moonshot:    () => process.env["MOONSHOT_API_KEY"]    ?? "",
+  siliconflow: () => process.env["SILICONFLOW_API_KEY"] ?? "",
 };
 
-const MODELS = {
-  gemini:     process.env["GEMINI_MODEL"]     ?? "gemini-2.0-flash",
-  groq:       process.env["GROQ_MODEL"]       ?? "llama-3.3-70b-versatile",
-  openrouter: process.env["OPENROUTER_MODEL"] ?? "meta-llama/llama-3.3-70b-instruct:free",
+// Everything except Gemini speaks the OpenAI chat-completions shape, so they
+// differ only by base URL and model name.
+const OPENAI_COMPATIBLE: Record<string, { url: string; model: string }> = {
+  groq:        { url: "https://api.groq.com/openai/v1/chat/completions",
+                 model: process.env["GROQ_MODEL"] ?? "llama-3.3-70b-versatile" },
+  openrouter:  { url: "https://openrouter.ai/api/v1/chat/completions",
+                 model: process.env["OPENROUTER_MODEL"] ?? "meta-llama/llama-3.3-70b-instruct:free" },
+  // Zhipu's GLM-4-Flash is free outright rather than trial credit.
+  zhipu:       { url: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+                 model: process.env["ZHIPU_MODEL"] ?? "glm-4-flash" },
+  qwen:        { url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                 model: process.env["QWEN_MODEL"] ?? "qwen-turbo" },
+  deepseek:    { url: "https://api.deepseek.com/v1/chat/completions",
+                 model: process.env["DEEPSEEK_MODEL"] ?? "deepseek-chat" },
+  moonshot:    { url: "https://api.moonshot.cn/v1/chat/completions",
+                 model: process.env["MOONSHOT_MODEL"] ?? "moonshot-v1-8k" },
+  siliconflow: { url: "https://api.siliconflow.cn/v1/chat/completions",
+                 model: process.env["SILICONFLOW_MODEL"] ?? "Qwen/Qwen2.5-7B-Instruct" },
 };
+
+const GEMINI_MODEL = process.env["GEMINI_MODEL"] ?? "gemini-2.0-flash";
 
 /** Which provider will be used, given what is configured. */
+// Tried in order when LLM_PROVIDER is not set. Free-and-reliable first.
+const PREFERENCE: Provider[] = [
+  "gemini", "zhipu", "groq", "qwen", "siliconflow", "openrouter", "deepseek", "moonshot",
+];
+
 export function activeProvider(): Provider {
   const explicit = (process.env["LLM_PROVIDER"] ?? "").toLowerCase() as Provider;
   if (explicit && explicit !== "none") return explicit;
-  if (KEYS.gemini())     return "gemini";
-  if (KEYS.groq())       return "groq";
-  if (KEYS.openrouter()) return "openrouter";
+  for (const p of PREFERENCE) if (KEYS[p]?.()) return p;
   if (process.env["ALLOW_POLLINATIONS"] === "true") return "pollinations";
   return "none";
 }
@@ -52,9 +79,14 @@ export function providerStatus() {
     configured: p !== "none",
     // Named so the UI can tell the owner exactly what to go and get.
     options: [
-      { id: "gemini",     label: "Google Gemini", url: "https://aistudio.google.com/apikey", env: "GEMINI_API_KEY", note: "الأفضل للعربية، طبقة مجانية سخية" },
-      { id: "groq",       label: "Groq",          url: "https://console.groq.com/keys",      env: "GROQ_API_KEY",   note: "الأسرع، طبقة مجانية" },
-      { id: "openrouter", label: "OpenRouter",    url: "https://openrouter.ai/keys",         env: "OPENROUTER_API_KEY", note: "نماذج مجانية متعددة" },
+      { id: "gemini",      label: "Google Gemini",       url: "https://aistudio.google.com/apikey",         env: "GEMINI_API_KEY",      note: "الأفضل للعربية، طبقة مجانية سخية", region: "عالمي" },
+      { id: "zhipu",       label: "Zhipu GLM-4-Flash",   url: "https://open.bigmodel.cn/usercenter/apikeys", env: "ZHIPU_API_KEY",      note: "مجاني بالكامل، صيني", region: "صيني" },
+      { id: "qwen",        label: "Qwen (علي بابا)",      url: "https://dashscope.console.aliyun.com/apiKey", env: "QWEN_API_KEY",       note: "حصة مجانية، عربية جيدة", region: "صيني" },
+      { id: "siliconflow", label: "SiliconFlow",         url: "https://cloud.siliconflow.cn/account/ak",    env: "SILICONFLOW_API_KEY", note: "نماذج مجانية متعددة", region: "صيني" },
+      { id: "deepseek",    label: "DeepSeek",            url: "https://platform.deepseek.com/api_keys",     env: "DEEPSEEK_API_KEY",    note: "رصيد تجريبي ثم رخيص جداً", region: "صيني" },
+      { id: "moonshot",    label: "Moonshot Kimi",       url: "https://platform.moonshot.cn/console/api-keys", env: "MOONSHOT_API_KEY", note: "رصيد تجريبي", region: "صيني" },
+      { id: "groq",        label: "Groq",                url: "https://console.groq.com/keys",              env: "GROQ_API_KEY",        note: "الأسرع، طبقة مجانية", region: "عالمي" },
+      { id: "openrouter",  label: "OpenRouter",          url: "https://openrouter.ai/keys",                 env: "OPENROUTER_API_KEY",  note: "نماذج مجانية متعددة", region: "عالمي" },
     ],
   };
 }
@@ -72,7 +104,7 @@ async function callGemini(messages: LlmMessage[], timeoutMs: number): Promise<st
   const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
   const rest   = messages.filter((m) => m.role !== "system");
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODELS.gemini}:generateContent?key=${KEYS.gemini()}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${KEYS.gemini!()}`,
     {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -130,12 +162,15 @@ export async function complete(messages: LlmMessage[], timeoutMs = 20_000): Prom
 
   try {
     let text = "";
-    switch (provider) {
-      case "gemini":     text = await callGemini(messages, timeoutMs); break;
-      case "groq":       text = await callOpenAiCompatible("https://api.groq.com/openai/v1/chat/completions", KEYS.groq(), MODELS.groq, messages, timeoutMs); break;
-      case "openrouter": text = await callOpenAiCompatible("https://openrouter.ai/api/v1/chat/completions", KEYS.openrouter(), MODELS.openrouter, messages, timeoutMs); break;
-      case "pollinations": text = await callPollinations(messages, timeoutMs); break;
-      default: return null;
+    if (provider === "gemini") {
+      text = await callGemini(messages, timeoutMs);
+    } else if (provider === "pollinations") {
+      text = await callPollinations(messages, timeoutMs);
+    } else {
+      const cfg = OPENAI_COMPATIBLE[provider];
+      const key = KEYS[provider]?.() ?? "";
+      if (!cfg || !key) return null;
+      text = await callOpenAiCompatible(cfg.url, key, cfg.model, messages, timeoutMs);
     }
     if (!text) return null;
     return { text, provider };
