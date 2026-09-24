@@ -353,6 +353,7 @@ sentence:
 
 | | | |
 |---|---|---|
+| Claude | `ANTHROPIC_API_KEY` | paid per token — see the note below |
 | Gemini | `GEMINI_API_KEY` | best Arabic, generous free tier |
 | Zhipu GLM | `ZHIPU_API_KEY` | `glm-4-flash` is free outright, not trial credit |
 | Groq | `GROQ_API_KEY` | fastest |
@@ -362,8 +363,29 @@ sentence:
 | DeepSeek | `DEEPSEEK_API_KEY` | trial credit, then very cheap |
 | Moonshot | `MOONSHOT_API_KEY` | trial credit |
 
-All except Gemini speak the OpenAI chat-completions shape, so they differ only
-by base URL and model name. With `LLM_PROVIDER` unset they are tried in
+All except Claude and Gemini speak the OpenAI chat-completions shape, so those
+differ only by base URL and model name; Claude and Gemini each have their own
+request shape.
+
+**A claude.ai Pro or Max subscription is not API access.** It covers claude.ai
+and Claude Code for interactive use and grants no API credits — the API is
+billed separately per token through the Anthropic Console. Even where a
+subscription session could technically be routed through, its limits are built
+for a person at a keyboard, not a server answering customers.
+
+Cost is small for this workload. Assuming ~1,000 input tokens (knowledge-base
+context plus the question) and ~120 output tokens per reply:
+
+| model | per 1,000 replies | with prompt caching |
+|---|---|---|
+| `claude-haiku-4-5` | $1.60 | $0.70 |
+| `claude-sonnet-5` | $3.20 | $1.40 |
+| `claude-opus-5` (default) | $8.00 | $3.50 |
+
+Caching applies well here because the knowledge-base prefix is identical
+between requests, which is the case prompt caching exists for. `ANTHROPIC_MODEL`
+overrides the default; for a reply bot, Haiku is usually enough, since answers
+are short and grounded rather than reasoned from scratch. With `LLM_PROVIDER` unset they are tried in
 preference order, which makes a second key a fallback rather than a conflict.
 
 A truly keyless option was tried and rejected. `text.pollinations.ai` answered

@@ -18,7 +18,7 @@
 import { logger } from "./logger";
 
 export type Provider =
-  | "gemini" | "groq" | "openrouter"
+  | "anthropic" | "gemini" | "groq" | "openrouter"
   | "zhipu" | "qwen" | "deepseek" | "moonshot" | "siliconflow"
   | "pollinations" | "none";
 
@@ -26,6 +26,7 @@ export interface LlmMessage { role: "system" | "user" | "assistant"; content: st
 export interface LlmResult  { text: string; provider: Provider }
 
 const KEYS: Record<string, () => string> = {
+  anthropic:   () => process.env["ANTHROPIC_API_KEY"]   ?? "",
   gemini:      () => process.env["GEMINI_API_KEY"]      ?? "",
   groq:        () => process.env["GROQ_API_KEY"]        ?? "",
   openrouter:  () => process.env["OPENROUTER_API_KEY"]  ?? "",
@@ -58,10 +59,16 @@ const OPENAI_COMPATIBLE: Record<string, { url: string; model: string }> = {
 
 const GEMINI_MODEL = process.env["GEMINI_MODEL"] ?? "gemini-2.0-flash";
 
+// Claude is not OpenAI-compatible — its own request shape, below.
+const ANTHROPIC_MODEL  = process.env["ANTHROPIC_MODEL"]  ?? "claude-opus-5";
+// Short, knowledge-grounded replies do not need deep reasoning, and effort is
+// the main cost lever within one model. Raise it if answers come out thin.
+const ANTHROPIC_EFFORT = process.env["ANTHROPIC_EFFORT"] ?? "low";
+
 /** Which provider will be used, given what is configured. */
 // Tried in order when LLM_PROVIDER is not set. Free-and-reliable first.
 const PREFERENCE: Provider[] = [
-  "gemini", "zhipu", "groq", "qwen", "siliconflow", "openrouter", "deepseek", "moonshot",
+  "anthropic", "gemini", "zhipu", "groq", "qwen", "siliconflow", "openrouter", "deepseek", "moonshot",
 ];
 
 export function activeProvider(): Provider {
@@ -79,6 +86,7 @@ export function providerStatus() {
     configured: p !== "none",
     // Named so the UI can tell the owner exactly what to go and get.
     options: [
+      { id: "anthropic",   label: "Claude (Anthropic)",  url: "https://console.anthropic.com/settings/keys", env: "ANTHROPIC_API_KEY",  note: "مدفوع بالتوكن — اشتراك claude.ai لا يصلح، الـAPI منفصل", region: "عالمي" },
       { id: "gemini",      label: "Google Gemini",       url: "https://aistudio.google.com/apikey",         env: "GEMINI_API_KEY",      note: "الأفضل للعربية، طبقة مجانية سخية", region: "عالمي" },
       { id: "zhipu",       label: "Zhipu GLM-4-Flash",   url: "https://open.bigmodel.cn/usercenter/apikeys", env: "ZHIPU_API_KEY",      note: "مجاني بالكامل، صيني", region: "صيني" },
       { id: "qwen",        label: "Qwen (علي بابا)",      url: "https://dashscope.console.aliyun.com/apiKey", env: "QWEN_API_KEY",       note: "حصة مجانية، عربية جيدة", region: "صيني" },
@@ -117,6 +125,45 @@ async function callGemini(messages: LlmMessage[], timeoutMs: number): Promise<st
   if (!res.ok) throw new Error(`gemini ${res.status}: ${(await res.text()).slice(0, 120)}`);
   const d = await res.json() as any;
   return d?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("").trim() ?? "";
+}
+
+/**
+ * Claude, via the Messages API.
+ *
+ * Not OpenAI-compatible: the system prompt is a top-level field rather than a
+ * message, `max_tokens` is required, and the reply arrives as a list of
+ * content blocks that has to be filtered by type.
+ */
+async function callAnthropic(messages: LlmMessage[], timeoutMs: number): Promise<string> {
+  const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+  const rest   = messages.filter((m) => m.role !== "system");
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": KEYS.anthropic!(),
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: ANTHROPIC_MODEL,
+      max_tokens: 1_024,
+      ...(system ? { system } : {}),
+      output_config: { effort: ANTHROPIC_EFFORT },
+      messages: rest.map((m) => ({ role: m.role, content: m.content })),
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`anthropic ${res.status}: ${(await res.text()).slice(0, 160)}`);
+
+  const d = await res.json() as {
+    content?: Array<{ type: string; text?: string }>;
+    stop_reason?: string;
+  };
+  // A policy decline comes back as a 200 with stop_reason "refusal", so the
+  // reason has to be checked before the content is read.
+  if (d.stop_reason === "refusal") throw new Error("anthropic: الطلب رُفض");
+  return (d.content ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join("").trim();
 }
 
 async function callOpenAiCompatible(
@@ -162,7 +209,9 @@ export async function complete(messages: LlmMessage[], timeoutMs = 20_000): Prom
 
   try {
     let text = "";
-    if (provider === "gemini") {
+    if (provider === "anthropic") {
+      text = await callAnthropic(messages, timeoutMs);
+    } else if (provider === "gemini") {
       text = await callGemini(messages, timeoutMs);
     } else if (provider === "pollinations") {
       text = await callPollinations(messages, timeoutMs);
