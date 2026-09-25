@@ -68,6 +68,16 @@ function checkConnection(userId: number): { findings: MonitorFinding[]; metrics:
     consecutiveSendFailures: health.consecutiveSendFailures ?? 0,
   };
 
+  if (health.awaitingRescanSince) {
+    const mins = minsSince(health.awaitingRescanSince) ?? 0;
+    findings.push({
+      area: "connection", level: "critical",
+      message: `واتساب رفض الاعتمادات ومُسحت تلقائياً قبل ${mins} دقيقة. الجلسة تنتظر مسح رمز جديد.`,
+      action: "افتح صفحة ربط الواتساب وامسح رمز QR — لن يعود للعمل قبل ذلك.",
+    });
+    return { findings, metrics: { ...metrics, awaitingRescan: true } };
+  }
+
   if (!health.connected) {
     findings.push({ area: "connection", level: "critical", message: `واتساب غير متصل (الحالة: ${health.status}).`, action: "افتح صفحة ربط الواتساب — إن استمر، أعد تعيين الجلسة وامسح QR جديداً." });
     return { findings, metrics };

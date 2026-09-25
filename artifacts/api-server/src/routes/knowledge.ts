@@ -147,9 +147,61 @@ router.delete("/entries/:id", async (req, res) => {
  * Accepts either a list of {title, content} or plain text split on blank
  * lines, where the first line of each block becomes the title.
  */
+/**
+ * Bulk add, for pasting an FAQ or a whole document.
+ *
+ * Splitting on blank lines alone turns a Markdown document into one entry per
+ * line: "Company Name:**" becomes a knowledge entry, and the name itself
+ * becomes another. A 500-line document produced 525 fragments that way, of
+ * which 328 were under forty characters and answered nothing. Retrieval then
+ * works perfectly over rubble.
+ *
+ * So headings are treated as headings: a `#` line starts an entry and
+ * everything under it — until the next heading of the same or higher level —
+ * is its content. Documents with no headings fall back to blank-line
+ * paragraphs, which is the right reading for a pasted FAQ.
+ */
+function parseDocument(text: string): Array<{ title: string; content: string }> {
+  const lines = text.replace(/\r/g, "").split("\n");
+  const hasHeadings = lines.some((l) => /^#{1,6}\s+\S/.test(l));
+
+  const clean = (t: string) =>
+    t.replace(/\*\*/g, "").replace(/^[-*•\s]+/, "").replace(/\s+$/, "").trim();
+
+  const out: Array<{ title: string; content: string }> = [];
+
+  if (hasHeadings) {
+    let title = "";
+    let buf: string[] = [];
+    const flush = () => {
+      const content = clean(buf.join("\n"));
+      // A heading with nothing under it is a section divider, not knowledge.
+      if (title && content) out.push({ title: title.slice(0, 255), content });
+      buf = [];
+    };
+    for (const line of lines) {
+      const h = /^(#{1,6})\s+(.*)$/.exec(line);
+      if (h) { flush(); title = clean(h[2] ?? ""); continue; }
+      buf.push(line);
+    }
+    flush();
+  } else {
+    for (const block of text.split(/\n\s*\n/)) {
+      const bl = block.trim().split("\n");
+      const title = clean(bl.shift() ?? "");
+      const content = clean(bl.join("\n")) || title;
+      if (title) out.push({ title: title.slice(0, 255), content });
+    }
+  }
+
+  // Anything this short cannot answer a question; keeping it only dilutes
+  // retrieval, because every entry competes for the same matches.
+  return out.filter((e) => e.content.replace(/\s/g, "").length >= 25);
+}
+
 router.post("/entries/bulk", async (req, res) => {
   const userId = req.session.userId!;
-  const { entries, text } = req.body ?? {};
+  const { entries, text, replace } = req.body ?? {};
 
   let rows: Array<{ title: string; content: string }> = [];
   if (Array.isArray(entries)) {
@@ -157,19 +209,16 @@ router.post("/entries/bulk", async (req, res) => {
       .map((e: any) => ({ title: String(e?.title ?? "").trim(), content: String(e?.content ?? "").trim() }))
       .filter((e) => e.title && e.content);
   } else if (typeof text === "string" && text.trim()) {
-    rows = text.split(/\n\s*\n/).map((block) => {
-      const lines = block.trim().split("\n");
-      const title = (lines.shift() ?? "").replace(/^[-*•\d.\s]+/, "").trim();
-      const content = lines.join("\n").trim() || title;
-      return { title: title.slice(0, 255), content };
-    }).filter((e) => e.title);
+    rows = parseDocument(text);
   }
   if (rows.length === 0) return res.status(400).json({ error: "لا يوجد محتوى صالح" });
+
+  if (replace) await db.delete(knowledgeBaseTable).where(eq(knowledgeBaseTable.userId, userId));
 
   const inserted = await db.insert(knowledgeBaseTable)
     .values(rows.map((r) => ({ userId, ...r })))
     .returning({ id: knowledgeBaseTable.id });
-  res.json({ added: inserted.length });
+  res.json({ added: inserted.length, replaced: !!replace });
 });
 
 // ── Try it ────────────────────────────────────────────────────────

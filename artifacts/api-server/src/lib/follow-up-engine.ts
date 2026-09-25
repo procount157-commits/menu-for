@@ -322,7 +322,8 @@ async function autoReplyIfAppropriate(userId: number, phone: string, text: strin
     return;
   }
 
-  const answer = await answerFromKnowledge(userId, text);
+  // Pass the phone so the reply sees the conversation, not just this line.
+  const answer = await answerFromKnowledge(userId, text, phone);
   if (!answer.reply) {
     await logAutoReply({ userId, phone, incoming: text, intent, skipped: answer.reason ?? "لا رد" });
     return;

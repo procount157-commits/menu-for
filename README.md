@@ -133,6 +133,7 @@ Run the checks:
 
 ```bash
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/storage.test.ts
+pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/session-breaker.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/pacing.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/delivery-health.test.ts
 pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/lib/__tests__/account-health.test.ts
@@ -247,6 +248,42 @@ only و and ف allowed as prefixes on two-letter cues — "وكم" is a question
 "لكم" in "شكرا لكم" is not. Text is normalised first (hamza forms, ta marbuta,
 alef maqsura, diacritics, tatweel, Arabic-Indic digits). Every one of these
 traps is pinned in `intent.test.ts`.
+
+
+## Session recovery
+
+A WhatsApp pairing can stop being usable in two ways that both look like an
+endless reconnect loop from outside, and neither announces itself:
+
+**WhatsApp refuses the pairing.** The socket closes with 401, 403 or 405, and
+Baileys never offers a QR — it can see stored credentials and assumes it should
+restore rather than pair. Retrying identical rejected credentials cannot
+recover. This is the "disconnects and never shows a new QR" symptom exactly:
+not connected, no QR, forever. The only automatic clear-out was on `loggedOut`
+(401), which a 405 never reaches.
+
+**It accepts and drops.** Counting a connection as success the moment it opens
+makes this invisible: a connect-die-connect loop resets the counter on every
+pass. This account logged 48 "connected" events and 35 timeouts in a day with
+nothing ever working.
+
+`lib/session-breaker.ts` decides when to give up on the credentials. Five
+rejections with no connection having *held* in between, or eight connections
+inside fifteen minutes that none of them held, and the auth state is cleared so
+a QR can be issued. "Held" means survived 45 seconds — a connection that dies
+in five is not evidence the credentials are good.
+
+Ordinary drops (408, 428, 515) never count toward this, however often they
+happen: clearing a pairing over a timeout would force a scan for something a
+retry fixes by itself. A manual logout is never repaired over either.
+
+When the breaker fires, `awaitingRescanSince` is set and the monitor reports it
+as critical with the action spelled out, because the system genuinely cannot
+recover without someone scanning.
+
+Observed on a live session: `405 attempt=5` → credentials cleared → `qr_ready`
+→ `515` → connected, with conversations going from 51 to 483 on the history
+sync that followed.
 
 
 ## Bot team

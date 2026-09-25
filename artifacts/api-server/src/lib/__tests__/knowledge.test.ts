@@ -42,17 +42,26 @@ for (const [q, want] of [
   check(q, got === want, `→ ${got ?? "لا شيء"}`);
 }
 
-console.log("\n— أسئلة خارج النطاق: الصواب ألا يجيب —");
+console.log("\n— أسئلة خارج النطاق: يحاور دون أن يخترع —");
+// The bot is a salesperson, so silence is the wrong answer to a question it
+// cannot answer — it should engage and route. What it must never do is invent
+// the missing fact, so that is what these assert. Retrieval still refuses to
+// match (checked separately below); the reply carries no specific claim.
+const INVENTED = /\d+\s*(درهم|ريال|dollar|aed|٪|%)|يوم\s*\d|خلال\s*\d+\s*(يوم|ساعة|اسبوع)/i;
 for (const q of [
-  // Overlaps the pool entry on "خدمة" alone — one word out of four. This was
-  // answered, confidently and wrongly, with the swimming-pool price.
   "هل عندكم خدمة نقل اثاث؟",
   "ممكن تصلحون المكيف؟",
-  "السلام عليكم",
   "كم عمر الشركة؟",
 ] as const) {
   const a = await answerFromKnowledge(USER, q);
-  check(q, a.reply === null, a.reply ? `أجاب خطأً: ${a.reply.slice(0, 40)}` : `رفض (${a.reason})`);
+  const invented = a.reply ? INVENTED.test(a.reply) : false;
+  check(q, !invented, a.reply ? (invented ? `اخترع: ${a.reply.slice(0, 50)}` : "حاور بلا اختراع") : "صامت");
+}
+
+// Retrieval itself must still find nothing for these — the reply engages on
+// the profile, not on a wrongly-matched entry.
+for (const q of ["هل عندكم خدمة نقل اثاث؟", "ممكن تصلحون المكيف؟"] as const) {
+  check(`  الاسترجاع لا يُطابق: ${q.slice(0, 22)}`, (await retrieve(USER, q)).length === 0);
 }
 
 console.log("\n— الكلمات المفتاحية —");

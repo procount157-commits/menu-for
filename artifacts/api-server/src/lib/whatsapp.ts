@@ -10,6 +10,7 @@ import { logger as appLogger } from "./logger";
 import { and, eq, sql, desc } from "drizzle-orm";
 import { db, waAuthStateTable, waSessionEventsTable, usersTable, incomingMessagesTable, contactsTable, unsubscribedPhonesTable, waContactsTable, waConversationsTable, waThreadMessagesTable, waSyncStateTable, messageLogs, campaignsTable, campaignButtonResponsesTable } from "@workspace/db";
 import { useDatabaseAuthState, migrateSessionFilesToDb } from "./wa-auth-state";
+import { assessSession, isRejection, STABLE_AFTER_MS, FLAP_WINDOW_MS } from "./session-breaker";
 import path from "path";
 import fs from "fs";
 import qrcode from "qrcode";
@@ -17,6 +18,8 @@ import { getObjectBuffer, objectNameFromUrl } from "./storage";
 
 
 export const BASE_SESSION_DIR = path.resolve(process.cwd(), "whatsapp-session");
+
+
 
 // ── WhatsApp Web version ──────────────────────────────────────────
 // A stale client version makes the WA handshake fail with HTTP 405 before a QR
@@ -256,6 +259,23 @@ class WhatsAppInstance {
    * distinguishes "quiet" from "no longer receiving".
    */
   lastInboundMessageAt: Date | null = null;
+
+  // ── Re-pair circuit breaker ───────────────────────────────────
+  // Credentials can stop being acceptable to WhatsApp without the session ever
+  // being "logged out": the socket closes with 405 and Baileys, seeing stored
+  // credentials, never offers a QR. Retrying identical rejected credentials
+  // cannot recover, so the loop runs for ever — which is exactly the
+  // "disconnects and never shows a new QR" symptom.
+  //
+  // Counted only while no connection has *held*. A connect that dies within
+  // seconds must not reset this, or a connect-die-connect loop resets the
+  // counter on every pass and the breaker never trips.
+  private failuresSinceStable = 0;
+  private lastStableAt: Date | null = null;
+  /** Start times of recent connections, for detecting flapping. */
+  private recentConnects: number[] = [];
+  /** Set when the breaker cleared credentials; means a fresh scan is required. */
+  awaitingRescanSince: Date | null = null;
 
   // ── Session Guardian tracking ─────────────────────────────────────
   /** Timestamp of the last message that was successfully sent to WA servers */
@@ -581,6 +601,8 @@ class WhatsAppInstance {
       lastActivityAt:        this.lastActivityAt.toISOString(),
       lastEventAt:           this.lastEventReceivedAt.toISOString(),
       lastInboundAt:         this.lastInboundMessageAt?.toISOString() ?? null,
+      awaitingRescanSince:   this.awaitingRescanSince?.toISOString() ?? null,
+      lastStableAt:          this.lastStableAt?.toISOString() ?? null,
       lastSuccessfulSendAt:  this.lastSuccessfulSendAt?.toISOString() ?? null,
       consecutiveSendFailures: this.consecutiveSendFailures,
     };
@@ -1371,6 +1393,24 @@ class WhatsAppInstance {
       }
 
       if (connection === "open") {
+        // Deliberately does NOT clear failuresSinceStable. A connection that
+        // dies seconds later is not evidence the credentials are good, and
+        // clearing here is what let a connect-die loop run indefinitely — 48
+        // "connected" events in a day with nothing ever working.
+        const openedAt = Date.now();
+        this.recentConnects.push(openedAt);
+        this.recentConnects = this.recentConnects.filter((t) => openedAt - t < FLAP_WINDOW_MS);
+
+        setTimeout(() => {
+          // Still the same socket, still up: the pairing is genuinely fine.
+          if (this.socketGeneration === myGen && this.state.connected) {
+            this.failuresSinceStable = 0;
+            this.recentConnects = [];
+            this.lastStableAt = new Date();
+          }
+        }, STABLE_AFTER_MS);
+
+        this.awaitingRescanSince     = null;
         this.loggedOutRetries        = 0;
         this.qrCycleCount            = 0;     // ← reset QR cycle counter on successful auth
         this.consecutiveReconnectFails = 0;   // ← reset backoff counter on success
@@ -1425,6 +1465,49 @@ class WhatsAppInstance {
         this.stopKeepAlive();
 
         this.log.info({ reason, gen: myGen }, "Connection closed");
+
+        // ── Dead-credential breaker ───────────────────────────────
+        // Two ways a session becomes unrecoverable without ever saying so:
+        // WhatsApp refuses the pairing (401/403/405, and no QR is offered
+        // because credentials exist), or it accepts and drops repeatedly so
+        // nothing ever holds. Both loop for ever on retries alone.
+        if (isRejection(reason)) this.failuresSinceStable++;
+
+        const verdict = assessSession({
+          reason,
+          failuresSinceStable: this.failuresSinceStable,
+          recentConnects: this.recentConnects,
+          manualLogout: this.manualLogout,
+        });
+
+        if (verdict.repair) {
+          const why = verdict.reason ?? "الجلسة غير قابلة للاستخدام";
+
+          this.log.error({ reason, failuresSinceStable: this.failuresSinceStable, connects: this.recentConnects.length },
+            "credentials unusable — clearing them so a QR can be issued");
+          await this.logEvent("auto_repair", why);
+
+          this.failuresSinceStable = 0;
+          this.recentConnects = [];
+          this.qrCycleCount = 0;
+          this.loggedOutRetries = 0;
+          this.consecutiveReconnectFails = 0;
+
+          // Clearing is the whole point: Baileys only offers a QR when there
+          // is nothing to restore. Without this the loop never reaches pairing.
+          try {
+            await db.delete(waAuthStateTable).where(eq(waAuthStateTable.userId, this.userId));
+            try { fs.rmSync(this.sessionDir, { recursive: true, force: true }); } catch {}
+          } catch (err) {
+            this.log.error({ err }, "could not clear auth state");
+          }
+
+          this.awaitingRescanSince = new Date();
+          this.state.status = "disconnected";
+          this.state.qr = null;
+          this.scheduleReconnect(3_000);   // comes back up needing a scan
+          return;
+        }
 
         if (this.manualLogout) {
           this.state.status = "disconnected";
