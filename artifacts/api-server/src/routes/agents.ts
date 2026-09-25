@@ -12,6 +12,7 @@ import {
 import { requireAuth } from "../lib/auth";
 import { remember, forget } from "../lib/agent-memory";
 import { runRoutine, ROUTINE_TEMPLATES } from "../lib/agent-routines";
+import { seedSkills, resetSkill, LIBRARY } from "../lib/skills";
 
 const router = Router();
 router.use(requireAuth);
@@ -114,6 +115,17 @@ router.get("/skills", async (req, res) => {
     ...s,
     heldBy: grants.filter((g) => g.skillId === s.id).map((g) => g.role),
   })));
+});
+
+/** Install the built-in library, leaving anything the owner has edited alone. */
+router.post("/skills/seed", async (req, res) =>
+  res.json({ ...(await seedSkills(req.session.userId!)), library: LIBRARY.map((s) => s.name) }));
+
+/** Discard an edit and go back to the library text. */
+router.post("/skills/:name/reset", async (req, res) => {
+  const ok = await resetSkill(req.session.userId!, decodeURIComponent(req.params.name!));
+  if (!ok) return res.status(404).json({ error: "هذه المهارة ليست من المكتبة" });
+  res.json({ ok: true });
 });
 
 router.post("/skills", async (req, res) => {
