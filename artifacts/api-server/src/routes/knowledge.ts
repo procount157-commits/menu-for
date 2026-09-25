@@ -4,6 +4,7 @@ import { db, knowledgeBaseTable, businessProfileTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
 import { retrieve, answerFromKnowledge, getProfile, recentAutoReplies } from "../lib/knowledge";
 import { providerStatus, providerStatusAsync, complete, activeProvider, resolveProvider, invalidateStoredProvider } from "../lib/llm";
+import { healthReport } from "../lib/llm-health";
 import { db as _db } from "@workspace/db";
 import { llmSettingsTable } from "@workspace/db";
 
@@ -12,6 +13,15 @@ router.use(requireAuth);
 
 // ── Which model, if any ───────────────────────────────────────────
 router.get("/provider", async (_req, res) => res.json(await providerStatusAsync()));
+
+/**
+ * What each model has actually been doing, best first.
+ *
+ * Worth surfacing rather than keeping in the logs: when a reply is slow or
+ * missing, this is the answer, and it is the only place the owner can see that
+ * the provider they picked is the one in cooldown.
+ */
+router.get("/provider/health", async (_req, res) => res.json(await healthReport()));
 
 /**
  * Store a provider key.

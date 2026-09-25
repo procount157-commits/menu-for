@@ -18,6 +18,7 @@
 import { and, eq } from "drizzle-orm";
 import { db, llmSettingsTable } from "@workspace/db";
 import { logger } from "./logger";
+import { rank, recordOk, recordFail, type Candidate } from "./llm-health";
 
 export type Provider =
   | "anthropic" | "gemini" | "groq" | "openrouter"
@@ -41,11 +42,23 @@ const KEYS: Record<string, () => string> = {
 
 // Everything except Gemini speaks the OpenAI chat-completions shape, so they
 // differ only by base URL and model name.
+// 400 was cutting real replies off mid-word: a sales reply that understands the
+// customer's situation and asks two questions runs to roughly 500 tokens in
+// Arabic, and gpt-oss-120b's answer in the benchmark ended on a bare "أ".
+// This is a ceiling, not a target — the prompt asks for brevity, and a model
+// that finishes early costs nothing.
+const MAX_OUTPUT_TOKENS = 800;
+
 const OPENAI_COMPATIBLE: Record<string, { url: string; model: string }> = {
+  // llama-3.3-70b-versatile was the default here and Groq no longer serves it.
   groq:        { url: "https://api.groq.com/openai/v1/chat/completions",
-                 model: process.env["GROQ_MODEL"] ?? "llama-3.3-70b-versatile" },
+                 model: process.env["GROQ_MODEL"] ?? "qwen/qwen3.8-27b" },
+  // Not one of OpenRouter's headline free models: qwen3.8-27b:free,
+  // gemma-4-31b-it:free and gemma-4-26b:free each failed 3/3 with a permanent
+  // upstream 429, and dots-3-note-preview writes English words into the middle
+  // of Arabic sentences. ling-3.0-flash-fin answered 3/3 in fluent Gulf Arabic.
   openrouter:  { url: "https://openrouter.ai/api/v1/chat/completions",
-                 model: process.env["OPENROUTER_MODEL"] ?? "meta-llama/llama-3.3-70b-instruct:free" },
+                 model: process.env["OPENROUTER_MODEL"] ?? "inclusionai/ling-3.0-flash-fin:free" },
   // Zhipu's GLM-4-Flash is free outright rather than trial credit.
   zhipu:       { url: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
                  model: process.env["ZHIPU_MODEL"] ?? "glm-4-flash" },
@@ -173,7 +186,7 @@ async function callGemini(messages: LlmMessage[], timeoutMs: number, apiKey: str
       body: JSON.stringify({
         ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
         contents: rest.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-        generationConfig: { temperature: 0.4, maxOutputTokens: 400 },
+        generationConfig: { temperature: 0.4, maxOutputTokens: MAX_OUTPUT_TOKENS },
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -224,15 +237,36 @@ async function callAnthropic(messages: LlmMessage[], timeoutMs: number, apiKey: 
 async function callOpenAiCompatible(
   url: string, key: string, model: string, messages: LlmMessage[], timeoutMs: number,
 ): Promise<string> {
+  const body: Record<string, unknown> = {
+    model, messages, temperature: 0.4, max_tokens: MAX_OUTPUT_TOKENS,
+  };
+
+  // Several of OpenRouter's free models are reasoning models, and they spend
+  // the whole budget thinking. ling-3.0-flash-fin produced 910 reasoning tokens
+  // and an empty `content` with finish_reason "length" — a silent failure that
+  // looked like an outage. Switching reasoning off returns a full answer inside
+  // 400 tokens. `reasoning.exclude` is not the same thing: it hides the
+  // thinking from the response while still paying for it.
+  if (url.includes("openrouter.ai")) body["reasoning"] = { enabled: false };
+
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages, temperature: 0.4, max_tokens: 400 }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`${model} ${res.status}: ${(await res.text()).slice(0, 120)}`);
+
   const d = await res.json() as any;
-  return d?.choices?.[0]?.message?.content?.trim() ?? "";
+  const choice = d?.choices?.[0];
+  const text = choice?.message?.content?.trim() ?? "";
+
+  // Empty content with a "length" finish is the reasoning trap above. Say so,
+  // rather than letting it be filed as an unexplained empty reply.
+  if (!text && choice?.finish_reason === "length") {
+    throw new Error(`${model}: استهلك الحد كله في التفكير ولم يُنتج رداً`);
+  }
+  return text;
 }
 
 async function callPollinations(messages: LlmMessage[], timeoutMs: number): Promise<string> {
@@ -282,6 +316,27 @@ function isTransient(err: unknown): boolean {
 }
 
 /**
+ * Models worth trying beyond the one the account picked, best first.
+ *
+ * Measured on this account's own sales task, 2026-09-25. Latency is the median
+ * of the benchmark run; the notes are why each one is where it is.
+ */
+const EXTRA_MODELS: Record<string, string[]> = {
+  // 1.3s, and the only model that stated the pricing rule back — "التسعير
+  // يعتمد على تفاصيل نشاطك" — instead of inventing a number.
+  groq: ["qwen/qwen3.8-27b", "openai/gpt-oss-20b", "openai/gpt-oss-120b"],
+  openrouter: ["inclusionai/ling-3.0-flash-fin:free"],
+};
+
+// Excluded deliberately, so nobody adds them back by guessing:
+//   groq/allam-2-7b — fastest of all at 0.7s, and asked a contracting company
+//     about stock levels, point-of-sale and food costs. It had picked up the
+//     restaurant entries in the knowledge base and applied them to the wrong
+//     customer, which is worse than being slow.
+//   openrouter/dots-studio/dots-3-note-preview:free — 7.7s and writes
+//     "الم registrered" and "ضريبةporate tax".
+
+/**
  * Ask a model, and keep asking until one answers.
  *
  * One provider used to mean one attempt: Gemini returned 503 "experiencing
@@ -289,10 +344,10 @@ function isTransient(err: unknown): boolean {
  * either silence or a raw knowledge-base entry. A free tier is busy often
  * enough that this has to be the normal path, not an incident.
  *
- * The order is deliberate. The account's chosen provider goes first and is
- * given a second try, because a 503 on a free tier frequently clears within a
- * second. After that, any other provider the account has a key for. Last is
- * pollinations, which needs no key at all — so the chain never runs out.
+ * The order is no longer hand-written. Candidates are ranked by what they have
+ * actually been doing — see llm-health.ts — with the account's own choice
+ * first unless it is in cooldown. pollinations stays last and keyless, so the
+ * chain never runs out.
  */
 export async function complete(messages: LlmMessage[], timeoutMs = 20_000): Promise<LlmResult | null> {
   const resolved = await resolveProvider();
@@ -301,39 +356,58 @@ export async function complete(messages: LlmMessage[], timeoutMs = 20_000): Prom
   // per-provider lookups below read through this rather than process.env.
   const keyFor = (id: string) => (id === resolved.provider ? resolved.apiKey : (KEYS[id]?.() ?? ""));
 
-  const chain: Array<{ provider: Provider; model: string; apiKey: string; attempts: number }> = [
-    { provider: resolved.provider, model: resolved.model ?? "", apiKey: resolved.apiKey, attempts: 2 },
-  ];
-  for (const id of Object.keys(KEYS) as Provider[]) {
-    if (id === resolved.provider) continue;
-    const k = keyFor(id);
-    if (k) chain.push({ provider: id, model: "", apiKey: k, attempts: 1 });
+  const pinnedModel = resolved.model || OPENAI_COMPATIBLE[resolved.provider]?.model || "";
+  const seen = new Set<string>();
+  const candidates: Candidate[] = [];
+  const add = (provider: string, model: string, apiKey: string) => {
+    const k = `${provider}|${model}`;
+    if (!apiKey && provider !== "pollinations") return;
+    if (seen.has(k)) return;
+    seen.add(k);
+    candidates.push({ provider, model, apiKey });
+  };
+
+  add(resolved.provider, pinnedModel, resolved.apiKey);
+  for (const id of Object.keys(KEYS)) {
+    const key = keyFor(id);
+    if (!key) continue;
+    add(id, OPENAI_COMPATIBLE[id]?.model ?? "", key);
+    for (const m of EXTRA_MODELS[id] ?? []) add(id, m, key);
   }
-  // Keyless, so it is always reachable. Only as a last resort: it is slower
-  // and less capable than anything above it.
-  if (resolved.provider !== "pollinations") {
-    chain.push({ provider: "pollinations", model: "", apiKey: "", attempts: 1 });
-  }
+  // Keyless, so always reachable — and last, because it is slower and less
+  // capable than anything above it.
+  add("pollinations", "", "");
+
+  const ordered = await rank(candidates, { provider: resolved.provider, model: pinnedModel });
 
   let lastErr = "";
-  for (const step of chain) {
-    for (let attempt = 1; attempt <= step.attempts; attempt++) {
+  for (const step of ordered) {
+    // Two tries at the account's own choice, one at everything else: a 503 on
+    // a free tier often clears within a second, but spending two timeouts on
+    // each of eight candidates would take minutes.
+    const attempts = step.provider === resolved.provider && step.model === pinnedModel ? 2 : 1;
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      const t0 = Date.now();
       try {
         const text = await callOne(step.provider, step.model, step.apiKey, messages, timeoutMs);
         if (!text) throw new Error("رد فارغ");
-        if (step.provider !== resolved.provider) {
-          logger.info({ primary: resolved.provider, answered: step.provider }, "المزوّد الأساسي تعذّر — أجاب بديل");
+        await recordOk(step.provider, step.model, Date.now() - t0);
+        if (step.provider !== resolved.provider || step.model !== pinnedModel) {
+          logger.info({ pinned: `${resolved.provider}/${pinnedModel}`, answered: `${step.provider}/${step.model}` },
+            "الخيار المفضّل تعذّر — أجاب بديل");
         }
-        return { text, provider: step.provider };
+        return { text, provider: step.provider as Provider };
       } catch (err: any) {
         lastErr = String(err?.message ?? err).slice(0, 160);
+        await recordFail(step.provider, step.model, lastErr);
         const transient = isTransient(err);
-        logger.warn({ provider: step.provider, attempt, transient, err: lastErr }, "LLM call failed");
+        logger.warn({ provider: step.provider, model: step.model, attempt, transient, err: lastErr }, "LLM call failed");
         // A key or model problem will not fix itself on a retry.
         if (!transient) break;
       }
     }
   }
-  logger.error({ tried: chain.map((c) => c.provider), lastErr }, "كل المزوّدين تعذّروا");
+  logger.error({ tried: ordered.map((c) => `${c.provider}/${c.model}`), lastErr }, "كل المزوّدين تعذّروا");
   return null;
 }
