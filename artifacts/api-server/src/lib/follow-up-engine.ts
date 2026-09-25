@@ -23,6 +23,7 @@ import { detectAutoresponder } from "./autoresponder";
 import { route, personaPreamble, agentJob } from "./agent-router";
 import { memoryPreamble, learnFromOutcome } from "./agent-memory";
 import { skillsFor, skillsPreamble } from "./agent-skills";
+import { inboxPreamble } from "./agent-comms";
 import { sendMessage, getStatus, registerInboundHook, registerOnConnectHook } from "./whatsapp";
 import { provisionOnConnect } from "./provision";
 
@@ -371,11 +372,12 @@ async function autoReplyIfAppropriate(userId: number, phone: string, text: strin
   // because none of it depends on the others.
   let voice: string | undefined;
   if (routing) {
-    const [memory, skills] = await Promise.all([
+    const [memory, skills, inbox] = await Promise.all([
       memoryPreamble(userId, routing.agent.role),
       skillsFor(userId, routing.agent.role, intent),
+      inboxPreamble(userId, routing.agent.role, phone),
     ]);
-    voice = [personaPreamble(routing), skillsPreamble(skills), memory]
+    voice = [personaPreamble(routing), skillsPreamble(skills), memory, inbox]
       .filter(Boolean).join("\n\n");
   }
 

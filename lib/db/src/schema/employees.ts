@@ -171,3 +171,23 @@ export type AgentMemory  = typeof agentMemoryTable.$inferSelect;
 export type AgentTask    = typeof agentTasksTable.$inferSelect;
 export type AgentSkill   = typeof agentSkillsTable.$inferSelect;
 export type AgentRoutine = typeof agentRoutinesTable.$inferSelect;
+
+// ── What the employees say to each other ──────────────────────────
+// A handoff is an event: it records that a conversation moved and why. This is
+// the sentence that goes with it — what the outgoing employee knew that the
+// incoming one needs, a directive from the manager, an alert from operations.
+export const agentMessagesTable = pgTable("agent_messages", {
+  id:        serial("id").primaryKey(),
+  userId:    integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  fromRole:  varchar("from_role", { length: 30 }).notNull(),
+  /** NULL addresses the whole team — a notice rather than a message. */
+  toRole:    varchar("to_role", { length: 30 }),
+  kind:      varchar("kind", { length: 20 }).notNull().default("report"),
+  body:      text("body").notNull(),
+  phone:     varchar("phone", { length: 50 }),
+  /** Set when the recipient actually used it, which is the only "read" that means anything for a bot. */
+  readAt:    timestamp("read_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("idx_agent_messages").on(t.userId, t.createdAt)]);
+
+export type AgentMessage = typeof agentMessagesTable.$inferSelect;

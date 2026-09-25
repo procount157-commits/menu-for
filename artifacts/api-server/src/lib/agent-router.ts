@@ -21,6 +21,7 @@ import {
 } from "@workspace/db";
 import type { Intent } from "./intent";
 import { logger } from "./logger";
+import { briefColleague } from "./agent-comms";
 
 export type Agent = BotEmployee & { specialties: string[] };
 
@@ -139,6 +140,15 @@ export async function handOver(
   await claim(userId, phone, toRole);
   await db.insert(agentHandoffsTable).values({ userId, phone, fromRole, toRole, reason });
   logger.info({ userId, phone, fromRole, toRole, reason }, "conversation handed to another agent");
+
+  // The briefing costs a model call, so it must not delay the reply the
+  // customer is waiting on. It lands a second later and is read on the turn
+  // after — which is the right moment anyway, since the agent taking over is
+  // about to answer from the transcript it can already see.
+  if (fromRole) {
+    void briefColleague(userId, phone, fromRole, toRole, reason).catch((err) =>
+      logger.warn({ userId, phone, err: String(err?.message ?? err) }, "تعذّرت كتابة ملاحظة التسليم"));
+  }
 }
 
 // What each role is actually for. A support agent handed the salesperson's

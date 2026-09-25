@@ -24,6 +24,18 @@ check("...and asks for a reconnect", kinds(d).includes("reconnect"));
 check("...and holds sending, so attempts are not burnt on a dead socket",
   kinds(d).includes("hold"));
 
+// "connecting" is the officer's own reconnect in progress, not an outage.
+d = at({ connected: false, status: "connecting" });
+check("a session mid-reconnect is a warning, not an outage", d.level === "warning");
+check("...and is not asked to reconnect again", !kinds(d).includes("reconnect"), "لا حلقة");
+check("...but sending still pauses briefly", val(d, "hold") === 5);
+for (const st of ["qr", "pairing", "restart_required"]) {
+  check(`"${st}" is read as reconnecting too`,
+    at({ connected: false, status: st }).level === "warning");
+}
+check("a genuinely dead socket is still critical",
+  at({ connected: false, status: "logged_out" }).level === "critical");
+
 d = at({ silentMin: 90 });
 check("connected but silent for 90m is a warning", d.level === "warning");
 check("...and triggers a reconnect", kinds(d).includes("reconnect"));

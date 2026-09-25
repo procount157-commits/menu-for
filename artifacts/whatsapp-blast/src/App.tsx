@@ -17,6 +17,7 @@ import FollowUps from "@/pages/FollowUps";
 import Knowledge from "@/pages/Knowledge";
 import Assistant from "@/pages/Assistant";
 import Employees from "@/pages/Employees";
+import AgentOps from "@/pages/AgentOps";
 import AdminPage from "@/pages/AdminPage";
 import WaExtractor from "@/pages/WaExtractor";
 import WaInbox from "@/pages/WaInbox";
@@ -170,6 +171,7 @@ function AuthenticatedRoutes() {
           <Route path="/follow-ups"     component={FollowUps} />
           <Route path="/knowledge"      component={Knowledge} />
           <Route path="/assistant"      component={Assistant} />
+          <Route path="/ops"            component={AgentOps} />
           <Route path="/employees"      component={Employees} />
           <Route path="/conversations"  component={Conversations} />
           <Route path="/inbox"          component={WaInbox} />

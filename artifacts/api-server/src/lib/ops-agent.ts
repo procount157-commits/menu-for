@@ -29,6 +29,7 @@ import { assessDeliveryHealth, assessAccountHealth } from "./delivery-health";
 import { getDailySentCount, getEffectiveDailyLimit } from "./daily-limit";
 import { complete } from "./llm";
 import { logger } from "./logger";
+import { say } from "./agent-comms";
 
 export const OPS_ROLE = "ops";
 export const OPS_SWEEP_MS = 10 * 60_000;
@@ -124,7 +125,19 @@ export function decide(s: OpsSignals): Decision {
   };
 
   // ── Connection ──
-  if (!s.connected) {
+  //
+  // "connecting" is not "disconnected". Treating it as one produced a loop on
+  // this account: the officer asked for a reconnect, the socket entered
+  // connecting, the next sweep read connected=false and declared a critical
+  // outage — about the reconnection it had just ordered — and filed an
+  // identical alert every ten minutes.
+  // An explicit list, not a pattern: /connect/ matched "disconnected" too,
+  // which turned every real outage into a warning — the exact opposite of the
+  // bug it was written to fix.
+  const RECONNECTING = ["connecting", "qr", "pairing", "restart_required", "restarting", "reconnecting"];
+  const reconnecting = !s.connected && RECONNECTING.includes(s.status.toLowerCase());
+
+  if (!s.connected && !reconnecting) {
     worse("critical");
     findings.push(`الاتصال منقطع (${s.status}).`);
     actions.push({ kind: "reconnect", why: "الجلسة منقطعة" });
@@ -132,6 +145,14 @@ export function decide(s: OpsSignals): Decision {
     // against a dead socket and logging them as failures, which would then
     // look like a delivery problem tomorrow.
     actions.push({ kind: "hold", value: 15, why: "لا إرسال على جلسة منقطعة" });
+  } else if (reconnecting) {
+    worse("warning");
+    findings.push(`الجلسة تعيد الاتصال الآن (${s.status}).`);
+    // Held, because a half-open socket accepts sends and loses them, and those
+    // show up as failures later. Short, because this normally resolves in
+    // seconds — and no reconnect request, which would restart the handshake
+    // already in progress.
+    actions.push({ kind: "hold", value: 5, why: "الجلسة قيد إعادة الاتصال" });
   } else if (s.silentMin !== null && s.silentMin >= SILENT_WARN_MIN) {
     worse("warning");
     findings.push(`متصل لكن لم تصل أي إشارة منذ ${s.silentMin} دقيقة — قد تكون الجلسة ميتة دون أن تُعلن ذلك.`);
@@ -306,10 +327,36 @@ export async function runOpsAgent(userId: number) {
     return { ...decision, signals, done, body, logged: false };
   }
 
+  // The same unresolved problem should not file a new alert on every sweep.
+  // A list of nine identical "الاتصال منقطع" rows is harder to read than one,
+  // and hides whatever else happened in between.
+  const [previous] = await db.select({ id: opsAlertsTable.id, headline: opsAlertsTable.headline, at: opsAlertsTable.createdAt })
+    .from(opsAlertsTable)
+    .where(and(eq(opsAlertsTable.userId, userId), eq(opsAlertsTable.acknowledged, false)))
+    .orderBy(desc(opsAlertsTable.createdAt)).limit(1);
+
+  if (previous?.headline === headline && Date.now() - new Date(previous.at).getTime() < 6 * 60 * 60_000) {
+    // Refresh it rather than repeat it, so the timestamp still says "ongoing".
+    await db.update(opsAlertsTable)
+      .set({ body, actions: done, signals: signals as any, createdAt: new Date() })
+      .where(eq(opsAlertsTable.id, previous.id));
+    logger.info({ userId, level: decision.level }, "مشكلة مستمرة — حُدِّث التنبيه بدل تكراره");
+    return { ...decision, signals, done, body, logged: false, alertId: previous.id };
+  }
+
   const [alert] = await db.insert(opsAlertsTable).values({
     userId, level: decision.level, headline, body,
     actions: done, signals: signals as any,
   }).returning();
+
+  // The manager is told, because a hold on sending changes what the rest of
+  // the team should be doing and nobody else would know why it went quiet.
+  if (decision.level !== "ok") {
+    await say({
+      userId, fromRole: OPS_ROLE, toRole: "chief", kind: "alert",
+      body: `${headline}${done.length ? ` — ${done.join("؛ ")}` : ""}`,
+    }).catch(() => {});
+  }
 
   logger.info({ userId, level: decision.level, actions: done.length }, "مسؤول التشغيل أنهى جولة");
   return { ...decision, signals, done, body, logged: true, alertId: alert?.id };
