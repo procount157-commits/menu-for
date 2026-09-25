@@ -76,6 +76,14 @@ export const DEFAULT_EMPLOYEES = [
     persona: "منظّم ومقتصد في الكلام. يفهم الطلب أولاً، ويقول بصراحة إن كان غيره أقدر عليه، ولا يتكلّف معرفةً ليست عنده.",
     specialties: [], priority: 1, handoffTo: null,
   },
+  {
+    // Owns the number itself: the connection, the pace, and not getting
+    // banned. Internal — customers never reach him, and he never replies to
+    // one; everything he does is to the account, not to a person.
+    name: "فهد", role: "ops", kind: "internal", title: "مسؤول التشغيل والحظر", avatar: "📡",
+    persona: "دقيق وهادئ ولا يهوّل. يقول ما حدث ولماذا يهم وما المطلوب، بلا مصطلحات تقنية. يفضّل الإبطاء المبكر على الاعتذار المتأخر.",
+    specialties: [], priority: 998, handoffTo: null,
+  },
   { name: "مارك", role: "monitor", kind: "internal", title: "موظف المراقبة", avatar: "🛡️",
     persona: null, specialties: [], priority: 999, handoffTo: null },
 ] as const;

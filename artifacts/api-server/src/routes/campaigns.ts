@@ -4,6 +4,7 @@ import { assessDeliveryHealth, assessAccountHealth, MATURITY_MINUTES, MIN_SAMPLE
 import { computeGap } from "../lib/pacing";
 import { isWithinSendingHours, hourInSendingTz, msLeftInSendingWindow, SENDING_TZ, SENDING_HOUR_START, SENDING_HOUR_END } from "../lib/sending-hours";
 import { getEffectiveDailyLimit, getDailySentCount, DAILY_LIMIT_MAX } from "../lib/daily-limit";
+import { getControls } from "../lib/ops-agent";
 import { objectExists, objectNameFromUrl } from "../lib/storage";
 import * as XLSX from "xlsx";
 import { eq, desc, count, sql, and, gte, inArray, lt, max, asc } from "drizzle-orm";
@@ -1307,14 +1308,34 @@ async function runCampaign(userId: number, campaign: any, contacts: any[], info:
     // the entire campaign loop silently.  Now wrapped in withDbRetry.
     let dailySent: number;
     let effectiveLimit: number;
+    // The operations officer's standing decisions. Read every iteration rather
+    // than once at the start: a hold placed mid-campaign has to take effect on
+    // the next message, not after the current run finishes.
+    let ops: Awaited<ReturnType<typeof getControls>> | null = null;
     try {
-      [dailySent, effectiveLimit] = await Promise.all([
+      [dailySent, effectiveLimit, ops] = await Promise.all([
         withDbRetry(() => getDailySentCount(userId)),
         getEffectiveDailyLimit(userId),
+        getControls(userId).catch(() => null),
       ]);
+      // Its ceiling can only lower the warm-up limit, never raise it.
+      if (ops?.dailyCeiling) effectiveLimit = Math.min(effectiveLimit, ops.dailyCeiling);
     } catch (dbErr) {
       logger.warn({ campaignId: campaign.id, err: dbErr }, "DB error checking daily limit — skipping this contact, will retry next");
       continue;
+    }
+
+    // A hold is the strongest thing the officer can do, so it pauses rather
+    // than sleeps: a campaign that sits in memory for two hours loses to any
+    // restart, and the owner cannot tell a held campaign from a stuck one.
+    if (ops?.holdUntil && new Date(ops.holdUntil).getTime() > Date.now()) {
+      const mins = Math.ceil((new Date(ops.holdUntil).getTime() - Date.now()) / 60_000);
+      logger.warn({ campaignId: campaign.id, minutes: mins, reason: ops.reason }, "مسؤول التشغيل أوقف الإرسال");
+      info.running = false;
+      activeCampaigns.delete(key);
+      await withDbRetry(() => db.update(campaignsTable).set({ status: "paused" })
+        .where(eq(campaignsTable.id, campaign.id))).catch(() => {});
+      break;
     }
     if (dailySent >= effectiveLimit) {
       logger.info({ campaignId: campaign.id, dailySent, limit: effectiveLimit }, "Daily warm-up limit reached — pausing campaign");
@@ -1645,7 +1666,11 @@ async function runCampaign(userId: number, campaign: any, contacts: any[], info:
     // When the delivery guard has flagged degradation, every gap below is
     // stretched. Sending slower into a number that is already being throttled
     // is what gives it room to recover.
-    const paceFactor = info.deliverySlowMode ? DELIVERY_SLOW_FACTOR : 1;
+    // Two independent brakes, and the stronger wins rather than the two
+    // multiplying: the delivery guard reacting to the same trouble the officer
+    // already throttled for should not produce a nine-fold slowdown.
+    const opsThrottle = Math.max(1, Number(ops?.throttle ?? 1) || 1);
+    const paceFactor = Math.max(info.deliverySlowMode ? DELIVERY_SLOW_FACTOR : 1, opsThrottle);
 
     if (i > 0 && (i + 1) % LONG_BREAK_EVERY === 0 && info.running && i < contacts.length - 1) {
       // ── Long break every 40 msgs (2–5 min) ───────────────────────

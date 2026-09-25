@@ -2052,15 +2052,10 @@ class WhatsAppInstance {
           this.log.error({ err, phone }, "Campaign button response matching error");
         }
 
-        try {
-          const { processChatbotMessage } = await import("./chatbot");
-          await processChatbotMessage(
-            this.userId, phone, text,
-            (p, m, t, mu) => this.sendMessage(p, m, t ?? "text", mu)
-          );
-        } catch (err) {
-          this.log.error({ err, phone }, "Chatbot processing error");
-        }
+        // The hand-built keyword chatbot used to run here, before the agents
+        // existed. It never had a single row in this deployment, and every
+        // message it would have matched now reaches the employee whose
+        // specialty it is, through follow-up-engine's inbound hook.
       }
     });
 

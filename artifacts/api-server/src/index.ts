@@ -5,6 +5,7 @@ import { resumeRunningCampaigns } from "./routes/campaigns";
 import { startFollowUpEngine } from "./lib/follow-up-engine";
 import { startMonitorAgent } from "./lib/monitor-agent";
 import { startRoutineScheduler } from "./lib/agent-routines";
+import { startOpsAgent } from "./lib/ops-agent";
 import { runAutoMaintenance } from "./lib/diagnosis-engine";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
@@ -111,6 +112,7 @@ function startListening() {
     startFollowUpEngine();
     startMonitorAgent();
     startRoutineScheduler();
+    startOpsAgent();
 
     // Auto-seed admin on startup if env vars are set
     void seedAdminIfConfigured();

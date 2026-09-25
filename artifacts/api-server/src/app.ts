@@ -4,7 +4,6 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import pinoHttp from "pino-http";
 import router from "./routes";
-import { handleTrackingRedirect } from "./routes/tracking";
 import { logger } from "./lib/logger";
 
 const PgSession = connectPgSimple(session);
@@ -59,8 +58,6 @@ app.use(
   })
 );
 
-// Public tracking redirect — must be before /api and session middleware
-app.get("/t/:code", handleTrackingRedirect);
 
 app.use("/api", router);
 

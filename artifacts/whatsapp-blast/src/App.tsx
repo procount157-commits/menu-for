@@ -17,20 +17,15 @@ import FollowUps from "@/pages/FollowUps";
 import Knowledge from "@/pages/Knowledge";
 import Assistant from "@/pages/Assistant";
 import Employees from "@/pages/Employees";
-import ChatbotsList from "@/pages/ChatbotsList";
-import ChatbotBuilder from "@/pages/ChatbotBuilder";
 import AdminPage from "@/pages/AdminPage";
-import FunnelPage from "@/pages/FunnelPage";
 import WaExtractor from "@/pages/WaExtractor";
 import WaInbox from "@/pages/WaInbox";
 import Conversations from "@/pages/Conversations";
-import TrackingPage from "@/pages/TrackingPage";
 import WaLinkGenerator from "@/pages/WaLinkGenerator";
 import DirectLoginPage from "@/pages/DirectLoginPage";
 import WaPublicSetup from "@/pages/WaPublicSetup";
 import LandingPage from "@/pages/LandingPage";
 import Templates from "@/pages/Templates";
-import AiAssistant from "@/pages/AiAssistant";
 import Settings from "@/pages/Settings";
 import Diagnostics from "@/pages/Diagnostics";
 import NotFound from "@/pages/not-found";
@@ -176,16 +171,10 @@ function AuthenticatedRoutes() {
           <Route path="/knowledge"      component={Knowledge} />
           <Route path="/assistant"      component={Assistant} />
           <Route path="/employees"      component={Employees} />
-          <Route path="/chatbots"       component={ChatbotsList} />
-          <Route path="/chatbots/new"   component={ChatbotBuilder} />
-          <Route path="/chatbots/:id"   component={ChatbotBuilder} />
-          <Route path="/funnel"         component={FunnelPage} />
           <Route path="/conversations"  component={Conversations} />
           <Route path="/inbox"          component={WaInbox} />
           <Route path="/extractor"      component={WaExtractor} />
-          <Route path="/tracking"       component={TrackingPage} />
           <Route path="/wa-link"        component={WaLinkGenerator} />
-          <Route path="/ai"             component={AiAssistant} />
           <Route path="/settings"       component={Settings} />
           <Route path="/diagnostics"    component={Diagnostics} />
           <Route path="/admin"          component={AdminPage} />

@@ -1,12 +1,10 @@
 export * from "./contacts";
 export * from "./campaigns";
-export * from "./chatbots";
 export * from "./users";
 export * from "./wa_sessions";
 export * from "./wa_auth_state";
 export * from "./wa_contacts";
 export * from "./coupons";
-export * from "./tracking";
 export * from "./incoming_messages";
 export * from "./unsubscribed";
 export * from "./wa_conversations";
@@ -19,3 +17,4 @@ export * from "./assistant";
 export * from "./monitor";
 export * from "./employees";
 export * from "./llm_settings";
+export * from "./ops";
