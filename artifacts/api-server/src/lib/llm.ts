@@ -258,33 +258,82 @@ async function callPollinations(messages: LlmMessage[], timeoutMs: number): Prom
  * Returns null rather than throwing: every caller has a non-AI path, and a
  * provider being down must never break message handling.
  */
+/** One attempt at one provider. Throws; the chain above decides what to do. */
+async function callOne(
+  provider: string, model: string, apiKey: string,
+  messages: LlmMessage[], timeoutMs: number,
+): Promise<string> {
+  if (provider === "anthropic")    return callAnthropic(messages, timeoutMs, apiKey);
+  if (provider === "gemini")       return callGemini(messages, timeoutMs, apiKey);
+  if (provider === "pollinations") return callPollinations(messages, timeoutMs);
+  const cfg = OPENAI_COMPATIBLE[provider];
+  if (!cfg) throw new Error(`مزوّد غير معروف: ${provider}`);
+  return callOpenAiCompatible(cfg.url, apiKey, model || cfg.model, messages, timeoutMs);
+}
+
+/**
+ * Overload, rate limit, timeout — the provider is fine, it is just busy. Worth
+ * another provider; a bad key or a retired model is not.
+ */
+function isTransient(err: unknown): boolean {
+  const m = String((err as any)?.message ?? err);
+  return /\b(429|500|502|503|504)\b/.test(m)
+    || /timeout|aborted|ECONNRESET|ETIMEDOUT|fetch failed|socket hang up/i.test(m);
+}
+
+/**
+ * Ask a model, and keep asking until one answers.
+ *
+ * One provider used to mean one attempt: Gemini returned 503 "experiencing
+ * high demand", complete() returned null, and every waiting customer got
+ * either silence or a raw knowledge-base entry. A free tier is busy often
+ * enough that this has to be the normal path, not an incident.
+ *
+ * The order is deliberate. The account's chosen provider goes first and is
+ * given a second try, because a 503 on a free tier frequently clears within a
+ * second. After that, any other provider the account has a key for. Last is
+ * pollinations, which needs no key at all — so the chain never runs out.
+ */
 export async function complete(messages: LlmMessage[], timeoutMs = 20_000): Promise<LlmResult | null> {
   const resolved = await resolveProvider();
   if (!resolved || !resolved.apiKey) return null;
-  const { provider } = resolved;
   // A stored key has to win over the environment for the whole call, so the
   // per-provider lookups below read through this rather than process.env.
-  const keyFor = (id: string) => (id === provider ? resolved.apiKey : (KEYS[id]?.() ?? ""));
+  const keyFor = (id: string) => (id === resolved.provider ? resolved.apiKey : (KEYS[id]?.() ?? ""));
 
-  try {
-    let text = "";
-    if (provider === "anthropic") {
-      text = await callAnthropic(messages, timeoutMs, keyFor("anthropic"));
-    } else if (provider === "gemini") {
-      text = await callGemini(messages, timeoutMs, keyFor("gemini"));
-    } else if (provider === "pollinations") {
-      text = await callPollinations(messages, timeoutMs);
-    } else {
-      const cfg = OPENAI_COMPATIBLE[provider];
-      if (!cfg) return null;
-      text = await callOpenAiCompatible(
-        cfg.url, keyFor(provider), resolved.model || cfg.model, messages, timeoutMs,
-      );
-    }
-    if (!text) return null;
-    return { text, provider };
-  } catch (err: any) {
-    logger.warn({ provider, err: String(err?.message ?? err).slice(0, 160) }, "LLM call failed");
-    return null;
+  const chain: Array<{ provider: Provider; model: string; apiKey: string; attempts: number }> = [
+    { provider: resolved.provider, model: resolved.model ?? "", apiKey: resolved.apiKey, attempts: 2 },
+  ];
+  for (const id of Object.keys(KEYS) as Provider[]) {
+    if (id === resolved.provider) continue;
+    const k = keyFor(id);
+    if (k) chain.push({ provider: id, model: "", apiKey: k, attempts: 1 });
   }
+  // Keyless, so it is always reachable. Only as a last resort: it is slower
+  // and less capable than anything above it.
+  if (resolved.provider !== "pollinations") {
+    chain.push({ provider: "pollinations", model: "", apiKey: "", attempts: 1 });
+  }
+
+  let lastErr = "";
+  for (const step of chain) {
+    for (let attempt = 1; attempt <= step.attempts; attempt++) {
+      try {
+        const text = await callOne(step.provider, step.model, step.apiKey, messages, timeoutMs);
+        if (!text) throw new Error("رد فارغ");
+        if (step.provider !== resolved.provider) {
+          logger.info({ primary: resolved.provider, answered: step.provider }, "المزوّد الأساسي تعذّر — أجاب بديل");
+        }
+        return { text, provider: step.provider };
+      } catch (err: any) {
+        lastErr = String(err?.message ?? err).slice(0, 160);
+        const transient = isTransient(err);
+        logger.warn({ provider: step.provider, attempt, transient, err: lastErr }, "LLM call failed");
+        // A key or model problem will not fix itself on a retry.
+        if (!transient) break;
+      }
+    }
+  }
+  logger.error({ tried: chain.map((c) => c.provider), lastErr }, "كل المزوّدين تعذّروا");
+  return null;
 }

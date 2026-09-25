@@ -7,10 +7,11 @@
 // Ad leads identify themselves: a click-to-WhatsApp ad stamps the first
 // incoming message with referral data, which is what sourceFilter="ad" keys on.
 
-import { and, asc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import {
   db, leadSourcesTable, followUpSequencesTable, followUpJobsTable,
   unsubscribedPhonesTable, incomingMessagesTable, contactsTable, contactGroupsTable, autoReplyLogTable,
+  waThreadMessagesTable,
   type FollowUpStep,
 } from "@workspace/db";
 import { logger } from "./logger";
@@ -18,6 +19,8 @@ import { isWithinSendingHours } from "./sending-hours";
 import { getDailyRemaining } from "./daily-limit";
 import { classify, INTENT_LABELS_AR, type Intent } from "./intent";
 import { answerFromKnowledge, shouldAutoReply, logAutoReply } from "./knowledge";
+import { detectAutoresponder } from "./autoresponder";
+import { route, personaPreamble, agentJob } from "./agent-router";
 import { sendMessage, getStatus, registerInboundHook, registerOnConnectHook } from "./whatsapp";
 import { provisionOnConnect } from "./provision";
 
@@ -300,10 +303,49 @@ async function isFirstContact(userId: number, phone: string): Promise<boolean> {
 const AUTO_REPLY_MAX_PER_HOUR = 8;
 
 async function autoReplyIfAppropriate(userId: number, phone: string, text: string, intent: Intent) {
-  const gate = await shouldAutoReply(userId, intent);
+  // Other companies answer campaigns with their own bots. Replying to those
+  // spends the daily allowance on nobody, produces bot-to-bot threads that
+  // read as automation, and occasionally says something absurd — this account
+  // congratulated a cleaning company's autoresponder on its business.
+  const [lastOutbound] = await db
+    .select({ at: waThreadMessagesTable.createdAt })
+    .from(waThreadMessagesTable)
+    .where(and(
+      eq(waThreadMessagesTable.userId, userId),
+      eq(waThreadMessagesTable.phone, phone),
+      eq(waThreadMessagesTable.fromMe, true),
+    ))
+    .orderBy(desc(waThreadMessagesTable.createdAt))
+    .limit(1);
+
+  const [inboundCount] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(incomingMessagesTable)
+    .where(and(eq(incomingMessagesTable.userId, userId), eq(incomingMessagesTable.phone, phone)));
+
+  const auto = detectAutoresponder(text, {
+    secondsSinceOurMessage: lastOutbound?.at
+      ? (Date.now() - new Date(lastOutbound.at).getTime()) / 1000
+      : undefined,
+    isFirstFromThem: Number(inboundCount?.n ?? 0) <= 1,
+  });
+
+  if (auto.isAuto) {
+    logger.info({ userId, phone, confidence: auto.confidence, signals: auto.signals }, "inbound looks automated — not replying");
+    await logAutoReply({ userId, phone, incoming: text, intent, skipped: `رد آلي من الطرف الآخر (${auto.confidence})` });
+    return;
+  }
+
+  // Which of the owner's employees this message belongs to. Decided before
+  // the gate, because whether a complaint may be answered at all depends on
+  // whether anyone was hired to handle one.
+  const routing = await route(userId, phone, intent);
+  const mine = routing?.agent.specialties.includes(intent) ?? false;
+
+  const gate = await shouldAutoReply(userId, intent, mine);
   if (!gate.ok) {
     if (gate.reason && !/غير مفعّل/.test(gate.reason)) {
-      await logAutoReply({ userId, phone, incoming: text, intent, skipped: gate.reason });
+      await logAutoReply({ userId, phone, incoming: text, intent, skipped: gate.reason, agentRole: routing?.agent.role });
     }
     return;
   }
@@ -318,23 +360,28 @@ async function autoReplyIfAppropriate(userId: number, phone: string, text: strin
       gte(autoReplyLogTable.createdAt, new Date(Date.now() - 60 * 60_000)),
     ));
   if (Number(recent?.n ?? 0) >= AUTO_REPLY_MAX_PER_HOUR) {
-    await logAutoReply({ userId, phone, incoming: text, intent, skipped: "تجاوز حد الردود في الساعة" });
+    await logAutoReply({ userId, phone, incoming: text, intent, skipped: "تجاوز حد الردود في الساعة", agentRole: routing?.agent.role });
     return;
   }
 
-  // Pass the phone so the reply sees the conversation, not just this line.
-  const answer = await answerFromKnowledge(userId, text, phone);
+  // Pass the phone so the reply sees the conversation, not just this line,
+  // and the persona so it arrives in the right voice.
+  const answer = await answerFromKnowledge(
+    userId, text, phone,
+    routing ? personaPreamble(routing) : undefined,
+    routing ? agentJob(routing)      : undefined,
+  );
   if (!answer.reply) {
-    await logAutoReply({ userId, phone, incoming: text, intent, skipped: answer.reason ?? "لا رد" });
+    await logAutoReply({ userId, phone, incoming: text, intent, skipped: answer.reason ?? "لا رد", agentRole: routing?.agent.role });
     return;
   }
 
   try {
     await sendMessage(userId, phone, answer.reply);
-    await logAutoReply({ userId, phone, incoming: text, reply: answer.reply, provider: answer.provider, kbIds: answer.kbIds, intent });
+    await logAutoReply({ userId, phone, incoming: text, reply: answer.reply, provider: answer.provider, kbIds: answer.kbIds, intent, agentRole: routing?.agent.role });
     logger.info({ userId, phone, provider: answer.provider, kb: answer.kbIds }, "auto-reply sent");
   } catch (err: any) {
-    await logAutoReply({ userId, phone, incoming: text, intent, skipped: `فشل الإرسال: ${String(err?.message).slice(0, 40)}` });
+    await logAutoReply({ userId, phone, incoming: text, intent, skipped: `فشل الإرسال: ${String(err?.message).slice(0, 40)}`, agentRole: routing?.agent.role });
   }
 }
 

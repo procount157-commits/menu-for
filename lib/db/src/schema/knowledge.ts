@@ -46,6 +46,7 @@ export const autoReplyLogTable = pgTable("auto_reply_log", {
   kbIds:      text("kb_ids"),                        // comma-separated entry ids used
   intent:     varchar("intent", { length: 20 }),
   skipped:    varchar("skipped", { length: 60 }),    // why nothing was sent
+  agentRole:  varchar("agent_role", { length: 30 }),  // which employee answered
   createdAt:  timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [index("idx_auto_reply_user").on(t.userId, t.createdAt)]);
 

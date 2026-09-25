@@ -12,7 +12,7 @@ if (!process.env.DATABASE_URL) {
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // Resilience settings — survive Replit infrastructure blips and 2 AM maintenance
+  // Resilience settings — survive host blips and maintenance windows.
   max:                    10,
   idleTimeoutMillis:      60_000,   // release idle connections after 60s
   connectionTimeoutMillis: 10_000,  // fail fast if DB unreachable; pool will retry
