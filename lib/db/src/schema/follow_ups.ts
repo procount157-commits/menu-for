@@ -24,6 +24,9 @@ export const leadSourcesTable = pgTable("lead_sources", {
   intentConfidence: numeric("intent_confidence", { precision: 3, scale: 2 }),
   lastMessage:      text("last_message"),
   firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  /** Which employee put them in the queue, and why. */
+  queuedBy:  varchar("queued_by", { length: 30 }),
+  queueNote: text("queue_note"),
 }, (t) => [
   primaryKey({ columns: [t.userId, t.phone] }),
   index("idx_lead_sources_source").on(t.userId, t.source),
@@ -50,6 +53,8 @@ export const followUpSequencesTable = pgTable("follow_up_sequences", {
   // customer's message to a third party.
   useAi: boolean("use_ai").notNull().default(false),
   createdAt:    timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  /** The ladder runs and the team argues, but nothing reaches a customer. */
+  dryRun:    boolean("dry_run").notNull().default(true),
 });
 
 // ── One scheduled message ─────────────────────────────────────────
@@ -107,3 +112,32 @@ export const DEFAULT_FOLLOW_UP_STEPS: ReadonlyArray<{ offsetMinutes: number; mes
   { offsetMinutes: 43_200,
     message: "مرحباً 👋\nمرّ شهر على تواصلك، وأحببنا نذكّرك أننا موجودون لو احتجت شيئاً. للإيقاف أرسل «إيقاف»." },
 ];
+
+// ── The argument behind each follow-up ────────────────────────────
+// A timer knows the hour and nothing else: not whether this person ever opened
+// a message, not whether the number is currently at risk, not whether a
+// seventh nudge to someone who has ignored six is worth the complaint it
+// invites. Each step is argued for now, and the argument is kept — both so a
+// verdict can be audited, and so the owner can read the judgement before
+// trusting it with a real send.
+export const followupDeliberationsTable = pgTable("followup_deliberations", {
+  id:          serial("id").primaryKey(),
+  userId:      integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  jobId:       integer("job_id"),
+  phone:       varchar("phone", { length: 50 }).notNull(),
+  step:        integer("step").notNull(),
+  segment:     varchar("segment", { length: 30 }),
+  opens:       integer("opens").notNull().default(0),
+  /** send | hold | drop */
+  verdict:     varchar("verdict", { length: 20 }).notNull(),
+  reason:      text("reason"),
+  /** Kept apart: the manager judges worth, operations judges risk. */
+  managerView: text("manager_view"),
+  opsView:     text("ops_view"),
+  /** What would have gone out — kept even when nothing is sent. */
+  draft:       text("draft"),
+  executed:    boolean("executed").notNull().default(false),
+  createdAt:   timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("idx_delib").on(t.userId, t.createdAt)]);
+
+export type FollowupDeliberation = typeof followupDeliberationsTable.$inferSelect;

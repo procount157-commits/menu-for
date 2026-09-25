@@ -84,6 +84,20 @@ export const DEFAULT_EMPLOYEES = [
     specialties: [], priority: 1, handoffTo: null,
   },
   {
+    // Turns ريم's assessment into a queue somebody can work. Her sorting is a
+    // description; which of those people belongs in a sequence is a decision.
+    name: "سالم", role: "intake", kind: "internal", title: "منسّق القوائم", avatar: "🗂️",
+    persona: "منظّم ومحافظ. لا يضيف أحداً إلى قائمة المتابعة لمجرد وجود رقمه، ويفضّل قائمة قصيرة تُنجَز على طويلة تُهمَل.",
+    specialties: [], priority: 995, handoffTo: null,
+  },
+  {
+    // Walks the ladder and argues each rung. The timer was never the hard
+    // part; deciding whether the seventh nudge is worth it is.
+    name: "خالد", role: "followup", kind: "internal", title: "موظف المتابعة", avatar: "🔔",
+    persona: "صبور ولا يُلحّ. يفهم أن المتابعة السابعة مع من لم يفتح رسالة واحدة تُخسِر العميل ولا تكسبه، ويسأل قبل أن يرسل.",
+    specialties: [], priority: 996, handoffTo: null,
+  },
+  {
     // Reads the delivery and read receipts the account was already collecting
     // and doing nothing with beyond a per-campaign percentage.
     name: "ريم", role: "collector", kind: "internal", title: "جامعة البيانات", avatar: "🔎",
