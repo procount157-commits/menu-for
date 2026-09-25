@@ -68,6 +68,98 @@ export const DEFAULT_EMPLOYEES = [
     specialties: ["complaint"], priority: 10,
     handoffTo: null,
   },
+  {
+    // Grok Bot's chief of staff: the one who takes whatever nobody was hired
+    // for, and hands it over as soon as someone is. Priority 1 so it is asked
+    // first and declines first.
+    name: "ناصر", role: "chief", kind: "manager", title: "مدير الفريق", avatar: "🧭",
+    persona: "منظّم ومقتصد في الكلام. يفهم الطلب أولاً، ويقول بصراحة إن كان غيره أقدر عليه، ولا يتكلّف معرفةً ليست عنده.",
+    specialties: [], priority: 1, handoffTo: null,
+  },
   { name: "مارك", role: "monitor", kind: "internal", title: "موظف المراقبة", avatar: "🛡️",
     persona: null, specialties: [], priority: 999, handoffTo: null },
 ] as const;
+
+// ── What an employee carries between conversations ────────────────
+// Grok Bot separates shared memory (the company, the funnel — here the
+// knowledge base) from an agent's own. This is the agent's own: standing
+// orders from the owner, and what it has learnt about what works.
+export const agentMemoryTable = pgTable("agent_memory", {
+  id:        serial("id").primaryKey(),
+  userId:    integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  role:      varchar("role", { length: 30 }).notNull(),
+  // instruction | win | loss | gap
+  kind:      varchar("kind", { length: 20 }).notNull(),
+  content:   text("content").notNull(),
+  times:     integer("times").notNull().default(1),
+  phone:     varchar("phone", { length: 50 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("idx_agent_memory").on(t.userId, t.role, t.kind)]);
+
+/** More than one duty per employee. */
+export const agentTasksTable = pgTable("agent_tasks", {
+  id:        serial("id").primaryKey(),
+  userId:    integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  role:      varchar("role", { length: 30 }).notNull(),
+  task:      text("task").notNull(),
+  isActive:  boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(100),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("idx_agent_tasks").on(t.userId, t.role, t.sortOrder)]);
+
+/** A reusable instruction set, invoked by name — Grok Bot's "skill". */
+export const agentSkillsTable = pgTable("agent_skills", {
+  id:          serial("id").primaryKey(),
+  userId:      integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  name:        varchar("name", { length: 60 }).notNull(),
+  instruction: text("instruction").notNull(),
+  intents:     jsonb("intents").notNull().default([]),
+  isActive:    boolean("is_active").notNull().default(true),
+  createdAt:   timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt:   timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const agentSkillGrantsTable = pgTable("agent_skill_grants", {
+  userId:  integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  role:    varchar("role", { length: 30 }).notNull(),
+  skillId: integer("skill_id").notNull().references(() => agentSkillsTable.id, { onDelete: "cascade" }),
+}, (t) => [primaryKey({ columns: [t.userId, t.role, t.skillId] })]);
+
+/** Scheduled work — Grok Bot's "routine". */
+export const agentRoutinesTable = pgTable("agent_routines", {
+  id:           serial("id").primaryKey(),
+  userId:       integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  role:         varchar("role", { length: 30 }).notNull(),
+  name:         varchar("name", { length: 80 }).notNull(),
+  instruction:  text("instruction").notNull(),
+  triggerKind:  varchar("trigger_kind", { length: 20 }).notNull().default("interval"),
+  everyMinutes: integer("every_minutes"),
+  atHour:       integer("at_hour"),
+  isActive:     boolean("is_active").notNull().default(true),
+  lastRunAt:    timestamp("last_run_at", { withTimezone: true }),
+  createdAt:    timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("idx_routines_due").on(t.userId, t.isActive, t.lastRunAt)]);
+
+export const agentRoutineRunsTable = pgTable("agent_routine_runs", {
+  id:        serial("id").primaryKey(),
+  routineId: integer("routine_id").notNull().references(() => agentRoutinesTable.id, { onDelete: "cascade" }),
+  userId:    integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  output:    text("output"),
+  error:     text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("idx_routine_runs").on(t.routineId, t.createdAt)]);
+
+/** What the manager concluded, and what it told whom. */
+export const managerReviewsTable = pgTable("manager_reviews", {
+  id:         serial("id").primaryKey(),
+  userId:     integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  summary:    text("summary").notNull(),
+  directives: jsonb("directives").notNull().default([]),
+  createdAt:  timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("idx_manager_reviews").on(t.userId, t.createdAt)]);
+
+export type AgentMemory  = typeof agentMemoryTable.$inferSelect;
+export type AgentTask    = typeof agentTasksTable.$inferSelect;
+export type AgentSkill   = typeof agentSkillsTable.$inferSelect;
+export type AgentRoutine = typeof agentRoutinesTable.$inferSelect;

@@ -24,12 +24,18 @@ import { logger } from "./logger";
 
 export type Agent = BotEmployee & { specialties: string[] };
 
-/** Customer-facing and on duty. Internal staff (the monitor) never answer. */
+/**
+ * Who can take a customer conversation.
+ *
+ * "manager" is included and "internal" is not. A manager answers — Grok Bot's
+ * chief of staff is the single point of contact, and delegates from there — but
+ * the monitor watches the system and must never be handed a customer.
+ */
 async function roster(userId: number): Promise<Agent[]> {
   const rows = await db.select().from(botEmployeesTable)
     .where(and(eq(botEmployeesTable.userId, userId), eq(botEmployeesTable.isActive, true)));
   return rows
-    .filter((r) => r.kind === "customer")
+    .filter((r) => r.kind === "customer" || r.kind === "manager")
     .map((r) => ({ ...r, specialties: Array.isArray(r.specialties) ? r.specialties as string[] : [] }))
     .sort((a, b) => a.priority - b.priority);
 }
@@ -65,15 +71,40 @@ export async function route(
   const current = owned ? team.find((a) => a.role === owned.role) : undefined;
 
   // Nobody holds it yet, or whoever held it has left the roster.
+  //
+  // The order is Grok Bot's delegation rule: see whether a specialist owns
+  // this kind of work and give it to them; fall back to a generalist; and only
+  // put the manager on it when nothing else fits. A manager that answers work
+  // a specialist was hired for is not managing.
   if (!current) {
-    const agent = specialist ?? team.find((a) => a.specialties.length === 0) ?? team[0]!;
+    const agent = specialist
+      // A generalist: declares nothing, so takes anything.
+      ?? team.find((a) => a.kind !== "manager" && a.specialties.length === 0)
+      // Then the manager. Ahead of a specialist who is out of their lane: a
+      // complaints agent handed a greeting answers it in the wrong register,
+      // and "only handle it yourself if nothing fits" means nothing fits.
+      ?? team.find((a) => a.kind === "manager")
+      // Nobody fits and there is no manager. Someone has to answer.
+      ?? team[0]!;
     await claim(userId, phone, agent.role);
     return { agent };
   }
 
   // The current owner already handles this intent, or no one claims it —
   // they keep it. This is the common case and costs one query.
-  if (!specialist || specialist.role === current.role) return { agent: current };
+  if (!specialist || specialist.role === current.role) {
+    // Unless the holder is the manager and someone better has since been
+    // hired: the manager took it only because nothing fitted at the time.
+    if (current.kind === "manager") {
+      const better = team.find((a) => a.kind !== "manager" && a.specialties.includes(intent));
+      if (better) {
+        const reason = `${INTENT_AR[intent] ?? intent} من اختصاص ${better.name}`;
+        await handOver(userId, phone, current.role, better.role, reason);
+        return { agent: better, handoff: { from: current.name, reason } };
+      }
+    }
+    return { agent: current };
+  }
 
   // It belongs to someone else. Move it, and say why.
   const reason = `الموضوع تحوّل إلى ${INTENT_AR[intent] ?? intent}`;

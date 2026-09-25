@@ -115,6 +115,53 @@ check("support gets its own brief, not the sales one",
   (agentJob(moved!) ?? []).some((l) => /لا تحاول البيع/.test(l)));
 check("the sales brief is the default (undefined → SALES_JOB)", agentJob(plain!) === undefined);
 
+// ── The manager: Grok Bot's chief of staff rule ──────────────────
+// "check if another bot already owns a given task, delegate to that specialist
+// first, and only handle the work directly if nothing fits."
+await clean();
+await hire([
+  { name: "المدير", role: "chief", kind: "manager", specialties: [], priority: 1 },
+  { name: "سام",   role: "support", specialties: ["complaint"], priority: 10 },
+  { name: "هال",   role: "sales",   specialties: ["interested"], priority: 20 },
+]);
+
+const c = await route(USER, P, "complaint");
+check("the manager does not take work a specialist owns", c?.agent.role === "support",
+  `ذهبت إلى ${c?.agent.name}`);
+
+await clean();
+await hire([
+  { name: "المدير", role: "chief", kind: "manager", specialties: [], priority: 1 },
+  { name: "سام",   role: "support", specialties: ["complaint"], priority: 10 },
+]);
+const unclaimed = await route(USER, P, "greeting");
+check("the manager takes what nobody was hired for", unclaimed?.agent.role === "chief");
+
+// And releases it the moment the right person appears — it was only holding it.
+await hire([{ name: "هال", role: "sales", specialties: ["greeting", "interested"], priority: 20 }]);
+const released = await route(USER, P, "greeting");
+check("...and hands it over once someone is hired for it", released?.agent.role === "sales");
+check("...naming the manager as the one who had it", released?.handoff?.from === "المدير");
+
+// A generalist employee outranks the manager for unclaimed work: the manager is
+// the last resort, not the default.
+await clean();
+await hire([
+  { name: "المدير", role: "chief", kind: "manager", specialties: [], priority: 1 },
+  { name: "هال",   role: "sales", specialties: [], priority: 500 },
+]);
+check("a generalist beats the manager despite worse priority",
+  (await route(USER, P, "greeting"))?.agent.role === "sales");
+
+// The monitor is internal and must never meet a customer, manager or not.
+await clean();
+await hire([
+  { name: "مارك",  role: "monitor", kind: "internal", specialties: [] },
+  { name: "المدير", role: "chief",  kind: "manager",  specialties: [] },
+]);
+check("the monitor is never routed a customer",
+  (await route(USER, P, "question"))?.agent.role === "chief");
+
 await clean();
 console.log(`\n${pass}/${total} مرّ`);
 process.exit(pass === total ? 0 : 1);

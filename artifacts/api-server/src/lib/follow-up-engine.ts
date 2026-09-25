@@ -21,6 +21,8 @@ import { classify, INTENT_LABELS_AR, type Intent } from "./intent";
 import { answerFromKnowledge, shouldAutoReply, logAutoReply } from "./knowledge";
 import { detectAutoresponder } from "./autoresponder";
 import { route, personaPreamble, agentJob } from "./agent-router";
+import { memoryPreamble, learnFromOutcome } from "./agent-memory";
+import { skillsFor, skillsPreamble } from "./agent-skills";
 import { sendMessage, getStatus, registerInboundHook, registerOnConnectHook } from "./whatsapp";
 import { provisionOnConnect } from "./provision";
 
@@ -364,12 +366,23 @@ async function autoReplyIfAppropriate(userId: number, phone: string, text: strin
     return;
   }
 
-  // Pass the phone so the reply sees the conversation, not just this line,
-  // and the persona so it arrives in the right voice.
+  // Everything the employee brings to this reply: who they are, what they were
+  // told, what they have learnt, and the skills they hold. Fetched together
+  // because none of it depends on the others.
+  let voice: string | undefined;
+  if (routing) {
+    const [memory, skills] = await Promise.all([
+      memoryPreamble(userId, routing.agent.role),
+      skillsFor(userId, routing.agent.role, intent),
+    ]);
+    voice = [personaPreamble(routing), skillsPreamble(skills), memory]
+      .filter(Boolean).join("\n\n");
+  }
+
+  // Pass the phone so the reply sees the conversation, not just this line.
   const answer = await answerFromKnowledge(
-    userId, text, phone,
-    routing ? personaPreamble(routing) : undefined,
-    routing ? agentJob(routing)      : undefined,
+    userId, text, phone, voice,
+    routing ? agentJob(routing) : undefined,
   );
   if (!answer.reply) {
     await logAutoReply({ userId, phone, incoming: text, intent, skipped: answer.reason ?? "لا رد", agentRole: routing?.agent.role });
@@ -426,6 +439,14 @@ export async function handleInbound(ev: { userId: number; phone: string; text: s
 
   // Answer them, if the account has auto-reply on and the knowledge base has
   // something relevant. Deliberately after the opt-out branch above.
+  // Judge the previous reply before composing the next one: what the customer
+  // just said is the only outcome signal a WhatsApp thread offers, and it is
+  // about the message before this one, not this one.
+  await learnFromOutcome(userId, phone, verdict.intent).catch((err) => {
+    // A lesson not learnt must never cost a reply.
+    logger.warn({ userId, phone, err: String(err?.message ?? err) }, "تعذّر تسجيل نتيجة الرد السابق");
+  });
+
   await autoReplyIfAppropriate(userId, phone, text, verdict.intent);
 
   if (first) {

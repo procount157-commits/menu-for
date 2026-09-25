@@ -2,23 +2,11 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  Wifi, WifiOff, Loader2, RefreshCw, MessageSquare, VolumeX, BookOpen,
-  ShieldCheck, ShieldAlert, ShieldX, Gauge, Users, Flame, Clock, Power,
-  UserPlus, Trash2, ArrowLeftRight, Save, Pencil, MessagesSquare, X,
+  Wifi, WifiOff, Loader2, RefreshCw, MessageSquare, VolumeX, BookOpen, ShieldCheck, ShieldAlert, ShieldX, Gauge, Users, Flame, Clock, Power, UserPlus, Trash2, ArrowLeftRight, Pencil, MessagesSquare, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const api = async (path: string, init?: RequestInit) => {
-  const r = await fetch(`${BASE}${path}`, {
-    credentials: "include",
-    headers: init?.body ? { "Content-Type": "application/json" } : undefined,
-    ...init,
-  });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error ?? "فشل الطلب");
-  return d;
-};
+import { AgentPanel, Chips, api, input, specialtyLabel } from "@/components/AgentPanel";
+import { Routines } from "@/components/Routines";
 
 const card = "bg-card border border-card-border rounded-xl";
 const LEVEL = {
@@ -27,17 +15,6 @@ const LEVEL = {
   critical: { icon: ShieldX,     cls: "text-red-400",     label: "حرج",   ring: "border-red-500/30 bg-red-500/5" },
 } as const;
 
-// The intents an employee can be put in charge of. The labels are what the
-// owner reads; the keys are what the classifier produces.
-const SPECIALTIES: Array<{ key: string; label: string }> = [
-  { key: "interested",     label: "مهتم بالشراء" },
-  { key: "question",       label: "سؤال" },
-  { key: "greeting",       label: "ترحيب" },
-  { key: "unclear",        label: "غير واضح" },
-  { key: "complaint",      label: "شكوى" },
-  { key: "not_interested", label: "غير مهتم" },
-];
-const specialtyLabel = (k: string) => SPECIALTIES.find((s) => s.key === k)?.label ?? k;
 
 function Stat({ icon: Icon, value, label, tone }: any) {
   return (
@@ -51,76 +28,6 @@ function Stat({ icon: Icon, value, label, tone }: any) {
   );
 }
 
-const input = "w-full bg-input border border-card-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50";
-
-/** The persona and routing editor for one employee. */
-function PersonaEditor({ e, onSave, saving }: { e: any; onSave: (v: any) => void; saving: boolean }) {
-  const [persona, setPersona] = useState(e.persona ?? "");
-  const [specialties, setSpecialties] = useState<string[]>(e.specialties ?? []);
-  const [priority, setPriority] = useState(String(e.priority ?? 100));
-
-  const dirty = persona !== (e.persona ?? "")
-    || priority !== String(e.priority ?? 100)
-    || JSON.stringify([...specialties].sort()) !== JSON.stringify([...(e.specialties ?? [])].sort());
-
-  return (
-    <div className="p-4 space-y-4 border-b border-card-border bg-muted/20">
-      <div>
-        <label className="text-xs font-semibold block mb-1.5">شخصيته</label>
-        <textarea
-          value={persona} onChange={(ev) => setPersona(ev.target.value)} rows={3}
-          placeholder="كيف يتكلم، وما الذي يميّزه — مثال: هادئ ومتعاطف، يستمع للشكوى كاملةً قبل أن يرد، ولا يبرّر."
-          className={cn(input, "resize-y leading-relaxed")}
-        />
-        <p className="text-[11px] text-muted-foreground mt-1">
-          يُسلَّم للبوت كما كتبته. اكتبه كأنك تصف موظفاً حقيقياً لمن سيدرّبه.
-        </p>
-      </div>
-
-      <div>
-        <label className="text-xs font-semibold block mb-1.5">الرسائل التي تصله</label>
-        <div className="flex flex-wrap gap-1.5">
-          {SPECIALTIES.map((s) => {
-            const on = specialties.includes(s.key);
-            return (
-              <button
-                key={s.key} type="button"
-                onClick={() => setSpecialties(on ? specialties.filter((x) => x !== s.key) : [...specialties, s.key])}
-                className={cn("px-2.5 py-1 rounded-lg text-xs border transition-colors",
-                  on ? "bg-primary/15 text-primary border-primary/30" : "border-card-border text-muted-foreground hover:border-primary/40")}
-              >
-                {s.label}
-              </button>
-            );
-          })}
-        </div>
-        <p className="text-[11px] text-muted-foreground mt-1.5">
-          {specialties.length === 0
-            ? "لا شيء محدَّد — سيستلم ما لم يطالب به غيره فقط."
-            : "المحادثة تنتقل إليه عند ورود هذه الأنواع، حتى لو كان زميله يحاور العميل."}
-        </p>
-      </div>
-
-      <div className="flex items-end gap-3">
-        <div className="w-32">
-          <label className="text-xs font-semibold block mb-1.5">الأولوية</label>
-          <input type="number" min={1} max={999} value={priority}
-                 onChange={(ev) => setPriority(ev.target.value)} className={input} />
-          <p className="text-[11px] text-muted-foreground mt-1">الأصغر يفوز عند التنازع</p>
-        </div>
-        <button
-          onClick={() => onSave({ persona, specialties, priority: Number(priority) })}
-          disabled={!dirty || saving}
-          className={cn("flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs border transition-colors",
-            dirty ? "border-primary/40 text-primary hover:bg-primary/10" : "border-card-border text-muted-foreground/50 cursor-not-allowed")}
-        >
-          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-          حفظ
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function HireForm({ onDone }: { onDone: () => void }) {
   const qc = useQueryClient();
@@ -166,18 +73,7 @@ function HireForm({ onDone }: { onDone: () => void }) {
 
       <div>
         <label className="text-xs font-semibold block mb-1.5">الرسائل التي تصله</label>
-        <div className="flex flex-wrap gap-1.5">
-          {SPECIALTIES.map((s) => {
-            const on = f.specialties.includes(s.key);
-            return (
-              <button key={s.key} type="button"
-                onClick={() => setF({ ...f, specialties: on ? f.specialties.filter((x) => x !== s.key) : [...f.specialties, s.key] })}
-                className={cn("px-2.5 py-1 rounded-lg text-xs border transition-colors",
-                  on ? "bg-primary/15 text-primary border-primary/30" : "border-card-border text-muted-foreground hover:border-primary/40")}
-              >{s.label}</button>
-            );
-          })}
-        </div>
+        <Chips value={f.specialties} onChange={(specialties) => setF({ ...f, specialties })} />
       </div>
 
       <button
@@ -231,7 +127,7 @@ export default function Employees() {
 
   const s = data?.shared ?? {};
   const team: any[] = data?.employees ?? [];
-  const staff = team.filter((e) => e.kind !== "internal");
+  const staff = team.filter((e) => e.kind !== "internal");   // includes the manager
   const internal = team.filter((e) => e.kind === "internal");
   const quotaPct = s.dailyLimit > 0 ? Math.round((s.dailyUsed / s.dailyLimit) * 100) : 0;
 
@@ -309,7 +205,7 @@ export default function Employees() {
                 onClick={() => setEditing(editing === e.id ? null : e.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-card-border hover:border-primary/50"
               >
-                <Pencil className="w-3.5 h-3.5" /> {editing === e.id ? "إغلاق" : "الشخصية"}
+                <Pencil className="w-3.5 h-3.5" /> {editing === e.id ? "إغلاق" : "تدريبه"}
               </button>
               <button
                 onClick={() => patch.mutate({ id: e.id, isActive: !e.switchedOn })}
@@ -335,8 +231,8 @@ export default function Employees() {
           </div>
 
           {editing === e.id && (
-            <PersonaEditor
-              e={e} saving={patch.isPending}
+            <AgentPanel
+              e={e} team={team} saving={patch.isPending}
               onSave={(v) => patch.mutate({ id: e.id, ...v }, { onSuccess: () => toast.success("حُفظت شخصيته") })}
             />
           )}
@@ -403,6 +299,8 @@ export default function Employees() {
           )}
         </div>
       ))}
+
+      <Routines team={team} />
 
       {/* Handoffs between them */}
       {data?.recentHandoffs?.length > 0 && (

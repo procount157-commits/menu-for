@@ -4,6 +4,7 @@ import { restoreAllSessions, getActiveUserIds, getStatus, initWhatsApp } from ".
 import { resumeRunningCampaigns } from "./routes/campaigns";
 import { startFollowUpEngine } from "./lib/follow-up-engine";
 import { startMonitorAgent } from "./lib/monitor-agent";
+import { startRoutineScheduler } from "./lib/agent-routines";
 import { runAutoMaintenance } from "./lib/diagnosis-engine";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
@@ -109,6 +110,7 @@ function startListening() {
     void resumeRunningCampaigns();
     startFollowUpEngine();
     startMonitorAgent();
+    startRoutineScheduler();
 
     // Auto-seed admin on startup if env vars are set
     void seedAdminIfConfigured();
@@ -208,38 +210,36 @@ function startAutoMaintenanceScheduler() {
   logger.info({ intervalMin: INTERVAL_MS / 60_000 }, "Auto-maintenance scheduler started");
 }
 
+// ── Heartbeat ─────────────────────────────────────────────────────
+// A minute-by-minute self-ping. It was written to stop a Replit workspace
+// sleeping, and read REPLIT_DOMAINS to find its own public URL — neither of
+// which exists any more. What remains useful is the local half: it proves the
+// event loop is still turning, and a gap in the log is the clearest evidence
+// that the process was wedged rather than merely quiet.
+//
+// HEARTBEAT_URL replaces the guessed public domain. Set it to an uptime
+// monitor's ping URL when the VPS should be watched from outside; leave it
+// unset and only the local check runs.
 function startKeepAlive(localPort: number): void {
-  // ── Interval: 1 minute ───────────────────────────────────────────
-  // Pings /api/ping every 60 s:
-  //   • In dev mode: keeps the Replit workspace awake (sleeps after ~5 min idle)
-  //   • In Autoscale deployment: helps prevent scale-to-zero (supplemented by UptimeRobot)
-  //   • In Reserved VM: not strictly needed but harmless
   const INTERVAL_MS = 60_000;
 
-  const domains = (process.env["REPLIT_DOMAINS"] ?? "").split(",").filter(Boolean);
-  const publicDomain = domains[0];
-
-  // Always ping localhost directly — this keeps the Node process awake
-  // even when the public proxy has not yet forwarded the request.
   const localUrl  = `http://localhost:${localPort}/api/ping`;
-  const publicUrl = publicDomain ? `https://${publicDomain}/api/ping` : null;
+  const publicUrl = process.env["HEARTBEAT_URL"] || null;
 
   function ping(url: string) {
     const mod = url.startsWith("https") ? https : http;
     const req = mod.get(url, { timeout: 10_000 }, (res) => {
-      logger.debug({ statusCode: res.statusCode, url }, "keep-alive ping ✓");
+      logger.debug({ statusCode: res.statusCode, url }, "heartbeat ✓");
       res.resume();
     });
-    req.on("error", (e) => logger.warn({ err: e.message, url }, "keep-alive ping failed"));
+    req.on("error", (e) => logger.warn({ err: e.message, url }, "heartbeat failed"));
     req.end();
   }
 
   setInterval(() => {
-    // Always ping localhost (keeps Node awake regardless of proxy state)
     ping(localUrl);
-    // Also ping the public URL so Replit proxy registers activity
     if (publicUrl) ping(publicUrl);
   }, INTERVAL_MS);
 
-  logger.info({ localUrl, publicUrl, intervalMin: INTERVAL_MS / 60_000 }, "Keep-alive started");
+  logger.info({ localUrl, publicUrl, intervalMin: INTERVAL_MS / 60_000 }, "Heartbeat started");
 }
