@@ -26,7 +26,6 @@ import WaLinkGenerator from "@/pages/WaLinkGenerator";
 import DirectLoginPage from "@/pages/DirectLoginPage";
 import WaPublicSetup from "@/pages/WaPublicSetup";
 import LandingPage from "@/pages/LandingPage";
-import Templates from "@/pages/Templates";
 import Settings from "@/pages/Settings";
 import Diagnostics from "@/pages/Diagnostics";
 import NotFound from "@/pages/not-found";
@@ -165,7 +164,6 @@ function AuthenticatedRoutes() {
           <Route path="/contacts/:id"   component={ContactDetail} />
           <Route path="/campaigns"      component={CampaignsList} />
           <Route path="/campaigns/new"  component={CampaignNew} />
-          <Route path="/templates"      component={Templates} />
           <Route path="/campaigns/:id/edit" component={CampaignNew} />
           <Route path="/campaigns/:id"  component={CampaignDetail} />
           <Route path="/follow-ups"     component={FollowUps} />

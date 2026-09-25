@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, input } from "@/components/AgentPanel";
+import { TelegramCard } from "@/components/TelegramCard";
 
 const card = "bg-card border border-card-border rounded-xl";
 const ghost = "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs border border-card-border hover:border-primary/50 transition-colors disabled:opacity-40";
@@ -323,6 +324,8 @@ export default function AgentOps() {
           </div>
         )}
       </div>
+
+      <TelegramCard />
 
       {/* What they say to each other */}
       <div className={card}>

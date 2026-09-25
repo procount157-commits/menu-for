@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { MessageTemplate } from "./Templates";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -561,29 +560,6 @@ export default function CampaignNew() {
     }
   };
 
-  // ── Load template from sessionStorage (set by Templates.tsx) ──────
-  useEffect(() => {
-    const raw = sessionStorage.getItem("selectedTemplate");
-    if (!raw) return;
-    sessionStorage.removeItem("selectedTemplate");
-    try {
-      const tpl: MessageTemplate = JSON.parse(raw);
-      setForm((f) => ({ ...f, message: tpl.message }));
-      if (tpl.buttons && tpl.buttons.length > 0) {
-        setHasButtons(true);
-        setButtons(
-          tpl.buttons.map((b) => ({
-            text: b.text,
-            type: (b.type as ButtonType) || "reply",
-            url: b.url ?? "",
-            phone: "",
-            color: "default" as ButtonColor,
-          }))
-        );
-      }
-      toast.success(`تم تحميل قالب "${tpl.title}" — عدّل النص واضغط إنشاء الحملة`);
-    } catch {}
-  }, []);
 
   const createMutation = useCreateCampaign({
     mutation: {

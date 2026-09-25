@@ -20,7 +20,6 @@ const NAV = [
   { href: "/inbox",         label: "صندوق الوارد",       icon: MessagesSquare },
   { href: "/extractor",     label: "مستخرج الأرقام",    icon: Download },
   { href: "/campaigns",     label: "الحملات",            icon: Megaphone },
-  { href: "/templates",     label: "مكتبة القوالب",      icon: BookOpen },
   { href: "/ops",           label: "غرفة العمليات",      icon: Radar, badge: "جديد" },
   { href: "/employees",     label: "فريق البوتات",       icon: Users2 },
   { href: "/follow-ups",    label: "بوت المتابعة",       icon: Clock },
