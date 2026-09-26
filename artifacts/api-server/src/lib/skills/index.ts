@@ -15,7 +15,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, agentSkillsTable, agentSkillGrantsTable, botEmployeesTable } from "@workspace/db";
 import { DIALECT_SKILL, INTENT_READING_SKILL } from "./dialect";
 import { NEGOTIATION_SKILL, DISCOVERY_SKILL, COMPLAINT_SKILL } from "./selling";
-import { FOLLOWUP_WRITING_SKILL, ANALYSIS_SKILL, COACHING_SKILL } from "./internal";
+import { FOLLOWUP_WRITING_SKILL, ANALYSIS_SKILL, COACHING_SKILL, SALES_MANAGEMENT_SKILL } from "./internal";
 import { HUMAN_WRITING_SKILL, DIALECT_MATCH_SKILL } from "./writing";
 import { logger } from "../logger";
 
@@ -25,7 +25,7 @@ export const LIBRARY: SkillDef[] = [
   HUMAN_WRITING_SKILL, DIALECT_MATCH_SKILL,
   DIALECT_SKILL, INTENT_READING_SKILL,
   NEGOTIATION_SKILL, DISCOVERY_SKILL, COMPLAINT_SKILL,
-  FOLLOWUP_WRITING_SKILL, ANALYSIS_SKILL, COACHING_SKILL,
+  FOLLOWUP_WRITING_SKILL, ANALYSIS_SKILL, COACHING_SKILL, SALES_MANAGEMENT_SKILL,
 ];
 
 /**
@@ -50,7 +50,7 @@ export const GRANTS: Record<string, string[]> = {
   // The manager answers customers when nobody else fits, and coaches the rest
   // of the time — so she carries both sides.
   chief:     [...WRITES_TO_CUSTOMERS, NEGOTIATION_SKILL.name, DISCOVERY_SKILL.name,
-              COACHING_SKILL.name, ANALYSIS_SKILL.name],
+              COACHING_SKILL.name, ANALYSIS_SKILL.name, SALES_MANAGEMENT_SKILL.name],
   followup:  [...WRITES_TO_CUSTOMERS, FOLLOWUP_WRITING_SKILL.name],
   collector: [ANALYSIS_SKILL.name],
   intake:    [ANALYSIS_SKILL.name],

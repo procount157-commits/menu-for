@@ -8,6 +8,7 @@ import { startRoutineScheduler } from "./lib/agent-routines";
 import { startOpsAgent } from "./lib/ops-agent";
 import { startCollector } from "./lib/collector-agent";
 import { startBrowserReaper } from "./lib/browser-agent";
+import { startMeetings } from "./lib/meeting";
 import { runAutoMaintenance } from "./lib/diagnosis-engine";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
@@ -117,6 +118,7 @@ function startListening() {
     startOpsAgent();
     startCollector();
     startBrowserReaper();
+    startMeetings();
 
     // Auto-seed admin on startup if env vars are set
     void seedAdminIfConfigured();
