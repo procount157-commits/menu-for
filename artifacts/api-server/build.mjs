@@ -29,6 +29,9 @@ async function buildAll() {
     // - use path traversal to read files (e.g. @google-cloud/secret-manager loads sibling .proto files)
     external: [
       "*.node",
+      // Lazily requires chromium-bidi by a path esbuild cannot follow, and
+      // there is nothing to gain from bundling a browser driver anyway.
+      "playwright-core",
       "sharp",
       "jimp",
       "@jimp/*",
