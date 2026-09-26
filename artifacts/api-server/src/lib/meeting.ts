@@ -19,6 +19,7 @@ import {
   db, meetingsTable, meetingTurnsTable, botEmployeesTable,
   autoReplyLogTable, contactSegmentsTable, followupDeliberationsTable,
   opsAlertsTable, leadSourcesTable, followUpJobsTable, agentMemoryTable,
+  meetingProposalsTable,
   type Meeting,
 } from "@workspace/db";
 import { complete } from "./llm";
@@ -29,6 +30,30 @@ import { say } from "./agent-comms";
 import { logger } from "./logger";
 
 export const CHAIR = "chief";
+
+/**
+ * How many replies must have a measured outcome before a meeting may decide
+ * anything.
+ *
+ * The first real meeting ran on 42 replies with zero recorded outcomes and
+ * produced four standing rules anyway — including one that overrode a
+ * deliberately written skill, and one that froze follow-ups by making an
+ * employee wait for a report nobody produces. A discussion about numbers that
+ * say nothing is still a discussion; it is not grounds for legislating.
+ */
+export const MIN_EVIDENCE = 6;
+
+/**
+ * A decision that changes how the business runs rather than how an employee
+ * talks. These become proposals for the owner, never rules that apply
+ * themselves — stopping the sending is the owner's call, and an agent that can
+ * halt it on a thin argument is a liability however good the argument sounds.
+ */
+const OPERATIONAL = /(أوقف|توقّف|توقف|تجميد|جمّد|جمد|لا ترسل|لا يرسل|لا تُرسل|امتنع|علّق|نوقف|إيقاف|انتظر تقرير|لا يُوقِف|حتى يصدر|قبل أن يقرأ|خفّض الحد|قلّل الحصة)/;
+
+export function classifyDecision(rule: string): "behaviour" | "operational" {
+  return OPERATIONAL.test(rule) ? "operational" : "behaviour";
+}
 
 /** Who attends, in speaking order, and what each is there to account for. */
 const AGENDA_ROLES: Array<{ role: string; brief: string }> = [
@@ -196,6 +221,11 @@ export async function runMeeting(userId: number, kind: "daily" | "pipeline" | "p
   const agendaText = fmtAgenda(agenda);
   const roster = await rosterBrief(userId);
 
+  // Outcomes, not replies. Forty-two replies nobody reacted to tell you
+  // nothing about which of them worked.
+  const evidence = Number(agenda["أدّى لاهتمام"] ?? 0) + Number(agenda["أدّى لانصراف"] ?? 0);
+  const couldDecide = evidence >= MIN_EVIDENCE;
+
   const chair = await speaker(userId, CHAIR);
   if (!chair) return { error: "لا يوجد مدير يرأس الاجتماع" };
 
@@ -203,7 +233,7 @@ export async function runMeeting(userId: number, kind: "daily" | "pipeline" | "p
     : kind === "pipeline" ? "مراجعة خط المبيعات" : "مراجعة ما لم ينجح";
 
   const [meeting] = await db.insert(meetingsTable)
-    .values({ userId, kind, title, agenda: agenda as any }).returning();
+    .values({ userId, kind, title, agenda: agenda as any, evidenceCount: evidence, couldDecide }).returning();
   const id = meeting!.id;
 
   const heard: Array<{ name: string; body: string }> = [];
@@ -274,7 +304,15 @@ export async function runMeeting(userId: number, kind: "daily" | "pipeline" | "p
   // 4. Decisions. This is the only part that changes anything.
   const closing = await speak({
     userId, role: CHAIR, agenda: agendaText, roster, heard, maxLines: 6,
-    instruction: [
+    instruction: !couldDecide ? [
+      "أغلقي الاجتماع بلا قرارات.",
+      `عدد الردود التي لها نتيجة مقيسة اليوم ${evidence} فقط، وهذا أقل من أن يُبنى عليه قرار.`,
+      "اكتبي بهذا الشكل بالضبط:",
+      "الخلاصة: <سطران: ما نوقشه، ولماذا لا يكفي لاتخاذ قرار>",
+      "نحتاج: <ما الذي يلزم جمعه قبل الاجتماع القادم لنقرر، سطر واحد>",
+      "",
+      "لا تكتبي أي سطر يبدأ بـ«قرار». الانضباط هنا أهم من أن تبدو الاجتماعات مثمرة.",
+    ].join("\n") : [
       "أغلقي الاجتماع. اكتبي بهذا الشكل بالضبط:",
       "الخلاصة: <سطران عمّا اتُّفق عليه>",
       "قرار لـ<اسم الموظف>: <سلوك محدد يفعله أو يتوقف عنه، سطر واحد>",
@@ -286,10 +324,17 @@ export async function runMeeting(userId: number, kind: "daily" | "pipeline" | "p
       // decision to operations, because nothing told her what they do.
       "لكل قرار موظفٌ مسؤوليته تشمله. لا تعطي قراراً عن مراسلة العملاء لمن لا يراسل أحداً،",
       "ولا قراراً عن الشكاوى لغير المسؤول عنها. راجعي قائمة المسؤوليات أعلاه قبل أن تكتبي.",
+      // She overrode the discovery skill — which names the licence question as
+      // the most important one — on the basis of a conversation about numbers
+      // with no outcomes in them.
+      "لا تنقضي مهارة مكتوبة للفريق إلا بدليل من ردود لها نتيجة مقيسة. المهارات وُضعت عن دراسة،",
+      "ورأيٌ في اجتماع واحد لا يكفي لإلغائها.",
+      "القرار يخصّ كيف يتكلّم الموظف. إيقاف الإرسال أو تجميد المتابعة ليس قرارك — إن رأيتِه لازماً",
+      "فاكتبيه كقرار عادي وسيُعرض على صاحب العمل، ولن يُطبَّق قبل موافقته.",
     ].join("\n"),
   });
 
-  const decisions: Array<{ role: string; name: string; rule: string }> = [];
+  const decisions: Array<{ role: string; name: string; rule: string; status: string }> = [];
   let summary = "";
   if (closing) {
     await record(userId, id, ++seq, CHAIR, "decide", closing);
@@ -318,9 +363,22 @@ export async function runMeeting(userId: number, kind: "daily" | "pipeline" | "p
         continue;
       }
       const rule = m[2]!.trim();
-      decisions.push({ role: who.role, name: who.name, rule });
-      // The decision lands in that employee's own memory, which is what makes
-      // a meeting change behaviour instead of producing minutes.
+
+      if (classifyDecision(rule) === "operational") {
+        // Stopping the business is the owner's call. The agents may argue for
+        // it — they may not do it.
+        await db.insert(meetingProposalsTable).values({
+          userId, meetingId: id, role: who.role, roleName: who.name, rule,
+          reason: "يغيّر تشغيل الإرسال أو المتابعة — يحتاج موافقتك",
+        });
+        decisions.push({ role: who.role, name: who.name, rule, status: "معلّق بانتظار موافقتك" });
+        logger.info({ userId, role: who.role }, "قرار تشغيلي — عُرض على صاحب العمل ولم يُطبَّق");
+        continue;
+      }
+
+      decisions.push({ role: who.role, name: who.name, rule, status: "طُبِّق" });
+      // A behaviour decision lands in that employee's own memory, which is what
+      // makes a meeting change anything instead of producing minutes.
       await remember(userId, who.role, "instruction", rule);
       await say({ userId, fromRole: CHAIR, toRole: who.role, kind: "directive",
         body: `قرار اجتماع اليوم: ${rule}` }).catch(() => {});
@@ -336,12 +394,16 @@ export async function runMeeting(userId: number, kind: "daily" | "pipeline" | "p
       `<b>🗓️ ${esc(title)}</b>`, "",
       esc(summary), "",
       "<b>القرارات:</b>",
-      ...decisions.map((d) => `• <b>${esc(d.name)}</b>: ${esc(d.rule)}`),
+      ...decisions.map((d) => `• <b>${esc(d.name)}</b>: ${esc(d.rule)}` +
+        (d.status.startsWith("معلّق") ? "\n  <i>⏸ ينتظر موافقتك</i>" : "")),
     ].join("\n")).catch(() => {});
   }
 
-  logger.info({ userId, meetingId: id, turns: seq, decisions: decisions.length, asked }, "انتهى اجتماع الفريق");
-  return { id, title, turns: seq, summary, decisions };
+  logger.info({ userId, meetingId: id, turns: seq, evidence, couldDecide,
+    applied: decisions.filter((d) => d.status === "طُبِّق").length,
+    proposed: decisions.filter((d) => d.status !== "طُبِّق").length, asked },
+    "انتهى اجتماع الفريق");
+  return { id, title, turns: seq, summary, decisions, evidence, couldDecide };
 }
 
 export async function meetingWithTurns(userId: number, id: number) {

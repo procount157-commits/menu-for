@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, varchar, text, timestamp, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, varchar, text, boolean, timestamp, jsonb, index } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
 // ── Meetings ──────────────────────────────────────────────────────
@@ -22,6 +22,10 @@ export const meetingsTable = pgTable("meetings", {
   /** [{ role, rule }] — what the chair decided, and for whom. */
   decisions: jsonb("decisions").notNull().default([]),
   status:    varchar("status", { length: 20 }).notNull().default("running"),
+  /** How many replies had a measured outcome when this was called. */
+  evidenceCount: integer("evidence_count").notNull().default(0),
+  /** False when there was too little evidence to decide anything. */
+  couldDecide:   boolean("could_decide").notNull().default(true),
   startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
   endedAt:   timestamp("ended_at", { withTimezone: true }),
 }, (t) => [index("idx_meetings").on(t.userId, t.startedAt)]);
@@ -41,3 +45,23 @@ export const meetingTurnsTable = pgTable("meeting_turns", {
 
 export type Meeting     = typeof meetingsTable.$inferSelect;
 export type MeetingTurn = typeof meetingTurnsTable.$inferSelect;
+
+// ── Decisions the owner has to approve ────────────────────────────
+// A meeting may change how an employee talks. It may not change how the
+// business operates — stop sending, freeze follow-ups, lower a limit — on its
+// own, because the first real one did exactly that on zero evidence and froze
+// follow-ups by making one employee wait for a report another never produces.
+export const meetingProposalsTable = pgTable("meeting_proposals", {
+  id:        serial("id").primaryKey(),
+  userId:    integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  meetingId: integer("meeting_id"),
+  role:      varchar("role", { length: 30 }).notNull(),
+  roleName:  varchar("role_name", { length: 80 }),
+  rule:      text("rule").notNull(),
+  reason:    text("reason"),
+  status:    varchar("status", { length: 20 }).notNull().default("pending"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("idx_proposals").on(t.userId, t.status, t.createdAt)]);
+
+export type MeetingProposal = typeof meetingProposalsTable.$inferSelect;
