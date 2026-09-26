@@ -16,11 +16,13 @@ import { db, agentSkillsTable, agentSkillGrantsTable, botEmployeesTable } from "
 import { DIALECT_SKILL, INTENT_READING_SKILL } from "./dialect";
 import { NEGOTIATION_SKILL, DISCOVERY_SKILL, COMPLAINT_SKILL } from "./selling";
 import { FOLLOWUP_WRITING_SKILL, ANALYSIS_SKILL, COACHING_SKILL } from "./internal";
+import { HUMAN_WRITING_SKILL, DIALECT_MATCH_SKILL } from "./writing";
 import { logger } from "../logger";
 
 export type SkillDef = { name: string; intents: string[]; instruction: string };
 
 export const LIBRARY: SkillDef[] = [
+  HUMAN_WRITING_SKILL, DIALECT_MATCH_SKILL,
   DIALECT_SKILL, INTENT_READING_SKILL,
   NEGOTIATION_SKILL, DISCOVERY_SKILL, COMPLAINT_SKILL,
   FOLLOWUP_WRITING_SKILL, ANALYSIS_SKILL, COACHING_SKILL,
@@ -34,14 +36,22 @@ export const LIBRARY: SkillDef[] = [
  * the job: سام gets de-escalation and not negotiation, because a support agent
  * who negotiates during a complaint makes it worse.
  */
+// Everyone who writes to a customer carries the same two writing skills. How
+// long a message is and whose dialect it is in are not role-specific, and the
+// owner's complaint — that the replies read as a bot — was about exactly these.
+const WRITES_TO_CUSTOMERS = [
+  HUMAN_WRITING_SKILL.name, DIALECT_MATCH_SKILL.name,
+  DIALECT_SKILL.name, INTENT_READING_SKILL.name,
+];
+
 export const GRANTS: Record<string, string[]> = {
-  sales:     [DIALECT_SKILL.name, INTENT_READING_SKILL.name, NEGOTIATION_SKILL.name, DISCOVERY_SKILL.name],
-  support:   [DIALECT_SKILL.name, INTENT_READING_SKILL.name, COMPLAINT_SKILL.name],
+  sales:     [...WRITES_TO_CUSTOMERS, NEGOTIATION_SKILL.name, DISCOVERY_SKILL.name],
+  support:   [...WRITES_TO_CUSTOMERS, COMPLAINT_SKILL.name],
   // The manager answers customers when nobody else fits, and coaches the rest
   // of the time — so she carries both sides.
-  chief:     [DIALECT_SKILL.name, INTENT_READING_SKILL.name, NEGOTIATION_SKILL.name, DISCOVERY_SKILL.name,
+  chief:     [...WRITES_TO_CUSTOMERS, NEGOTIATION_SKILL.name, DISCOVERY_SKILL.name,
               COACHING_SKILL.name, ANALYSIS_SKILL.name],
-  followup:  [DIALECT_SKILL.name, INTENT_READING_SKILL.name, FOLLOWUP_WRITING_SKILL.name],
+  followup:  [...WRITES_TO_CUSTOMERS, FOLLOWUP_WRITING_SKILL.name],
   collector: [ANALYSIS_SKILL.name],
   intake:    [ANALYSIS_SKILL.name],
 };

@@ -166,13 +166,19 @@ const TONES: Record<string, string> = {
 
 /** The standing instructions every generated reply is written against. */
 /** What a salesperson is for. The default job when no agent is routed. */
+// What the job is, not how to write it — the writing skill owns that, and the
+// two used to contradict each other outright. This said "end every reply with
+// a next step — a question, a request, an offer" while the style rules said
+// "do not end every message with a manufactured question". The model was told
+// both and resolved it the only way it could: a question at the end of
+// everything, which is the single clearest sign a human did not write it.
 export const SALES_JOB = [
   "أنت تبيع، لا تجيب عن أسئلة فقط:",
-  "- افهم حاجة العميل قبل أن تعرض شيئاً. اسأله عن نشاطه وحجمه ووضعه الحالي.",
-  "- اربط ما نقدّمه بمشكلته هو تحديداً، لا بقائمة خدمات عامة.",
-  "- تعامل مع التردد والاعتراض بهدوء: افهم سببه ثم عالجه.",
-  "- اختم كل رد بخطوة تالية واضحة — سؤال، أو طلب بيانات، أو عرض موعد.",
-  "- لا تنهِ المحادثة عند أول رد. أبقِ الباب مفتوحاً دائماً.",
+  "- افهم حاجة العميل قبل أن تعرض شيئاً.",
+  "- اربط ما تعرضه بمشكلته هو، لا بقائمة خدمات.",
+  "- تعامل مع الاعتراض بفهم سببه لا بالدفاع.",
+  "- حرّك المحادثة خطوة للأمام. أحياناً بسؤال، وأحياناً بمعلومة تستدعي رداً، وأحياناً بعرض موعد. نوّع.",
+  "- لا تنهِ المحادثة عند أول رد.",
 ];
 
 export function buildSystemPrompt(
@@ -184,6 +190,8 @@ export function buildSystemPrompt(
   // generic salesperson below answers.
   persona?: string,
   job?: string[],
+  // Rendered last. See the comment at the bottom of this function.
+  finalCheck?: string,
 ): string {
   const facts = found.map((f, i) => `[${i + 1}] ${f.entry.title}\n${f.entry.content}`).join("\n\n");
   const remembered = memory.length
@@ -230,6 +238,12 @@ export function buildSystemPrompt(
     remembered,
     "",
     facts ? `معلومات مفيدة لهذه الرسالة:\n${facts}` : "لا توجد معلومة محددة مطابقة — حاور العميل، افهم حاجته، واطلب بياناته ليتواصل معه مختص.",
+
+    // Last, deliberately. Everything above is context the model reads; this is
+    // what it does. The rules that decide whether a reply reads as human were
+    // buried mid-prompt before, which is the position models attend to least,
+    // and the replies showed it.
+    finalCheck ? `\n${finalCheck}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -331,6 +345,7 @@ export async function answerFromKnowledge(
   phone?: string,
   persona?: string,
   job?: string[],
+  finalCheck?: string,
 ): Promise<AnswerResult> {
   const [profile, history, memory] = await Promise.all([
     getProfile(userId),
@@ -381,7 +396,7 @@ export async function answerFromKnowledge(
       : [...history, { role: "user" as const, content: question }];
 
     const out = await complete([
-      { role: "system", content: buildSystemPrompt(profile, found, memory, persona, job) },
+      { role: "system", content: buildSystemPrompt(profile, found, memory, persona, job, finalCheck) },
       ...turns,
     ]);
     if (out?.text) return { reply: out.text, provider: out.provider, kbIds };

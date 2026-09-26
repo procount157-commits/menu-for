@@ -32,8 +32,32 @@ export async function skillsFor(
   });
 }
 
+// Two skills decide how a reply reads rather than what it contains, and they
+// belong at the end of the prompt rather than among the others. Named here so
+// the split is one list to change, not a condition scattered across callers.
+const WRITING_SKILLS = ["الكتابة البشرية", "مجاراة لهجة العميل"];
+
+export const isWritingSkill = (s: AgentSkill) => WRITING_SKILLS.includes(s.name);
+
 /** The skills, as prompt text. Named, because a persona may refer to one. */
 export function skillsPreamble(skills: AgentSkill[]): string {
-  if (skills.length === 0) return "";
-  return ["مهارات تملكها:", ...skills.map((s) => `— ${s.name}: ${s.instruction.trim()}`)].join("\n");
+  const rest = skills.filter((s) => !isWritingSkill(s));
+  if (rest.length === 0) return "";
+  return ["مهارات تملكها:", ...rest.map((s) => `— ${s.name}: ${s.instruction.trim()}`)].join("\n");
+}
+
+/**
+ * The writing rules, for the very end of the prompt.
+ *
+ * Framed as a check rather than as more instructions: by this point the model
+ * has read two thousand words about the business and the customer, and what
+ * moves the needle is a short list it reads immediately before writing.
+ */
+export function finalCheckPreamble(skills: AgentSkill[]): string {
+  const writing = skills.filter(isWritingSkill);
+  if (writing.length === 0) return "";
+  return [
+    "═══ قبل أن ترسل — راجع رسالتك على هذه ═══",
+    ...writing.map((s) => s.instruction.trim()),
+  ].join("\n\n");
 }

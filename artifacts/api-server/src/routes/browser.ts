@@ -150,11 +150,30 @@ router.post("/:role/click", async (req, res) => {
   }
 });
 
+/**
+ * Open a session, and optionally show its window.
+ *
+ * Visible is how the owner signs in. They do it with their own hands in a real
+ * Chrome window; this application never sees the password, and the cookies
+ * persist into the employee's profile so every headless session afterwards is
+ * already signed in.
+ */
 router.post("/:role/open", async (req, res) => {
   const userId = req.session.userId!;
-  if (!await ownsRole(userId, req.params.role!)) return res.status(404).json({ error: "الموظف غير موجود" });
-  await openSession(userId, req.params.role!);
-  res.json({ ok: true });
+  const role = req.params.role!;
+  if (!await ownsRole(userId, role)) return res.status(404).json({ error: "الموظف غير موجود" });
+
+  const wantVisible = req.body?.visible === true;
+  const s = await openSession(userId, role, { visible: wantVisible });
+
+  const url = String(req.body?.url ?? "").trim();
+  if (url) {
+    if (!allowed(url)) return res.status(403).json({ error: "هذا العنوان غير مسموح" });
+    await s.page.goto(/^https?:\/\//i.test(url) ? url : `https://${url}`,
+      { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => {});
+    s.url = s.page.url();
+  }
+  res.json({ ok: true, visible: wantVisible, url: s.url });
 });
 
 router.delete("/:role", async (req, res) => {

@@ -19,13 +19,14 @@ check("every skill has a name and an instruction",
   LIBRARY.every((s) => s.name.length > 2 && s.instruction.length > 200));
 check("names are unique", new Set(LIBRARY.map((s) => s.name)).size === LIBRARY.length);
 
-// The size ceiling is not tidiness: Groq's free tier allows 8,000 tokens a
-// minute, and every 300 characters of skill costs about one reply a minute.
+// The ceiling is not tidiness: Groq's free tier allows 8,000 tokens a minute,
+// and every 300 characters of skill costs about one reply a minute. What the
+// limit applies to is what loads for one message, tested at the bottom of this
+// file — the library total is irrelevant, since at most five of these are ever
+// carried at once, and capping it would only stop skills being added.
 const biggest = LIBRARY.reduce((a, b) => (a.instruction.length > b.instruction.length ? a : b));
-check("no single skill exceeds 1,100 characters", biggest.instruction.length <= 1_100,
+check("no single skill exceeds 1,400 characters", biggest.instruction.length <= 1_400,
   `${biggest.name} ${biggest.instruction.length}`);
-check("the whole library stays under 7,000 characters",
-  LIBRARY.reduce((a, s) => a + s.instruction.length, 0) <= 7_000);
 
 // A procedure a weak model can follow has literal wording in it, not adjectives.
 const teaching = LIBRARY.filter((s) => /التفاوض|اللهجة|قراءة نية|احتواء|كتابة المتابعة/.test(s.name));

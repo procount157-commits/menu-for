@@ -9,7 +9,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/components/AgentPanel";
-import { BrowserPane } from "@/components/BrowserPane";
 
 const card = "bg-card border border-card-border rounded-xl";
 const ghost = "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs border border-card-border hover:border-primary/50 transition-colors disabled:opacity-40";
@@ -188,8 +187,6 @@ export default function Board() {
       <div className="flex gap-3 overflow-x-auto pb-3 -mx-6 px-6">
         {cols.map((c) => <Column key={c.id} c={c} />)}
       </div>
-
-      <BrowserPane team={cols} />
 
       {/* The follow-up ladder */}
       <div className={cn(card, f.dryRun && "border-yellow-500/30")}>

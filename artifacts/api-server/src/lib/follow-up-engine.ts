@@ -22,8 +22,9 @@ import { answerFromKnowledge, shouldAutoReply, logAutoReply } from "./knowledge"
 import { detectAutoresponder } from "./autoresponder";
 import { route, personaPreamble, agentJob } from "./agent-router";
 import { memoryPreamble, learnFromOutcome } from "./agent-memory";
-import { skillsFor, skillsPreamble } from "./agent-skills";
+import { skillsFor, skillsPreamble, finalCheckPreamble } from "./agent-skills";
 import { inboxPreamble } from "./agent-comms";
+import { thinkTime } from "./reply-timing";
 import { sendMessage, getStatus, registerInboundHook, registerOnConnectHook } from "./whatsapp";
 import { provisionOnConnect } from "./provision";
 
@@ -371,6 +372,7 @@ async function autoReplyIfAppropriate(userId: number, phone: string, text: strin
   // told, what they have learnt, and the skills they hold. Fetched together
   // because none of it depends on the others.
   let voice: string | undefined;
+  let finalCheck: string | undefined;
   if (routing) {
     const [memory, skills, inbox] = await Promise.all([
       memoryPreamble(userId, routing.agent.role),
@@ -379,12 +381,14 @@ async function autoReplyIfAppropriate(userId: number, phone: string, text: strin
     ]);
     voice = [personaPreamble(routing), skillsPreamble(skills), memory, inbox]
       .filter(Boolean).join("\n\n");
+    finalCheck = finalCheckPreamble(skills);
   }
 
   // Pass the phone so the reply sees the conversation, not just this line.
   const answer = await answerFromKnowledge(
     userId, text, phone, voice,
     routing ? agentJob(routing) : undefined,
+    finalCheck,
   );
   if (!answer.reply) {
     await logAutoReply({ userId, phone, incoming: text, intent, skipped: answer.reason ?? "لا رد", agentRole: routing?.agent.role });
@@ -392,6 +396,38 @@ async function autoReplyIfAppropriate(userId: number, phone: string, text: strin
   }
 
   try {
+    // Wait before the typing indicator even appears. The indicator itself was
+    // already running for a plausible length of time; what gave it away was
+    // starting the instant the customer's message landed. Nobody notices a
+    // message, opens it and begins typing inside half a second.
+    //
+    // The gap is measured from their previous message, not this one: it says
+    // how live the conversation is, which is what decides how fast a person
+    // would come back.
+    const [prior] = await db
+      .select({ at: waThreadMessagesTable.createdAt })
+      .from(waThreadMessagesTable)
+      .where(and(
+        eq(waThreadMessagesTable.userId, userId),
+        eq(waThreadMessagesTable.phone, phone),
+        eq(waThreadMessagesTable.fromMe, false),
+      ))
+      .orderBy(desc(waThreadMessagesTable.createdAt))
+      .offset(1)
+      .limit(1);
+
+    const gulfHour = (new Date().getUTCHours() + 4) % 24;
+    const wait = thinkTime({
+      minutesSinceTheirLast: prior?.at
+        ? (Date.now() - new Date(prior.at).getTime()) / 60_000
+        : null,
+      incomingLength: text.length,
+      outsideHours: gulfHour < 8 || gulfHour >= 22,
+    });
+    logger.info({ userId, phone, pace: wait.pace, seconds: Math.round(wait.ms / 1000) },
+      "ينتظر قبل أن يبدأ الكتابة");
+    await new Promise((r) => setTimeout(r, wait.ms));
+
     await sendMessage(userId, phone, answer.reply);
     await logAutoReply({ userId, phone, incoming: text, reply: answer.reply, provider: answer.provider, kbIds: answer.kbIds, intent, agentRole: routing?.agent.role });
     logger.info({ userId, phone, provider: answer.provider, kb: answer.kbIds }, "auto-reply sent");

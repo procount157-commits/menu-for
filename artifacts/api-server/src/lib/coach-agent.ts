@@ -31,17 +31,12 @@ import { logger } from "./logger";
 
 export const COACH_ROLE = "chief";
 
-/** The house style, enforced on every customer-facing employee. */
-export const HOUSE_STYLE = [
-  "اكتب كما يكتب موظف حقيقي على واتساب، لا كما يكتب نظام:",
-  "- نوّع افتتاحياتك. لا تبدأ كل رسالة بنفس التحية.",
-  "- لا تُعد صياغة سؤال العميل قبل أن تجيبه — أجب مباشرة.",
-  "- اذكر تفصيلاً من كلامه هو. العبارات العامة تصلح لأي أحد، وهذا بالضبط ما يجعلها تبدو آلية.",
-  "- لا تُرقّم كل شيء ولا تضع عناوين عريضة. رسالة واتساب ليست تقريراً.",
-  "- اجعلها قصيرة. سطران أو ثلاثة يكفيان في أغلب الأحيان.",
-  "- لا تعتذر بلا سبب، ولا تشكر في كل سطر، ولا تستخدم عبارات مثل «يسعدني أن أساعدك» أو «لا تتردد».",
-  "- لا تنهِ كل رسالة بسؤال مصطنع. اسأل حين يكون لديك سؤال حقيقي.",
-];
+// The house style used to live here and be written into every employee's
+// memory. It moved to the "الكتابة البشرية" skill: memory renders mid-prompt
+// where a model attends least, and these rules duplicated what the skills
+// already said while contradicting the sales brief. The manager still enforces
+// the standard — she just does it by coaching against it rather than by
+// pasting it into seven memories.
 
 type Performance = {
   role: string; name: string;
@@ -122,8 +117,8 @@ async function coachOne(userId: number, p: Performance, manager: typeof botEmplo
       `تُدرّبين ${p.name}، أحد موظفي فريقك. أمامك أداؤه خلال أسبوع، مع أمثلة من ردود أدّت لاهتمام العميل وردود أدّت لانصرافه.`,
       "استخرجي من هذه الأمثلة تحديداً — لا من معرفتك العامة بالبيع — ما يجب أن يغيّره.",
       "",
-      "معيار الكتابة الذي تفرضينه على الفريق:",
-      ...HOUSE_STYLE,
+      "معيار الكتابة الذي تفرضينه على الفريق: رسالة واتساب من موظف لا بريد من شركة —",
+      "سطران، بلا ترقيم، بلا عبارات مثل «يسعدني» و«لا تتردد»، وسؤال واحد على الأكثر.",
       "",
       "اكتبي بهذا الشكل بالضبط ولا شيء غيره:",
       "قاعدة: <قاعدة واحدة قابلة للتطبيق في سطر>",
@@ -165,22 +160,29 @@ async function coachOne(userId: number, p: Performance, manager: typeof botEmplo
   return { role: p.role, name: p.name, rules, note };
 }
 
-/** Make sure everyone carries the house style, once. */
-export async function enforceHouseStyle(userId: number): Promise<number> {
-  const team = (await db.select().from(botEmployeesTable)
-    .where(and(eq(botEmployeesTable.userId, userId), eq(botEmployeesTable.isActive, true))))
-    .filter((e) => e.kind === "customer");
+/**
+ * Clear the house-style rules out of memory.
+ *
+ * They were written there by an earlier version of enforceHouseStyle, seven
+ * per employee, where they bloated the prompt and duplicated the writing
+ * skill. Rules the owner wrote themselves are left alone — only the ones this
+ * system put there are removed.
+ */
+export async function clearHouseStyleFromMemory(userId: number): Promise<number> {
+  const stale = [
+    "نوّع افتتاحياتك", "لا تُعد صياغة سؤال العميل", "اذكر تفصيلاً من كلامه هو",
+    "لا تُرقّم كل شيء", "اجعلها قصيرة", "لا تعتذر بلا سبب", "لا تنهِ كل رسالة بسؤال مصطنع",
+  ];
+  const rows = await db.select().from(agentMemoryTable)
+    .where(and(eq(agentMemoryTable.userId, userId), eq(agentMemoryTable.kind, "instruction")));
 
-  let n = 0;
-  for (const e of team) {
-    for (const rule of HOUSE_STYLE.slice(1)) {
-      // remember() counts repeats instead of duplicating, so this is safe to
-      // run on every round.
-      await remember(userId, e.role, "instruction", rule.replace(/^- /, ""));
-    }
-    n++;
+  let removed = 0;
+  for (const r of rows) {
+    if (!stale.some((s) => r.content.startsWith(s))) continue;
+    await db.delete(agentMemoryTable).where(eq(agentMemoryTable.id, r.id));
+    removed++;
   }
-  return n;
+  return removed;
 }
 
 /** One coaching round across the whole team. */

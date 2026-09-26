@@ -20,8 +20,25 @@
 // a machine that already has Chrome does not need it.
 
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { logger } from "./logger";
+
+/**
+ * Where each employee's cookies live.
+ *
+ * Under Application Support rather than in the project: signing in to a site
+ * has to survive a restart, or the owner signs in again every morning and the
+ * feature is worse than useless. It is also outside ~/Documents, which the
+ * launchd agent cannot read at all.
+ */
+const PROFILE_ROOT = join(homedir(), "Library", "Application Support", "whatsapp-marketer", "browser");
+const profileDir = (userId: number, role: string) => {
+  const dir = join(PROFILE_ROOT, String(userId), role.replace(/[^a-z0-9_-]/gi, ""));
+  mkdirSync(dir, { recursive: true });
+  return dir;
+};
 
 const CHROME_PATHS = [
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -49,6 +66,17 @@ let browser: Browser | null = null;
 const sessions = new Map<string, Session>();
 const key = (userId: number, role: string) => `${userId}:${role}`;
 
+/**
+ * Whether a session is showing its window.
+ *
+ * Signing in is the one thing the owner has to do with their own hands — the
+ * alternative is typing a password into this application, which it should
+ * never hold. So a session can be opened visibly: a real Chrome window appears,
+ * the owner signs in, and the cookies persist into the profile directory for
+ * every headless session afterwards.
+ */
+const visible = new Set<string>();
+
 /** Closed after this long idle, so a forgotten tab is not a permanent process. */
 const IDLE_MS = 20 * 60_000;
 
@@ -65,25 +93,48 @@ async function getBrowser(): Promise<Browser> {
   return browser;
 }
 
-export async function openSession(userId: number, role: string): Promise<Session> {
+/**
+ * Open a session, optionally as a window the owner can use.
+ *
+ * A persistent context rather than a fresh one: cookies are written to the
+ * employee's own profile directory and are there next time, which is what
+ * makes signing in once actually mean once. Persistent contexts launch their
+ * own browser process, so these do not share the pooled one above.
+ */
+export async function openSession(
+  userId: number, role: string, opts: { visible?: boolean } = {},
+): Promise<Session> {
   const k = key(userId, role);
   const existing = sessions.get(k);
-  if (existing && !existing.page.isClosed()) {
+  // A visible session is what the owner asked for and must replace a headless
+  // one; the reverse is not true, since a window already open is still usable.
+  if (existing && !existing.page.isClosed() && (!opts.visible || visible.has(k))) {
     existing.lastUsedAt = new Date();
     return existing;
   }
+  if (existing) await closeSession(userId, role);
 
-  const b = await getBrowser();
-  const context = await b.newContext({
+  const exe = chromePath();
+  if (!exe) throw new Error("لا يوجد متصفح على هذا الجهاز — ثبّت Google Chrome");
+
+  const context = await chromium.launchPersistentContext(profileDir(userId, role), {
+    executablePath: exe,
+    headless: !opts.visible,
     viewport: { width: 1280, height: 820 },
     locale: "ar-AE",
     timezoneId: "Asia/Dubai",
+    args: ["--disable-blink-features=AutomationControlled", "--no-first-run", "--no-default-browser-check"],
   });
-  const page = await context.newPage();
-  const s: Session = { userId, role, context, page, openedAt: new Date(), lastUsedAt: new Date(), url: "about:blank" };
+
+  const page = context.pages()[0] ?? await context.newPage();
+  const s: Session = { userId, role, context, page, openedAt: new Date(), lastUsedAt: new Date(), url: page.url() };
   sessions.set(k, s);
+  if (opts.visible) visible.add(k); else visible.delete(k);
+  logger.info({ userId, role, visible: !!opts.visible }, "فُتحت جلسة تصفّح");
   return s;
 }
+
+export const isVisible = (userId: number, role: string) => visible.has(key(userId, role));
 
 export async function closeSession(userId: number, role: string): Promise<void> {
   const k = key(userId, role);
@@ -91,6 +142,7 @@ export async function closeSession(userId: number, role: string): Promise<void> 
   if (!s) return;
   await s.context.close().catch(() => {});
   sessions.delete(k);
+  visible.delete(k);
 }
 
 /** What is open, for the board. */
@@ -98,7 +150,7 @@ export function listSessions(userId: number) {
   return [...sessions.values()]
     .filter((s) => s.userId === userId)
     .map((s) => ({
-      role: s.role, url: s.url,
+      role: s.role, url: s.url, visible: visible.has(key(s.userId, s.role)),
       openedAt: s.openedAt, lastUsedAt: s.lastUsedAt,
       idleMinutes: Math.round((Date.now() - s.lastUsedAt.getTime()) / 60_000),
     }));
@@ -236,6 +288,9 @@ function normalizeUrl(url: string): string {
 export function startBrowserReaper(): void {
   setInterval(() => {
     for (const [k, s] of sessions) {
+      // A window the owner opened stays open. They may be halfway through a
+      // sign-in, and closing it would lose it.
+      if (visible.has(k)) continue;
       if (Date.now() - s.lastUsedAt.getTime() < IDLE_MS) continue;
       void s.context.close().catch(() => {});
       sessions.delete(k);
