@@ -8,6 +8,9 @@ import { logger } from "./lib/logger";
 
 const PgSession = connectPgSimple(session);
 
+import path from "node:path";
+import fs from "node:fs";
+
 const app: Express = express();
 
 app.use(
@@ -60,6 +63,38 @@ app.use(
 
 
 app.use("/api", router);
+
+// ── The web interface ──────────────────────────────────────────────
+// On the VPS nginx serves these files; on a laptop nothing did, so running the
+// app meant starting a Vite dev server as well as this one. Two processes is
+// two things to remember after a reboot, and forgetting either looks like the
+// whole application is broken.
+//
+// Serving the build from here makes it one process: start this, and the
+// interface is at the same port as the API. In development the files may not
+// be built yet, which is not an error — the dev server is still there for
+// anyone who wants hot reload.
+const WEB_ROOT = path.resolve(import.meta.dirname, "../../whatsapp-blast/dist/public");
+if (fs.existsSync(path.join(WEB_ROOT, "index.html"))) {
+  app.use(express.static(WEB_ROOT, {
+    // Hashed asset filenames can be cached hard; index.html must not be, or a
+    // deploy leaves people on the previous build until they clear their cache.
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith("index.html")) res.setHeader("Cache-Control", "no-cache");
+      else if (/\.[0-9a-f]{8,}\./.test(filePath)) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    },
+  }));
+
+  // Client-side routing: any path that is not an API call and not a file gets
+  // the app shell, so a reload on /board does not 404.
+  app.get(/^(?!\/api\/).*/, (req, res, next) => {
+    if (req.method !== "GET" || path.extname(req.path)) return next();
+    res.sendFile(path.join(WEB_ROOT, "index.html"));
+  });
+  logger.info({ webRoot: WEB_ROOT }, "الواجهة تُخدَم من السيرفر نفسه");
+} else {
+  logger.warn({ webRoot: WEB_ROOT }, "واجهة غير مبنية — شغّل pnpm build، أو استخدم خادم التطوير");
+}
 
 // ── Global JSON error handler ──────────────────────────────────────
 // Express's default error handler sends HTML — browsers see

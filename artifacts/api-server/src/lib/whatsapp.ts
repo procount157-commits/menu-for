@@ -4,12 +4,14 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   Browsers,
   WAMediaUpload,
+  downloadMediaMessage,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import { logger as appLogger } from "./logger";
 import { and, eq, sql, desc } from "drizzle-orm";
 import { db, waAuthStateTable, waSessionEventsTable, usersTable, incomingMessagesTable, contactsTable, unsubscribedPhonesTable, waContactsTable, waConversationsTable, waThreadMessagesTable, waSyncStateTable, messageLogs, campaignsTable, campaignButtonResponsesTable } from "@workspace/db";
 import { useDatabaseAuthState, migrateSessionFilesToDb } from "./wa-auth-state";
+import { transcribe } from "./voice";
 import { assessSession, isRejection, STABLE_AFTER_MS, FLAP_WINDOW_MS } from "./session-breaker";
 import path from "path";
 import fs from "fs";
@@ -1967,7 +1969,33 @@ class WhatsAppInstance {
         // الرسائل بدون محتوى لا تحتاج معالجة
         if (!msg.message) continue;
 
-        const text = extractText(msg);
+        let text = extractText(msg);
+        let wasVoice = false;
+
+        // ── الرسائل الصوتية ───────────────────────────────────────────
+        // A voice note produced no text here, so the most engaged kind of
+        // inbound message was the one kind silently dropped: the customer
+        // recorded thirty seconds, nothing matched, and the thread showed an
+        // empty row. Transcribing turns it into an ordinary message that every
+        // downstream part already knows how to handle.
+        const audio = msg.message?.audioMessage;
+        if (!text && audio && !msg.key.fromMe) {
+          try {
+            const buf = await downloadMediaMessage(msg, "buffer", {}) as Buffer;
+            const t = await transcribe(buf, audio.mimetype ?? "audio/ogg");
+            if (t) {
+              text = t.text;
+              wasVoice = true;
+              this.log.info({ phone, seconds: audio.seconds, chars: t.text.length, model: t.model, ms: t.ms },
+                "فُرِّغ تسجيل صوتي");
+            } else {
+              this.log.info({ phone, seconds: audio.seconds }, "تسجيل صوتي بلا كلام مفهوم");
+            }
+          } catch (err) {
+            this.log.warn({ phone, err: String((err as any)?.message ?? err).slice(0, 160) },
+              "تعذّر تحميل التسجيل الصوتي");
+          }
+        }
 
         // ── تسجيل المحادثة (صادرة + واردة) ────────────────────────────
         this.upsertConversation(phone, { lastMsgAt: ts, lastText: text ?? undefined });
@@ -1979,7 +2007,9 @@ class WhatsAppInstance {
             phone,
             messageId: msg.key?.id ?? null,
             text:      text ?? null,
-            msgType:   "text",
+            // Marked, so a transcription error reads as one when the owner
+            // looks at the thread rather than as a customer writing nonsense.
+            msgType:   wasVoice ? "voice" : "text",
             fromMe:    !!msg.key.fromMe,
             createdAt: new Date(ts * 1000),
           })
@@ -2347,7 +2377,7 @@ class WhatsAppInstance {
     await this.simulateHumanPresence(jid, message);
 
     // ── WS readyState guard (pre-send check #2) ───────────────────────────────
-    // simulateHumanPresence takes 7–8 s during which the socket can die silently.
+    // simulateHumanPresence takes 2.5–15 s during which the socket can die silently.
     // Re-validate socket liveness before the actual Baileys sendMessage call.
     if (!this.state.socket || !this.state.connected) {
       throw new Error("WhatsApp انقطع أثناء محاكاة الكتابة — WS died during typing sim");
@@ -2528,12 +2558,29 @@ class WhatsAppInstance {
     const _ws = (this.state.socket as any)?.ws;
     if (_ws && _ws.readyState !== 1 /* OPEN */) return;
 
-    const len     = message.length;
-    // Fixed 7-second typing window (±0.5 s natural variation) regardless of message length.
-    // The slight randomness prevents a perfectly regular cadence that WA's traffic analyser
-    // would flag as automated.
-    const total   = 7_000 + Math.floor(Math.random() * 1_000); // 7.0–8.0 s
-    void len; // kept for reference but no longer drives duration
+    const len = message.length;
+
+    // Typing time scales with what is being typed, because a person's does.
+    // This was a flat 7–8 seconds for every message, on the reasoning that the
+    // randomness prevented a regular cadence — but a two-word "تمام" and a
+    // four-line answer both taking 7.4 seconds is itself the regularity: the
+    // one thing no real typist produces is a duration uncorrelated with length.
+    //
+    // The rate is not a real typing speed, and that is deliberate. At a true
+    // 40 words per minute a 265-character reply takes 57 seconds, so every
+    // reply of any substance would hit the ceiling and arrive after an
+    // identical pause — reintroducing exactly the constant cadence this
+    // replaced. The rate is set so that a reply written to the house style
+    // (two or three lines, up to roughly 150 characters) spans the whole 4–15
+    // second range and genuinely varies. Only replies longer than the style
+    // permits clip at the top.
+    //
+    // A base of 1.5s covers reaction time, which a real person spends before
+    // the first keystroke whatever they are about to write.
+    const CHARS_PER_SECOND = 11;
+    const ideal  = 1_500 + (len / CHARS_PER_SECOND) * 1_000;
+    const jitter = 0.75 + Math.random() * 0.5;
+    const total  = Math.round(Math.min(15_000, Math.max(2_500, ideal * jitter)));
 
     try {
       // ── Phase 1: Go ONLINE (open conversation) ─────────────────
