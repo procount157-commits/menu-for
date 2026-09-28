@@ -15,6 +15,15 @@ location /api/ {
 # Tracking redirects are served by the API too.
 location /t/ { proxy_pass http://wam_api; proxy_set_header Host $host; }
 
+# The home page: generated HTML for anyone without a session cookie (a
+# crawler, a visitor), the app shell for someone signed in. The map is in
+# nginx.conf because a map must sit at http level.
+location = / {
+    root /usr/share/nginx/html;
+    if ($wam_signed_in = 0) { rewrite ^ /home/index.html last; }
+    try_files /index.html =404;
+}
+
 location / {
     root /usr/share/nginx/html;
     try_files $uri $uri/ /index.html;   # SPA

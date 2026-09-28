@@ -441,6 +441,40 @@ knowledge base it would answer nothing anyway, and turning it on for someone
 who has not written a word of it is their decision.
 
 
+## Marketing site and SEO
+
+The application is a single-page React app, which is right for the app and
+wrong for the pages that are supposed to be found: a crawler that gets an
+empty `<div>` indexes an empty page, and an article added as a route inside
+the SPA has no HTML of its own. So the public pages are generated as plain
+HTML at build time by `scripts/seo/build-site.mjs`, from Markdown under
+`artifacts/whatsapp-blast/site/` — the home page, `/uae/`, `/saudi/`, four
+feature pages, the blog index and the articles — into `dist/public/` next
+to the app. No framework and no dependencies: a page is a template string
+and the Markdown parser is sixty lines.
+
+Every page carries a title, description, canonical, Open Graph, JSON-LD
+(Organization and SoftwareApplication on the home, Article and
+BreadcrumbList on posts, FAQPage where there is one) and `hreflang` for
+`ar`, `ar-AE` and `ar-SA` on the market pages. The generator writes
+`sitemap.xml` and `robots.txt`.
+
+`/` is the generated home for a visitor with no session — a crawler, a
+prospect — and the app for someone signed in. The server does this itself
+(`app.ts`), and `deploy/nginx.conf` does the same at the edge with a cookie
+map, so the VPS behaves like the laptop.
+
+Set `SITE_URL` (`.env`) to the public address: canonicals, `og:url` and the
+sitemap need it. Without it the pages still build with relative links, no
+canonical tags and no sitemap, and the build says so — a sitemap with a
+made-up domain would be worse than none.
+
+To add an article: a Markdown file in `site/blog/` with front matter
+(`slug`, `title`, `description`, `date`, `section`, `keywords`), then
+`pnpm run build`. Rendered pages live only in `dist/`, which is not
+committed; the source is.
+
+
 ## Backups
 
 The Replit deployment is gone, so this database is the only copy of everything

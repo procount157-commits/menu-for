@@ -1,0 +1,26 @@
+{
+  "name": "FLOW HUB",
+  "tagline": "رسائل واتساب جماعية تصل، وفريق مبيعات ذكي يردّ ويتابع — بدون أن تخسر رقمك.",
+  "description": "منصة عربية للإرسال الجماعي عبر واتساب مع فريق موظفين بالذكاء الاصطناعي يردّون على العملاء ويتابعونهم، وطبقة حماية تقرأ إشارات الحظر وتبطئ قبل أن يُحظر الرقم. للإمارات والسعودية.",
+  "ctaLine": "فريق مبيعات كامل على رقم واتساب واحد: يرسل، يردّ، يتابع، ويحمي الرقم.",
+  "blogDescription": "ما تعلّمناه من تشغيل أرقام واتساب للأعمال في الخليج: الحظر، الإحماء، البوتات التي تبيع فعلاً، والمتابعة التي لا تُزعج.",
+  "nav": [
+    { "label": "المميزات", "href": "/features/ai-sales-team/" },
+    { "label": "الإمارات", "href": "/uae/" },
+    { "label": "السعودية", "href": "/saudi/" },
+    { "label": "المدونة", "href": "/blog/" }
+  ],
+  "footer": {
+    "platform": [
+      { "label": "الإرسال الجماعي", "href": "/features/bulk-whatsapp-sending/" },
+      { "label": "فريق المبيعات الذكي", "href": "/features/ai-sales-team/" },
+      { "label": "المتابعة التلقائية", "href": "/features/auto-follow-up/" },
+      { "label": "حماية الرقم", "href": "/features/number-protection/" }
+    ],
+    "learn": [
+      { "label": "حماية الرقم من الحظر", "href": "/blog/whatsapp-ban-protection/" },
+      { "label": "كم رسالة في اليوم؟", "href": "/blog/how-many-whatsapp-messages-per-day/" },
+      { "label": "بوت مبيعات يبيع فعلاً", "href": "/blog/whatsapp-sales-bot-that-sells/" }
+    ]
+  }
+}
