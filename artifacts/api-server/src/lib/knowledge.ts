@@ -173,12 +173,13 @@ const TONES: Record<string, string> = {
 // both and resolved it the only way it could: a question at the end of
 // everything, which is the single clearest sign a human did not write it.
 export const SALES_JOB = [
-  "أنت تبيع، لا تجيب عن أسئلة فقط:",
-  "- افهم حاجة العميل قبل أن تعرض شيئاً.",
-  "- اربط ما تعرضه بمشكلته هو، لا بقائمة خدمات.",
-  "- تعامل مع الاعتراض بفهم سببه لا بالدفاع.",
-  "- حرّك المحادثة خطوة للأمام. أحياناً بسؤال، وأحياناً بمعلومة تستدعي رداً، وأحياناً بعرض موعد. نوّع.",
-  "- لا تنهِ المحادثة عند أول رد.",
+  "أنت تبيع، لا تجيب عن أسئلة فقط. لكل رسالة هدف واحد يقرّب الصفقة خطوة:",
+  "- افهم حاجته قبل أن تعرض: رخصته ونشاطه وحجمه ووجعه، سؤالاً واحداً في كل رسالة.",
+  "- اربط ما تعرضه بمشكلته هو وبكلماته هو، لا بقائمة خدمات.",
+  "- الاعتراض سؤال مقنّع: افهم سببه قبل أن تردّ عليه، ولا تدافع.",
+  "- حرّك المحادثة خطوة: سؤال، أو معلومة تستدعي رداً، أو خطوة محددة بزمن. نوّع، ولا تنهِ كل رسالة بسؤال.",
+  "- حين يوافق توقف عن البيع وانتقل للتنفيذ. حين يكتمل ما تستطيعه سلّم لبشري باسم وموعد.",
+  "- لا تنهِ المحادثة عند أول رد، ولا تلاحق من قال لا.",
 ];
 
 export function buildSystemPrompt(
@@ -192,6 +193,13 @@ export function buildSystemPrompt(
   job?: string[],
   // Rendered last. See the comment at the bottom of this function.
   finalCheck?: string,
+  // How many messages the customer has sent in this thread. The first and the
+  // ninth call for different replies, and nothing else in the prompt says
+  // which this is.
+  customerTurns?: number,
+  // The lead card: facts already known and the stage of the sale, from
+  // lib/lead-card.ts. Rendered right after the job, before the limits.
+  leadCard?: string,
 ): string {
   const facts = found.map((f, i) => `[${i + 1}] ${f.entry.title}\n${f.entry.content}`).join("\n\n");
   const remembered = memory.length
@@ -216,6 +224,12 @@ export function buildSystemPrompt(
     "",
     ...(job ?? SALES_JOB),
     "- انظر لما دار قبل هذه الرسالة ولا تُعد ما قلته ولا تسأل عمّا أجاب عنه.",
+    customerTurns === 1
+      ? "- هذه أول رسالة منه: هدفك أن يرد، لا أن تعرض."
+      : customerTurns && customerTurns > 1
+        ? `- هذه رسالته رقم ${customerTurns} في هذه المحادثة — ابنِ على ما قاله ولا تبدأ من الصفر.`
+        : "",
+    leadCard ? `\n${leadCard}` : "",
     "",
     // The narrow limits: everything a customer could hold them to later.
     "ما لا تقوله أبداً:",
@@ -346,6 +360,7 @@ export async function answerFromKnowledge(
   persona?: string,
   job?: string[],
   finalCheck?: string,
+  leadCard?: string,
 ): Promise<AnswerResult> {
   const [profile, history, memory] = await Promise.all([
     getProfile(userId),
@@ -395,8 +410,9 @@ export async function answerFromKnowledge(
       ? history
       : [...history, { role: "user" as const, content: question }];
 
+    const customerTurns = turns.filter((t) => t.role === "user").length;
     const out = await complete([
-      { role: "system", content: buildSystemPrompt(profile, found, memory, persona, job, finalCheck) },
+      { role: "system", content: buildSystemPrompt(profile, found, memory, persona, job, finalCheck, customerTurns, leadCard) },
       ...turns,
     ]);
     if (out?.text) return { reply: out.text, provider: out.provider, kbIds };

@@ -16,6 +16,7 @@ import { requireAuth } from "../lib/auth";
 import { recentDeliberations, runFollowUpOfficer, STEP_LABELS } from "../lib/followup-officer";
 import { runIntake, queueSnapshot } from "../lib/intake-agent";
 import { SEGMENT_AR } from "../lib/collector-agent";
+import { funnel } from "../lib/lead-card";
 
 const router = Router();
 router.use(requireAuth);
@@ -83,7 +84,7 @@ router.get("/", async (req, res) => {
         at: r.createdAt, phone: r.phone,
         kind: r.reply ? "ردّ" : "صمت",
         text: r.reply ? `«${(r.incoming ?? "").slice(0, 60)}» → ${r.reply.slice(0, 160)}` : `«${(r.incoming ?? "").slice(0, 60)}» — ${r.skipped ?? ""}`,
-        tone: r.outcome === "win" ? "good" : r.outcome === "loss" ? "bad" : undefined,
+        tone: (r.outcome === "win" || r.outcome === "qualified") ? "good" : (r.outcome === "loss" || r.outcome === "quiet") ? "bad" : undefined,
       });
     }
     for (const h of handoffs) {
@@ -148,8 +149,8 @@ router.get("/", async (req, res) => {
           received: messages.filter((m) => m.toRole === e.role && !m.readAt).length,
           replied:  replies.filter((r) => r.role === e.role && r.reply).length,
           silent:   replies.filter((r) => r.role === e.role && !r.reply).length,
-          wins:     replies.filter((r) => r.role === e.role && r.outcome === "win").length,
-          losses:   replies.filter((r) => r.role === e.role && r.outcome === "loss").length,
+          wins:     replies.filter((r) => r.role === e.role && (r.outcome === "win" || r.outcome === "qualified")).length,
+          losses:   replies.filter((r) => r.role === e.role && (r.outcome === "loss" || r.outcome === "quiet")).length,
           skills:   Number(grants.find((g) => g.role === e.role)?.n ?? 0),
         },
         memory: Object.fromEntries(memory.filter((m) => m.role === e.role).map((m) => [m.kind, Number(m.n)])),
@@ -174,6 +175,7 @@ router.get("/", async (req, res) => {
       deliberations: delibs,
     },
     segments: { counts: Object.fromEntries(segments.map((s) => [s.segment, Number(s.n)])), labels: SEGMENT_AR },
+    funnel: await funnel(userId).catch(() => null),
   });
 });
 

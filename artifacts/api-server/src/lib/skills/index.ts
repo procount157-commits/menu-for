@@ -14,8 +14,11 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, agentSkillsTable, agentSkillGrantsTable, botEmployeesTable } from "@workspace/db";
 import { DIALECT_SKILL, INTENT_READING_SKILL } from "./dialect";
-import { NEGOTIATION_SKILL, DISCOVERY_SKILL, COMPLAINT_SKILL } from "./selling";
-import { FOLLOWUP_WRITING_SKILL, ANALYSIS_SKILL, COACHING_SKILL, SALES_MANAGEMENT_SKILL } from "./internal";
+import { STAGE_SKILL, NEGOTIATION_SKILL, DISCOVERY_SKILL, COMPLAINT_SKILL } from "./selling";
+import {
+  FOLLOWUP_WRITING_SKILL, ANALYSIS_SKILL, COACHING_SKILL, SALES_MANAGEMENT_SKILL,
+  NUMBER_PROTECTION_SKILL,
+} from "./internal";
 import { HUMAN_WRITING_SKILL, DIALECT_MATCH_SKILL } from "./writing";
 import { logger } from "../logger";
 
@@ -24,9 +27,17 @@ export type SkillDef = { name: string; intents: string[]; instruction: string };
 export const LIBRARY: SkillDef[] = [
   HUMAN_WRITING_SKILL, DIALECT_MATCH_SKILL,
   DIALECT_SKILL, INTENT_READING_SKILL,
-  NEGOTIATION_SKILL, DISCOVERY_SKILL, COMPLAINT_SKILL,
+  STAGE_SKILL, NEGOTIATION_SKILL, DISCOVERY_SKILL, COMPLAINT_SKILL,
   FOLLOWUP_WRITING_SKILL, ANALYSIS_SKILL, COACHING_SKILL, SALES_MANAGEMENT_SKILL,
+  NUMBER_PROTECTION_SKILL,
 ];
+
+// Skills a library version used to install under another name. Seeding
+// renames the row rather than leaving the old one behind and adding a second,
+// so a grant the owner revoked or an edit they made stays with the skill.
+export const RENAMED: Record<string, string> = {
+  "التفاوض": NEGOTIATION_SKILL.name,
+};
 
 /**
  * Who holds what.
@@ -45,21 +56,29 @@ const WRITES_TO_CUSTOMERS = [
 ];
 
 export const GRANTS: Record<string, string[]> = {
-  sales:     [...WRITES_TO_CUSTOMERS, NEGOTIATION_SKILL.name, DISCOVERY_SKILL.name],
+  sales:     [...WRITES_TO_CUSTOMERS, STAGE_SKILL.name, NEGOTIATION_SKILL.name, DISCOVERY_SKILL.name],
   support:   [...WRITES_TO_CUSTOMERS, COMPLAINT_SKILL.name],
   // The manager answers customers when nobody else fits, and coaches the rest
-  // of the time — so she carries both sides.
-  chief:     [...WRITES_TO_CUSTOMERS, NEGOTIATION_SKILL.name, DISCOVERY_SKILL.name,
+  // of the time — so she carries both sides. Her internal skills are tagged
+  // so they load for a meeting or a review and not for a customer.
+  chief:     [...WRITES_TO_CUSTOMERS, STAGE_SKILL.name, NEGOTIATION_SKILL.name, DISCOVERY_SKILL.name,
               COACHING_SKILL.name, ANALYSIS_SKILL.name, SALES_MANAGEMENT_SKILL.name],
   followup:  [...WRITES_TO_CUSTOMERS, FOLLOWUP_WRITING_SKILL.name],
   collector: [ANALYSIS_SKILL.name],
   intake:    [ANALYSIS_SKILL.name],
+  ops:       [NUMBER_PROTECTION_SKILL.name],
 };
 
 export type SeedResult = { created: number; updated: number; untouched: number; granted: number };
 
 export async function seedSkills(userId: number): Promise<SeedResult> {
   const r: SeedResult = { created: 0, updated: 0, untouched: 0, granted: 0 };
+
+  // Renames first, so the row keeps its id, its grants and any owner edit.
+  for (const [from, to] of Object.entries(RENAMED)) {
+    await db.update(agentSkillsTable).set({ name: to })
+      .where(and(eq(agentSkillsTable.userId, userId), eq(agentSkillsTable.name, from)));
+  }
 
   const existing = await db.select().from(agentSkillsTable).where(eq(agentSkillsTable.userId, userId));
   const byName = new Map(existing.map((s) => [s.name, s]));
@@ -113,6 +132,25 @@ export async function seedSkills(userId: number): Promise<SeedResult> {
 
   logger.info({ userId, ...r }, "مكتبة المهارات مُثبّتة");
   return r;
+}
+
+/**
+ * Install the library for every account that has a team.
+ *
+ * Run at startup. Until now a new skill reached an account only when someone
+ * pressed the install button on the agents page, so a library change shipped
+ * to nobody. Idempotent, and it never touches a skill the owner rewrote.
+ */
+export async function seedSkillsForEveryone(): Promise<void> {
+  const rows = await db.selectDistinct({ userId: botEmployeesTable.userId }).from(botEmployeesTable);
+  for (const { userId } of rows) {
+    try {
+      const r = await seedSkills(userId);
+      if (r.created || r.updated || r.granted) logger.info({ userId, ...r }, "مكتبة المهارات حُدِّثت عند الإقلاع");
+    } catch (err) {
+      logger.warn({ userId, err: String((err as any)?.message ?? err) }, "تعذّر تحديث مكتبة المهارات");
+    }
+  }
 }
 
 /** Restore one skill to the library text, discarding an edit. */

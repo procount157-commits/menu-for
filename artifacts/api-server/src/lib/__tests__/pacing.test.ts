@@ -1,4 +1,4 @@
-import { computeGap, estimateBreakMs, MIN_GAP_MS, MAX_GAP_MS } from "../pacing";
+import { computeGap, estimateBreakMs, diurnalFactor, MIN_GAP_MS, MAX_GAP_MS } from "../pacing";
 
 const H = 3_600_000;
 let pass = 0, total = 0;
@@ -52,6 +52,13 @@ check("nothing remaining -> target 0", done.target === 0, `target=${done.target}
 // Break estimate must match the loop's own cadence.
 check("break estimate for 40 msgs = 1 long + 3 micro", estimateBreakMs(40) === 210_000 + 3 * 60_000, `${estimateBreakMs(40)/1000}s`);
 check("break estimate for 120 msgs discounts the overlap", estimateBreakMs(120) === 3 * 210_000 + (10 - 1) * 60_000, `${estimateBreakMs(120)/1000}s`);
+
+// ── Time of day ───────────────────────────────────────────────────
+check("the day has a rhythm: lunch is slower than late morning", diurnalFactor(14) > diurnalFactor(11), `${diurnalFactor(11)} vs ${diurnalFactor(14)}`);
+check("  and nothing in the window is faster than the base pace",
+  Array.from({ length: 24 }, (_, h) => diurnalFactor(h)).every((f) => f >= 1), "no hour < 1");
+const avg = Array.from({ length: 12 }, (_, i) => diurnalFactor(9 + i)).reduce((a, b) => a + b, 0) / 12;
+check("  the average over the window still fits 1500 a day", avg < 1.25 && (19 * avg) < 24, `avg=${avg.toFixed(2)}`);
 
 console.log(`\n${pass}/${total} passed`);
 process.exit(pass === total ? 0 : 1);

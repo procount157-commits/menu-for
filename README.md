@@ -112,8 +112,42 @@ failure rate. Numbers the check cannot resolve are left alone. All four
 contact-selection paths (start, resume, send-remaining, retry) now skip
 non-active contacts — previously only resume did.
 
+**Risk score** (`lib/risk.ts`) — the guards above each watch one thing and
+each have a line. Real trouble rarely crosses one cleanly: it looks like
+delivery a little low, a few opt-outs, a couple of known contacts who stopped
+receiving, and a number linked four days ago — none of which trips a guard,
+all of which together is a number about to be flagged. So the operations
+officer scores them together, on curves rather than thresholds, and responds
+in proportion: 1.5× slower from 20, half the allowance from 40, a third from
+60, stopped at 80. The inputs are delivery, failures, opt-out rate, probable
+blocks, reconnect churn, the share of sends going to strangers, and the
+number's age; people writing back is the one thing that lowers it.
+
+**Probable blocks** — WhatsApp never says who blocked the number, but a
+contact who used to receive from it and now sits on one tick for six hours
+has, nearly always. `assessBlockSignals` counts those among the last 48 hours'
+sends. Blocks are what enforcement keys on, and five of them outweigh fifty
+dead numbers.
+
+**Engagement-aware warm-up** — the ramp used to grow on days since linking
+alone, so a number that had sent two thousand messages and heard from nobody
+earned the same allowance as one running real conversations. It is now scaled
+by what recipients did: under 1% of them writing back earns 60% of the ramp,
+under 3% earns 80%, and 2% asking to stop halves it whatever else is true.
+Never above the ramp — a chatty number earns all of it, not more.
+
+**Rhythm** — a person at a desk does not send at one rate from nine to nine.
+Gaps are stretched 1.3× while settling in, 1.35× over lunch and the afternoon
+lull, 1.25× winding down; the average across the window is 1.13, which the
+daily target still fits.
+
+**Read receipts** — a reply now reads the customer's message first (the ticks
+turn blue), pauses, and only then starts typing. A number whose answers arrive
+without its ever having opened anything is describing itself.
+
 Already present and unchanged: warm-up ramp (50/day on day 0, +30%/day, 1500
-ceiling), opt-out enforcement, cross-campaign 72h dedup, per-send number check.
+ceiling), opt-out enforcement, cross-campaign 72h dedup, per-send number check,
+spintax and synonym variation in campaign text.
 
 ## Campaign reports
 
@@ -252,38 +286,54 @@ traps is pinned in `intent.test.ts`.
 
 ## Session recovery
 
-A WhatsApp pairing can stop being usable in two ways that both look like an
-endless reconnect loop from outside, and neither announces itself:
+Two things this used to get wrong, both learnt from the session-event log:
 
-**WhatsApp refuses the pairing.** The socket closes with 401, 403 or 405, and
-Baileys never offers a QR — it can see stored credentials and assumes it should
-restore rather than pair. Retrying identical rejected credentials cannot
-recover. This is the "disconnects and never shows a new QR" symptom exactly:
-not connected, no QR, forever. The only automatic clear-out was on `loggedOut`
-(401), which a 405 never reaches.
+**405 is not a rejected pairing.** WhatsApp answers 405 to a *client version*
+it has retired, before any credentials are checked. Baileys looks the current
+version up from a file on GitHub, and when that fetch fails it returns the
+version baked into the package with `isLatest: false` — which this code then
+cached for an hour. On a laptop that sleeps, one failed fetch meant an hour of
+405s, and the breaker read five 405s as dead credentials and wiped the
+pairing. Fifty times in three days on this account, every one of them
+"آخرها 405", every one of them a working pairing thrown away.
 
-**It accepts and drops.** Counting a connection as success the moment it opens
-makes this invisible: a connect-die-connect loop resets the counter on every
-pass. This account logged 48 "connected" events and 35 timeouts in a day with
-nothing ever working.
+Now a version counts only when a live source confirmed it (GitHub, then
+`web.whatsapp.com`); the last confirmed version is kept in
+`whatsapp-session/wa-version.json` across restarts; an unconfirmed value is
+retried after two minutes rather than cached for an hour; and a 405 drops the
+cached version and retries on a short flat delay. It never touches the
+credentials.
 
-`lib/session-breaker.ts` decides when to give up on the credentials. Five
-rejections with no connection having *held* in between, or eight connections
-inside fifteen minutes that none of them held, and the auth state is cleared so
-a QR can be issued. "Held" means survived 45 seconds — a connection that dies
-in five is not evidence the credentials are good.
+**The host sleeps.** This Mac is configured to sleep after one minute idle,
+on battery and on power alike — 206 sleeps in two days — and every sleep kills
+every socket. Two answers: `start.sh` now runs the server under
+`caffeinate -i -s`, which holds the machine awake while the process lives
+(idle sleep everywhere; system sleep on AC power — a lid closed on battery
+still sleeps, and only `sudo pmset` changes that); and a sleep detector
+notices the clock jump on wake and reconnects every session immediately,
+with the reconnect backoff reset, instead of waiting for the next failed
+keepalive and then honouring a two-minute delay earned during dark wakes.
 
-Ordinary drops (408, 428, 515) never count toward this, however often they
-happen: clearing a pairing over a timeout would force a scan for something a
-retry fixes by itself. A manual logout is never repaired over either.
+What is left of the breaker (`lib/session-breaker.ts`):
 
-When the breaker fires, `awaitingRescanSince` is set and the monitor reports it
-as critical with the action spelled out, because the system genuinely cannot
-recover without someone scanning.
+| | |
+|---|---|
+| 401 / 403, five in a row with no connection having held 45 s | credentials cleared, QR offered — this is the only path that clears them |
+| 405 | version refreshed, flat retry (20 s × attempts, cap 3 min) |
+| eight connects in 15 min, none held | **cooldown**: ten minutes with no attempts, credentials intact |
+| 408 / 428 / 515 | ordinary drops, exponential backoff, never counted |
 
-Observed on a live session: `405 attempt=5` → credentials cleared → `qr_ready`
-→ `515` → connected, with conversations going from 51 to 483 on the history
-sync that followed.
+The `cooldown` replaced a second credential-wipe path. Every time it would
+have fired here the pairing was fine and the environment was not, so wiping
+was the wrong call every time.
+
+`awaitingRescanSince` is still set when credentials are genuinely cleared,
+and the monitor reports it as critical with the action spelled out.
+
+Baileys is at 7.0.0-rc14. rc12 patched a critical advisory
+(GHSA-qvv5-jq5g-4cgg): a crafted payload could raise a fake `messages.upsert`
+with a spoofed key, which for a bot that answers strangers meant answering
+messages nobody sent.
 
 
 ## Bot team
@@ -296,6 +346,24 @@ went quiet, and — the useful part — the actual questions it had no answer fo
 which is the list of what to write next. On duty means three things at once:
 the employee is active, auto-reply is on, and the knowledge base is not empty;
 a sales bot with nothing to say is not working, however many switches are on.
+
+**The rest of the team.** Eight employees are hired the first time an account
+links WhatsApp, each with a persona the owner can rewrite and a set of skills:
+شمّة (chief — takes what nobody else was hired for, coaches the others, chairs
+the meeting), سام (support), خالد (follow-up — argues each rung of a sequence
+before sending it), ريم (data — reads receipts and sorts the list), سالم
+(intake — decides who belongs in a sequence), فهد (operations — the number's
+pace and its ban risk, and the only one who can slow the account), and the two
+below. Skills live in `lib/skills/` as procedures with literal wording, so
+they survive a downgrade to whatever free model is up; they are installed on
+every account at startup and an owner's edit to one is never overwritten. The
+salespeople carry a conversation map — seven stages, one goal per message —
+an objection table, and a diagnosis skill that knows what a UAE company owner
+actually worries about; the manager's pipeline theory loads for a meeting or
+a review and never for "كم السعر؟". `/meetings` runs the team meeting; a
+meeting with fewer than six measured outcomes may discuss but not decide, and
+a decision that changes how the business runs is a proposal the owner
+approves, never a rule that applies itself.
 
 **مارك — monitor.** Runs every 20 minutes over four areas and writes one report
 per run, kept so a problem can be traced back to when the verdict changed.

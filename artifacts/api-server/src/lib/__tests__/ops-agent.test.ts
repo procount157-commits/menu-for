@@ -98,5 +98,30 @@ const all = [at({}), at({ connected: false }), at({ deliveryLevel: "critical" })
 check("no decision can ever make the account send faster",
   all.every((x) => x.actions.every((a) => a.kind !== "throttle" || (a.value ?? 1) >= 1)));
 
+// ── The composite risk ───────────────────────────────────────────
+// None of these crosses a threshold above. Together they are a number about
+// to be flagged, and the officer must act on the sum.
+const risk = {
+  deliveryRate: 0.8, deliverySample: 100, failureRate: 0.05,
+  optOutRate: 0.02, optOuts24h: 6, sent24h: 300,
+  probableBlocks: 4, blockSample: 40, replyRate: 0.01,
+  reconnects6h: 2, numberAgeDays: 4, strangerShare: 0.85,
+};
+d = at({ risk });
+check("several sub-threshold signals still produce a response", d.actions.length > 0, kinds(d).join(","));
+check("...that names the risk score", d.findings.some((f) => /مؤشر الخطر \d+\/100/.test(f)));
+check("...and slows the account", (val(d, "throttle") ?? 1) > 1, `${val(d, "throttle")}×`);
+check("...and cuts the ceiling", (val(d, "ceiling") ?? 1000) < 1000, `${val(d, "ceiling")}`);
+
+d = at({ risk: { ...risk, deliveryRate: 0.93, optOutRate: 0, optOuts24h: 0, probableBlocks: 0, numberAgeDays: 40, strangerShare: 0.5, replyRate: 0.08 } });
+check("a healthy composite adds nothing", d.actions.length === 0 && d.level === "ok");
+
+d = at({ risk: { ...risk, deliveryRate: 0.4, optOutRate: 0.05, optOuts24h: 15, failureRate: 0.3 }, failureRate: 0.3 });
+check("a critical composite holds", kinds(d).includes("hold") && d.level === "critical");
+
+// When the risk score and a threshold both cut the ceiling, the lower wins.
+d = at({ deliveryLevel: "high_risk", risk: { ...risk, deliveryRate: 0.62, optOutRate: 0, optOuts24h: 0, probableBlocks: 0, numberAgeDays: 40, strangerShare: 0.5 } });
+check("two ceilings keep the lower one", val(d, "ceiling") === 400, `${val(d, "ceiling")}`);
+
 console.log(`\n${pass}/${total} مرّ`);
 process.exit(pass === total ? 0 : 1);

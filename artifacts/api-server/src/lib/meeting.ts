@@ -14,7 +14,7 @@
 // changes nothing; these end in rules written into the memory of the employee
 // they apply to, which are in front of that employee on its very next reply.
 
-import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, sql, inArray } from "drizzle-orm";
 import {
   db, meetingsTable, meetingTurnsTable, botEmployeesTable,
   autoReplyLogTable, contactSegmentsTable, followupDeliberationsTable,
@@ -74,8 +74,8 @@ async function buildAgenda(userId: number): Promise<Agenda> {
     db.select({
       replied: sql<number>`count(*) filter (where ${autoReplyLogTable.reply} is not null)`,
       silent:  sql<number>`count(*) filter (where ${autoReplyLogTable.reply} is null)`,
-      wins:    sql<number>`count(*) filter (where ${autoReplyLogTable.outcome} = 'win')`,
-      losses:  sql<number>`count(*) filter (where ${autoReplyLogTable.outcome} = 'loss')`,
+      wins:    sql<number>`count(*) filter (where ${autoReplyLogTable.outcome} in ('win','qualified'))`,
+      losses:  sql<number>`count(*) filter (where ${autoReplyLogTable.outcome} in ('loss','quiet'))`,
     }).from(autoReplyLogTable)
       .where(and(eq(autoReplyLogTable.userId, userId), gte(autoReplyLogTable.createdAt, day))),
     db.select({ segment: contactSegmentsTable.segment, n: sql<number>`count(*)` })
@@ -104,11 +104,11 @@ async function buildAgenda(userId: number): Promise<Agenda> {
       .groupBy(autoReplyLogTable.incoming).orderBy(desc(sql`count(*)`)).limit(5),
     db.select({ incoming: autoReplyLogTable.incoming, reply: autoReplyLogTable.reply })
       .from(autoReplyLogTable)
-      .where(and(eq(autoReplyLogTable.userId, userId), eq(autoReplyLogTable.outcome, "win")))
+      .where(and(eq(autoReplyLogTable.userId, userId), inArray(autoReplyLogTable.outcome, ["win", "qualified"])))
       .orderBy(desc(autoReplyLogTable.createdAt)).limit(3),
     db.select({ incoming: autoReplyLogTable.incoming, reply: autoReplyLogTable.reply })
       .from(autoReplyLogTable)
-      .where(and(eq(autoReplyLogTable.userId, userId), eq(autoReplyLogTable.outcome, "loss")))
+      .where(and(eq(autoReplyLogTable.userId, userId), inArray(autoReplyLogTable.outcome, ["loss", "quiet"])))
       .orderBy(desc(autoReplyLogTable.createdAt)).limit(3),
   ]);
 
@@ -178,8 +178,14 @@ async function speak(opts: {
 
   // The employee brings its own expertise. Its skills are what make its
   // contribution worth hearing rather than a restatement of the numbers.
-  const skills = await skillsFor(opts.userId, opts.role, "question").catch(() => []);
-  const expertise = skillsPreamble(skills.filter((s) => /التحليل|تدريب|التفاوض|احتواء|إدارة المبيعات/.test(s.name)));
+  const [internal, customer] = await Promise.all([
+    skillsFor(opts.userId, opts.role, "internal").catch(() => []),
+    skillsFor(opts.userId, opts.role, "interested").catch(() => []),
+  ]);
+  const expertise = skillsPreamble([
+    ...internal,
+    ...customer.filter((s) => /التفاوض|احتواء|خريطة/.test(s.name)),
+  ]);
 
   const out = await complete([
     { role: "system", content: [
@@ -435,7 +441,13 @@ export function startMeetings(): void {
     if (gulf.getUTCHours() !== HOUR || day === lastDay) return;
     lastDay = day;
     const accounts = await db.selectDistinct({ userId: botEmployeesTable.userId }).from(botEmployeesTable);
+    const since = new Date(Date.now() - 24 * 60 * 60_000);
     for (const { userId } of accounts) {
+      // A day with no customer contact has nothing to meet about, and a
+      // meeting held anyway costs nine model calls to say so.
+      const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(autoReplyLogTable)
+        .where(and(eq(autoReplyLogTable.userId, userId), gte(autoReplyLogTable.createdAt, since)));
+      if (Number(n) === 0) { logger.info({ userId }, "لا اجتماع اليوم — لا نشاط"); continue; }
       await runMeeting(userId, "daily").catch((err) =>
         logger.error({ userId, err: String(err?.message ?? err) }, "فشل اجتماع الفريق"));
     }

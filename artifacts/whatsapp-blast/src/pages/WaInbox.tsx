@@ -116,6 +116,28 @@ export default function WaInbox() {
   });
 
   // WA connection status
+  // The lead card for the open thread: where the sale is, and whether a
+  // person holds it. The switch is what lets the owner step in without the
+  // bot answering over them, and step back out.
+  const { data: leadCard } = useQuery<any>({
+    queryKey: ["lead-card", selected],
+    queryFn:  () => selected ? apiFetch(`/api/lead-cards/${selected}`) : Promise.resolve(null),
+    enabled:  !!selected,
+    refetchInterval: 30_000,
+  });
+  const holdMut = useMutation({
+    mutationFn: async (take: boolean) => {
+      const r = await fetch(`${BASE}/api/lead-cards/${selected}/${take ? "takeover" : "release"}`, { method: "POST", credentials: "include" });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.error ?? "تعذّر");
+      return r.json();
+    },
+    onSuccess: (_d, take) => {
+      toast.success(take ? "أنت على المحادثة — البوت والمتابعات صامتان 24 ساعة" : "أُعيدت المحادثة للفريق");
+      qc.invalidateQueries({ queryKey: ["lead-card", selected] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const { data: status } = useQuery<{connected:boolean;phone?:string}>({
     queryKey: ["wa-status"],
     queryFn:  () => apiFetch("/api/whatsapp/status"),
@@ -487,6 +509,19 @@ export default function WaInbox() {
               <p className="text-[11px] text-muted-foreground font-mono" dir="ltr">+{openConv.phone}</p>
             </div>
             <div className="flex items-center gap-2">
+              {leadCard?.card && (
+                <span className={cn("text-[10px] px-2 py-0.5 rounded-full border",
+                  leadCard.card.stage >= 7 ? "border-primary/40 text-primary" : leadCard.card.stage >= 5 ? "border-orange-500/40 text-orange-400" : "border-border text-muted-foreground")}
+                  title={[leadCard.card.licence, leadCard.card.activity, leadCard.card.size, leadCard.card.pain].filter(Boolean).join(" · ")}>
+                  {leadCard.card.stage} · {(leadCard.stages ?? []).find((s: any) => s.n === leadCard.card.stage)?.name ?? ""}
+                </span>
+              )}
+              <button onClick={() => holdMut.mutate(!leadCard?.humanHeld)} disabled={holdMut.isPending}
+                className={cn("text-[10px] px-2 py-0.5 rounded-full border transition-colors",
+                  leadCard?.humanHeld ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground")}
+                title={leadCard?.humanHeld ? "البوت صامت في هذه المحادثة — اضغط لإعادتها للفريق" : "تولَّ المحادثة بنفسك: يصمت البوت والمتابعات 24 ساعة"}>
+                {leadCard?.humanHeld ? "أنت تتولاها — أعِدها للفريق" : "أتولاها بنفسي"}
+              </button>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground flex items-center gap-1">
                 <Hash className="w-2.5 h-2.5"/>{openConv.msgCount} رسالة
               </span>

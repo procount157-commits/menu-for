@@ -61,6 +61,21 @@ export async function forget(userId: number, id: number): Promise<void> {
 const GOOD: Intent[] = ["interested"];
 const BAD:  Intent[] = ["not_interested", "opt_out", "complaint"];
 
+// Every reply gets an outcome now, not only the ones followed by a verdict.
+// 103 replies on this account had none — a customer says "مهتم" or "لا" far
+// less often than they ask another question, tell you their licence type,
+// or simply stop answering — and the coach and the meeting, which need
+// outcomes to work from, sat idle on a busy desk.
+//
+//   win        the customer said they were interested
+//   qualified  their next message taught the card a fact — the reply pulled
+//              something out of them, which is what discovery is for
+//   engaged    they answered with anything at all
+//   loss       a refusal, a complaint, or a stop
+//   quiet      nothing for a day (set by the sweep below)
+export const WIN_OUTCOMES  = ["win", "qualified"] as const;
+export const LOSS_OUTCOMES = ["loss", "quiet"] as const;
+
 /**
  * Judge the employee's last reply by what the customer said next.
  *
@@ -76,9 +91,12 @@ const OUTCOME_WINDOW_MS = 24 * 60 * 60_000;
 
 export async function learnFromOutcome(
   userId: number, phone: string, newIntent: Intent,
+  opts: { qualified?: boolean } = {},
 ): Promise<void> {
-  const outcome = GOOD.includes(newIntent) ? "win" : BAD.includes(newIntent) ? "loss" : null;
-  if (!outcome) return;   // a question or a greeting says nothing either way
+  const outcome =
+    GOOD.includes(newIntent) ? "win" :
+    BAD.includes(newIntent)  ? "loss" :
+    opts.qualified           ? "qualified" : "engaged";
 
   const [prev] = await db.select({
     id: autoReplyLogTable.id, reply: autoReplyLogTable.reply,
@@ -99,11 +117,40 @@ export async function learnFromOutcome(
   await db.update(autoReplyLogTable).set({ outcome })
     .where(eq(autoReplyLogTable.id, prev.id));
 
+  // Only a verdict is worth remembering as a pattern. "They answered" is an
+  // outcome for the statistics, not a lesson about the opening line.
+  if (outcome !== "win" && outcome !== "loss") return;
+
   // The opening is what the customer reacted to first, and it is short enough
   // to be a recognisable pattern rather than a transcript.
   const opening = prev.reply.trim().split(/\n/)[0]!.slice(0, 180);
   await remember(userId, prev.role, outcome, opening, phone);
   logger.info({ userId, phone, role: prev.role, outcome }, "سُجّلت نتيجة رد");
+}
+
+/**
+ * A reply nobody answered for a day went quiet. Run hourly.
+ *
+ * The strongest signal a thread offers is silence, and it was the one never
+ * recorded: a reply followed by nothing stayed unjudged for ever. Bounded to
+ * the last week so a restart does not rewrite history.
+ */
+export async function sweepQuietOutcomes(): Promise<number> {
+  const rows = await db.execute(sql`
+    update auto_reply_log a
+       set outcome = 'quiet'
+     where a.outcome is null
+       and a.reply is not null
+       and a.created_at < now() - interval '24 hours'
+       and a.created_at > now() - interval '7 days'
+       and not exists (
+         select 1 from incoming_messages i
+          where i.user_id = a.user_id and i.phone = a.phone
+            and i.received_at > a.created_at)
+    returning a.id`);
+  const n = (rows as any).rowCount ?? (rows as any).rows?.length ?? 0;
+  if (n > 0) logger.info({ n }, "ردود لم يُجب عنها سُجّلت «صمت»");
+  return Number(n);
 }
 
 /** An employee's duties, in the order the owner put them. */

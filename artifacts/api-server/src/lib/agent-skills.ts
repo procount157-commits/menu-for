@@ -11,8 +11,15 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db, agentSkillsTable, agentSkillGrantsTable, type AgentSkill } from "@workspace/db";
 import type { Intent } from "./intent";
 
+/**
+ * "internal" is not a customer intent: it is what a meeting, a coaching
+ * round or an alert asks for, and skills tagged with it never load for a
+ * customer reply.
+ */
+export type SkillContext = Intent | "internal";
+
 export async function skillsFor(
-  userId: number, role: string, intent: Intent,
+  userId: number, role: string, intent: SkillContext,
 ): Promise<AgentSkill[]> {
   const grants = await db.select({ skillId: agentSkillGrantsTable.skillId })
     .from(agentSkillGrantsTable)

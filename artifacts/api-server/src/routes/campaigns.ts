@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, campaignsTable, contactGroupsTable, contactsTable, messageLogs, unsubscribedPhonesTable, waSessionEventsTable, campaignButtonResponsesTable } from "@workspace/db";
 import { assessDeliveryHealth, assessAccountHealth, MATURITY_MINUTES, MIN_SAMPLE as DELIVERY_MIN_SAMPLE } from "../lib/delivery-health";
-import { computeGap } from "../lib/pacing";
+import { computeGap, diurnalFactor } from "../lib/pacing";
 import { isWithinSendingHours, hourInSendingTz, msLeftInSendingWindow, SENDING_TZ, SENDING_HOUR_START, SENDING_HOUR_END } from "../lib/sending-hours";
 import { getEffectiveDailyLimit, getDailySentCount, DAILY_LIMIT_MAX } from "../lib/daily-limit";
 import { getControls } from "../lib/ops-agent";
@@ -1670,7 +1670,10 @@ async function runCampaign(userId: number, campaign: any, contacts: any[], info:
     // multiplying: the delivery guard reacting to the same trouble the officer
     // already throttled for should not produce a nine-fold slowdown.
     const opsThrottle = Math.max(1, Number(ops?.throttle ?? 1) || 1);
-    const paceFactor = Math.max(info.deliverySlowMode ? DELIVERY_SLOW_FACTOR : 1, opsThrottle);
+    // ...and then the hour of the day on top, because that one is not a brake
+    // but the ordinary rhythm of a person at a desk.
+    const paceFactor = Math.max(info.deliverySlowMode ? DELIVERY_SLOW_FACTOR : 1, opsThrottle)
+                     * diurnalFactor(hourInSendingTz());
 
     if (i > 0 && (i + 1) % LONG_BREAK_EVERY === 0 && info.running && i < contacts.length - 1) {
       // ── Long break every 40 msgs (2–5 min) ───────────────────────

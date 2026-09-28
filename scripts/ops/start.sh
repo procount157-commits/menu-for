@@ -54,5 +54,15 @@ if [ ! -f artifacts/api-server/dist/index.mjs ]; then
   pnpm run build >/dev/null 2>&1 || { log "فشل البناء"; exit 1; }
 fi
 
+# ── 4. Sleep ─────────────────────────────────────────────────────
+# This Mac is set to sleep after one minute idle, on battery and on power
+# alike, and it did so 206 times in two days. Every sleep kills every WhatsApp
+# socket. caffeinate holds an idle-sleep assertion for as long as the server
+# runs (-i), and a system-sleep one while on AC power (-s). It cannot stop a
+# lid-close sleep on battery; nothing short of `sudo pmset` can, and that is
+# the owner's call.
 log "أُشغّل السيرفر"
+if command -v caffeinate >/dev/null 2>&1; then
+  exec caffeinate -i -s node --env-file-if-exists=.env --enable-source-maps artifacts/api-server/dist/index.mjs
+fi
 exec node --env-file-if-exists=.env --enable-source-maps artifacts/api-server/dist/index.mjs

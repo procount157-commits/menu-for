@@ -108,3 +108,20 @@ export function computeGap(input: PacingInput): PacingResult {
 
   return { gapMs: Math.round(gapMs), target, breakMs, windowTooShort };
 }
+
+
+// ── Time of day ───────────────────────────────────────────────────
+// A person at a desk does not send at one rate from nine to nine. They start
+// slowly, go quiet over lunch, and wind down in the evening — and a number
+// whose output is a flat line across the whole window is describing itself.
+// Multiplier on the gap by local hour; the average across the window is
+// about 1.15, which the daily target still fits under the 12s floor.
+export function diurnalFactor(hour: number): number {
+  if (hour < 9)  return 1.6;   // before the window opens, for the odd straggler
+  if (hour < 10) return 1.3;   // settling in
+  if (hour < 13) return 1.0;   // the morning
+  if (hour < 16) return 1.35;  // lunch and the afternoon lull
+  if (hour < 20) return 1.0;   // the second shift
+  if (hour < 21) return 1.25;  // winding down
+  return 1.6;
+}

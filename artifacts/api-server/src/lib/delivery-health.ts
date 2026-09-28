@@ -10,8 +10,8 @@
 // the campaign when that collapses. This is the difference between losing 30
 // messages and losing the number.
 
-import { and, eq, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
-import { db, messageLogs, campaignsTable } from "@workspace/db";
+import { and, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { db, messageLogs, campaignsTable, waConversationsTable } from "@workspace/db";
 
 // A receipt needs time to come back, and it only arrives once the recipient's
 // device next reaches the network. Messages younger than this are not evidence
@@ -188,4 +188,76 @@ export async function assessAccountHealth(
   }
   return { sample, delivered, deliveryRate, level: "critical", shouldHalt: true,
     reason: `انهيار تسليم على مستوى الرقم: ${detail}. أوقفنا كل الإرسال فوراً. لا تستأنف قبل مراجعة مصدر الأرقام.` };
+}
+
+
+// ── Blocks ────────────────────────────────────────────────────────
+// WhatsApp does not say when someone blocks a number. What it does is stop
+// delivering to them: a message to a blocked-by contact sits on one tick for
+// ever. For a stranger that is indistinguishable from a phone that is off. For
+// someone who has received from this number before it is not — they had a
+// working line to us, and now nothing arrives. Blocks are what enforcement
+// keys on, so this is the closest thing to reading it directly.
+
+export interface BlockSignals {
+  /** Messages in the window to people who had received from us before. */
+  sample: number;
+  /** Of those, the ones that never got a delivery receipt. */
+  probableBlocks: number;
+}
+
+/**
+ * Among recent sends to contacts who had previously received a message from
+ * this account, how many never got a delivery receipt. Six hours of maturity
+ * rather than twenty minutes: this is a stronger claim than "slow", and a
+ * phone that is off for an afternoon must not read as a block.
+ */
+export async function assessBlockSignals(userId: number, windowHours = 48): Promise<BlockSignals> {
+  const matureBefore = new Date(Date.now() - 6 * 60 * 60_000);
+  const windowStart  = new Date(Date.now() - windowHours * 60 * 60_000);
+
+  const mine = db.select({ id: campaignsTable.id }).from(campaignsTable)
+    .where(eq(campaignsTable.userId, userId));
+  const known = db.selectDistinct({ phone: messageLogs.phone }).from(messageLogs)
+    .where(and(inArray(messageLogs.campaignId, mine), isNotNull(messageLogs.deliveredAt)));
+
+  const [row] = await db.select({
+    sample:  sql<number>`count(*)`,
+    blocked: sql<number>`count(*) filter (where ${messageLogs.deliveredAt} is null)`,
+  }).from(messageLogs).where(and(
+    inArray(messageLogs.campaignId, mine),
+    inArray(messageLogs.status, ["sent", "delivered", "read"]),
+    isNotNull(messageLogs.sentAt),
+    gte(messageLogs.sentAt, windowStart),
+    lt(messageLogs.sentAt, matureBefore),
+    inArray(messageLogs.phone, known),
+  ));
+
+  return { sample: Number(row?.sample ?? 0), probableBlocks: Number(row?.blocked ?? 0) };
+}
+
+/**
+ * Share of the last 24h's sends that went to people with no prior thread.
+ * Null when nothing was sent. A number that writes only to strangers is what
+ * a spammer looks like from the outside; some of that is the job, all of it at
+ * volume is the signature.
+ */
+export async function strangerShare24h(userId: number): Promise<{ sent: number; share: number | null }> {
+  const since = new Date(Date.now() - 24 * 60 * 60_000);
+  const mine = db.select({ id: campaignsTable.id }).from(campaignsTable)
+    .where(eq(campaignsTable.userId, userId));
+  const threads = db.select({ phone: waConversationsTable.phone }).from(waConversationsTable)
+    .where(eq(waConversationsTable.userId, userId));
+
+  const [row] = await db.select({
+    sent:      sql<number>`count(*)`,
+    strangers: sql<number>`count(*) filter (where ${messageLogs.phone} not in (${threads}))`,
+  }).from(messageLogs).where(and(
+    inArray(messageLogs.campaignId, mine),
+    inArray(messageLogs.status, ["sent", "delivered", "read"]),
+    gte(messageLogs.sentAt, since),
+  ));
+
+  const sent = Number(row?.sent ?? 0);
+  return { sent, share: sent > 0 ? Number(row?.strangers ?? 0) / sent : null };
 }

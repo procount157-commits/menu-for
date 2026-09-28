@@ -18,7 +18,7 @@
 // delivery, timing, identifiers or anything WhatsApp inspects — the pacing and
 // the account limits are فهد's job and they are a separate matter entirely.
 
-import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, sql, inArray } from "drizzle-orm";
 import {
   db, autoReplyLogTable, botEmployeesTable, agentMemoryTable,
   managerReviewsTable,
@@ -26,6 +26,7 @@ import {
 import { complete } from "./llm";
 import { remember } from "./agent-memory";
 import { say } from "./agent-comms";
+import { skillsFor, skillsPreamble } from "./agent-skills";
 import { notify, esc } from "./telegram";
 import { logger } from "./logger";
 
@@ -63,14 +64,14 @@ async function performance(userId: number, days = 7): Promise<Performance[]> {
     const [[totals], best, worst] = await Promise.all([
       db.select({
         replied: sql<number>`count(*)`,
-        wins:    sql<number>`count(*) filter (where ${autoReplyLogTable.outcome} = 'win')`,
-        losses:  sql<number>`count(*) filter (where ${autoReplyLogTable.outcome} = 'loss')`,
+        wins:    sql<number>`count(*) filter (where ${autoReplyLogTable.outcome} in ('win','qualified'))`,
+        losses:  sql<number>`count(*) filter (where ${autoReplyLogTable.outcome} in ('loss','quiet'))`,
       }).from(autoReplyLogTable).where(where),
       db.select({ incoming: autoReplyLogTable.incoming, reply: autoReplyLogTable.reply })
-        .from(autoReplyLogTable).where(and(where, eq(autoReplyLogTable.outcome, "win")))
+        .from(autoReplyLogTable).where(and(where, inArray(autoReplyLogTable.outcome, ["win", "qualified"])))
         .orderBy(desc(autoReplyLogTable.createdAt)).limit(4),
       db.select({ incoming: autoReplyLogTable.incoming, reply: autoReplyLogTable.reply })
-        .from(autoReplyLogTable).where(and(where, eq(autoReplyLogTable.outcome, "loss")))
+        .from(autoReplyLogTable).where(and(where, inArray(autoReplyLogTable.outcome, ["loss", "quiet"])))
         .orderBy(desc(autoReplyLogTable.createdAt)).limit(4),
     ]);
 
@@ -109,10 +110,15 @@ async function coachOne(userId: number, p: Performance, manager: typeof botEmplo
     .where(and(eq(agentMemoryTable.userId, userId), eq(agentMemoryTable.role, p.role),
                eq(agentMemoryTable.kind, "instruction")));
 
+  // Her trade, not only her personality: how a pipeline is read and how a
+  // measured outcome becomes a rule someone can follow tomorrow.
+  const trade = skillsPreamble(await skillsFor(userId, COACH_ROLE, "internal").catch(() => []));
+
   const out = await complete([
     { role: "system", content: [
       manager ? `أنت ${manager.name}${manager.title ? `، ${manager.title}` : ""}.` : "أنت مديرة مبيعات.",
       manager?.persona ?? "",
+      trade,
       "",
       `تُدرّبين ${p.name}، أحد موظفي فريقك. أمامك أداؤه خلال أسبوع، مع أمثلة من ردود أدّت لاهتمام العميل وردود أدّت لانصرافه.`,
       "استخرجي من هذه الأمثلة تحديداً — لا من معرفتك العامة بالبيع — ما يجب أن يغيّره.",

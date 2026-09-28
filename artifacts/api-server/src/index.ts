@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { restoreAllSessions, getActiveUserIds, getStatus, initWhatsApp } from "./lib/whatsapp";
+import { restoreAllSessions, getActiveUserIds, getStatus, initWhatsApp, startWakeDetector } from "./lib/whatsapp";
 import { resumeRunningCampaigns } from "./routes/campaigns";
 import { startFollowUpEngine } from "./lib/follow-up-engine";
 import { startMonitorAgent } from "./lib/monitor-agent";
@@ -9,6 +9,8 @@ import { startOpsAgent } from "./lib/ops-agent";
 import { startCollector } from "./lib/collector-agent";
 import { startBrowserReaper } from "./lib/browser-agent";
 import { startMeetings } from "./lib/meeting";
+import { seedSkillsForEveryone } from "./lib/skills";
+import { sweepQuietOutcomes } from "./lib/agent-memory";
 import { runAutoMaintenance } from "./lib/diagnosis-engine";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
@@ -109,6 +111,7 @@ function startListening() {
 
     // Restore all saved WhatsApp sessions from DB — no QR needed after restart or deployment
     void restoreAllSessions();
+    startWakeDetector();
 
     // Resume any campaigns that were running before the server restarted
     void resumeRunningCampaigns();
@@ -122,6 +125,19 @@ function startListening() {
 
     // Auto-seed admin on startup if env vars are set
     void seedAdminIfConfigured();
+
+    // The skill library ships in source; this is what installs a change to it
+    // on every account that has a team, instead of waiting for someone to
+    // press the install button.
+    setTimeout(() => void seedSkillsForEveryone(), 20_000);
+
+    // Silence is an outcome. Hourly, a reply nobody answered for a day is
+    // marked quiet, which is what lets the coach and the meeting see the
+    // replies that lost the customer as well as the ones that won them.
+    setTimeout(() => {
+      void sweepQuietOutcomes().catch(() => {});
+      setInterval(() => void sweepQuietOutcomes().catch(() => {}), 60 * 60_000);
+    }, 45_000);
 
     // ── Connection Guardian ───────────────────────────────────────────
     // Runs every 90 seconds. For every user whose WA instance is loaded

@@ -3,6 +3,7 @@ import { eq, desc, sql, and, asc } from "drizzle-orm";
 import { db, waSessionEventsTable, contactGroupsTable, contactsTable, incomingMessagesTable, waContactsTable, waConversationsTable, waThreadMessagesTable, waSyncStateTable } from "@workspace/db";
 import { getStatus, getQr, getHealth, getSyncStats, logout, initWhatsApp, forceResync, extractPhones, extractContacts, sendMessage, resetSession, autoHeal, requestPairingCode } from "../lib/whatsapp";
 import { requireAuth } from "../lib/auth";
+import { takeover } from "../lib/lead-card";
 
 const router = Router();
 router.use(requireAuth);
@@ -578,6 +579,8 @@ router.post("/inbox/:phone/send", async (req, res) => {
   if (!text?.trim()) return res.status(400).json({ error: "الرسالة فارغة" });
 
   await sendMessage(userId, phone, text.trim());
+  // The owner is on this thread now; the bot and the ladder step back.
+  await takeover(userId, phone, "app").catch(() => {});
 
   const [saved] = await db.insert(waThreadMessagesTable)
     .values({ userId, phone, text: text.trim(), fromMe: true })

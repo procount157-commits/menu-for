@@ -2,6 +2,7 @@ import makeWASocket, {
   DisconnectReason,
   makeCacheableSignalKeyStore,
   fetchLatestBaileysVersion,
+  fetchLatestWaWebVersion,
   Browsers,
   WAMediaUpload,
   downloadMediaMessage,
@@ -12,7 +13,7 @@ import { and, eq, sql, desc } from "drizzle-orm";
 import { db, waAuthStateTable, waSessionEventsTable, usersTable, incomingMessagesTable, contactsTable, unsubscribedPhonesTable, waContactsTable, waConversationsTable, waThreadMessagesTable, waSyncStateTable, messageLogs, campaignsTable, campaignButtonResponsesTable } from "@workspace/db";
 import { useDatabaseAuthState, migrateSessionFilesToDb } from "./wa-auth-state";
 import { transcribe } from "./voice";
-import { assessSession, isRejection, STABLE_AFTER_MS, FLAP_WINDOW_MS } from "./session-breaker";
+import { assessSession, isRejection, isHandshakeRejection, STABLE_AFTER_MS, FLAP_WINDOW_MS, COOLDOWN_MS } from "./session-breaker";
 import path from "path";
 import fs from "fs";
 import qrcode from "qrcode";
@@ -24,29 +25,90 @@ export const BASE_SESSION_DIR = path.resolve(process.cwd(), "whatsapp-session");
 
 
 // ── WhatsApp Web version ──────────────────────────────────────────
-// A stale client version makes the WA handshake fail with HTTP 405 before a QR
-// is ever issued, so we ask Baileys for the version WA Web is currently serving
-// instead of hardcoding one. Cached for the process, refreshed hourly, with a
-// fallback so a fetch failure degrades to "try anyway" rather than "cannot connect".
-const WA_VERSION_TTL_MS = 60 * 60 * 1000;
-const WA_VERSION_FALLBACK: [number, number, number] = [2, 3000, 1023223821];
+// A client version WhatsApp no longer accepts makes the handshake fail with
+// 405 before a QR is ever issued. Baileys' own lookup reads a file on GitHub,
+// and when that fetch fails it quietly returns the version baked into the
+// package with `isLatest: false`. This code used to cache whatever came back
+// for an hour — so one failed fetch on a laptop coming out of sleep meant an
+// hour of 405s, and the breaker read five 405s as dead credentials and wiped
+// the pairing. Fifty times, on this account, in three days.
+//
+// A version is trusted only when a live source confirmed it. Two sources are
+// tried; the last confirmed version is kept on disk across restarts; the
+// baked-in number is the last resort rather than the first fallback; and an
+// unconfirmed value is retried after two minutes, not cached for an hour.
+const WA_VERSION_TTL_MS   = 60 * 60 * 1000;
+const WA_VERSION_RETRY_MS = 2 * 60 * 1000;
+const WA_VERSION_FALLBACK: [number, number, number] = [2, 3000, 1043857760];
+const WA_VERSION_FILE = path.join(BASE_SESSION_DIR, "wa-version.json");
 
-let waVersionCache: { version: [number, number, number]; fetchedAt: number } | null = null;
+type WaVersion = [number, number, number];
+let waVersionCache: { version: WaVersion; fetchedAt: number; confirmed: boolean } | null = null;
 
-async function resolveWaVersion(): Promise<[number, number, number]> {
-  if (waVersionCache && Date.now() - waVersionCache.fetchedAt < WA_VERSION_TTL_MS) {
-    return waVersionCache.version;
-  }
+function readKnownGoodVersion(): WaVersion | null {
   try {
-    const { version, isLatest } = await fetchLatestBaileysVersion();
-    waVersionCache = { version: version as [number, number, number], fetchedAt: Date.now() };
-    appLogger.info({ version, isLatest }, "WhatsApp Web version fetched");
-    return waVersionCache.version;
+    const v = JSON.parse(fs.readFileSync(WA_VERSION_FILE, "utf8"))?.version;
+    return Array.isArray(v) && v.length === 3 && v.every((n) => Number.isInteger(n)) ? (v as WaVersion) : null;
+  } catch { return null; }
+}
+
+function writeKnownGoodVersion(version: WaVersion) {
+  try {
+    fs.mkdirSync(BASE_SESSION_DIR, { recursive: true });
+    fs.writeFileSync(WA_VERSION_FILE, JSON.stringify({ version, confirmedAt: new Date().toISOString() }));
   } catch (err) {
-    const version = waVersionCache?.version ?? WA_VERSION_FALLBACK;
-    appLogger.warn({ err, version }, "WA version fetch failed — using fallback");
-    return version;
+    appLogger.warn({ err: String((err as any)?.message ?? err) }, "could not persist the WA version");
   }
+}
+
+function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`${label}: timed out after ${ms} ms`)), ms)),
+  ]);
+}
+
+async function resolveWaVersion(): Promise<WaVersion> {
+  const now = Date.now();
+  if (waVersionCache) {
+    const ttl = waVersionCache.confirmed ? WA_VERSION_TTL_MS : WA_VERSION_RETRY_MS;
+    if (now - waVersionCache.fetchedAt < ttl) return waVersionCache.version;
+  }
+
+  // Both return `isLatest: false` with the baked-in number when they could
+  // not actually look anything up. That is a failure with a value attached,
+  // not a result, and is treated as the former.
+  const sources: Array<[string, () => Promise<{ version: number[]; isLatest: boolean }>]> = [
+    ["github",       () => fetchLatestBaileysVersion()],
+    ["whatsapp.com", () => fetchLatestWaWebVersion({})],
+  ];
+  for (const [source, lookup] of sources) {
+    try {
+      const { version, isLatest } = await withDeadline(lookup(), 8_000, source);
+      if (!isLatest) continue;
+      const v = version as WaVersion;
+      waVersionCache = { version: v, fetchedAt: now, confirmed: true };
+      writeKnownGoodVersion(v);
+      appLogger.info({ version: v, source }, "WhatsApp Web version confirmed");
+      return v;
+    } catch (err) {
+      appLogger.warn({ source, err: String((err as any)?.message ?? err) }, "WA version source failed");
+    }
+  }
+
+  const known = readKnownGoodVersion();
+  const version = known ?? waVersionCache?.version ?? WA_VERSION_FALLBACK;
+  waVersionCache = { version, fetchedAt: now, confirmed: false };
+  appLogger.warn({ version, source: known ? "last-confirmed" : "built-in" },
+    "no live source for the WA version — using the last one known to work; retrying in 2 min");
+  return version;
+}
+
+/** Forget the cached version so the next connect looks it up again. */
+export function invalidateWaVersion(why: string) {
+  if (!waVersionCache) return;
+  appLogger.info({ why, was: waVersionCache.version, confirmed: waVersionCache.confirmed }, "WA version cache dropped");
+  waVersionCache = null;
 }
 
 // ── Protobuf Long → unix seconds ──────────────────────────────────
@@ -278,6 +340,21 @@ class WhatsAppInstance {
   private recentConnects: number[] = [];
   /** Set when the breaker cleared credentials; means a fresh scan is required. */
   awaitingRescanSince: Date | null = null;
+  /** 405s since the last open. Drives a flat, short retry — never the credential count. */
+  private handshakeRejects = 0;
+  /**
+   * Ids of messages this process sent. A fromMe message that is not in here
+   * came from the owner's phone — a person has joined the thread, and the
+   * bot must get out of their way.
+   */
+  private sentIds = new Set<string>();
+  private rememberSent(id?: string | null) {
+    if (!id) return;
+    this.sentIds.add(id);
+    if (this.sentIds.size > 4_000) {
+      for (const old of this.sentIds) { this.sentIds.delete(old); if (this.sentIds.size <= 3_000) break; }
+    }
+  }
 
   // ── Session Guardian tracking ─────────────────────────────────────
   /** Timestamp of the last message that was successfully sent to WA servers */
@@ -794,6 +871,7 @@ class WhatsAppInstance {
     pass("[8] Returned Message", `key=${JSON.stringify(result?.key ?? null)}`);
 
     const msgId: string | null = result?.key?.id ?? null;
+    this.rememberSent(msgId);
     if (!msgId) {
       steps.push({ step: ++n, label: "[9] Returned Message ID", ok: false, detail: "NO MESSAGE ID — ghost-send محتمل" });
     } else {
@@ -901,7 +979,7 @@ class WhatsAppInstance {
   /**
    * Keepalive — silent, notification-free approach:
    *
-   *  Layer 1 (primary):  Baileys WS-level ping every 8 s (keepAliveIntervalMs).
+   *  Layer 1 (primary):  Baileys WS-level ping every 20 s (keepAliveIntervalMs).
    *    - This is a protocol-level WebSocket/TCP ping.
    *    - Sufficient to keep the socket alive indefinitely without any app noise.
    *    - Does NOT change presence, does NOT notify contacts, does NOT notify the phone.
@@ -1413,6 +1491,7 @@ class WhatsAppInstance {
         }, STABLE_AFTER_MS);
 
         this.awaitingRescanSince     = null;
+        this.handshakeRejects        = 0;
         this.loggedOutRetries        = 0;
         this.qrCycleCount            = 0;     // ← reset QR cycle counter on successful auth
         this.consecutiveReconnectFails = 0;   // ← reset backoff counter on success
@@ -1440,7 +1519,7 @@ class WhatsAppInstance {
         // Wait 30 s before sending any presence updates.
         // Immediate presence pings on reconnect can trigger WA to push a
         // "Connected from Web" notification to the user's mobile phone.
-        // The WS-level keepAliveIntervalMs (8 s) keeps the socket alive
+        // The WS-level keepAliveIntervalMs (20 s) keeps the socket alive
         // during this quiet window without any application-layer presence.
         // 30 s is a safe balance: quiet enough to avoid notifications,
         // short enough that WA doesn't mark the session as dormant.
@@ -1511,6 +1590,23 @@ class WhatsAppInstance {
           return;
         }
 
+        if (verdict.cooldown) {
+          // Connects that never hold. The old breaker wiped the pairing here
+          // and was wrong every time it did: the cause was the host sleeping
+          // or a refused client version, and the credentials were fine. So
+          // stand back — ten minutes with no attempts, credentials intact —
+          // rather than turn an unstable hour into a scan.
+          this.recentConnects = [];
+          this.consecutiveReconnectFails = 0;
+          this.reconnectingStartedAt = null;
+          this.state.status = "reconnecting";
+          this.state.qr = null;
+          this.log.warn({ reason, why: verdict.reason }, "connection will not hold — cooling down before trying again");
+          await this.logEvent("cooldown", verdict.reason);
+          this.scheduleReconnect(COOLDOWN_MS);
+          return;
+        }
+
         if (this.manualLogout) {
           this.state.status = "disconnected";
           this.state.qr     = null;
@@ -1560,6 +1656,28 @@ class WhatsAppInstance {
           );
           await this.logEvent("reconnecting", `loggedOut attempt ${this.loggedOutRetries}, retry in ${Math.round(backoffMs / 1000)}s`);
           this.scheduleReconnect(backoffMs);
+          return;
+        }
+
+        // ── 405: WhatsApp refused the handshake ───────────────────
+        // The client version, not the credentials: WhatsApp answers 405 to a
+        // version it has retired, before any authentication happens. Every
+        // credential wipe in this account's history was five of these in a
+        // row. The fix is a fresh version lookup and a short, flat retry —
+        // the exponential counter is for network trouble, and a 405 is not
+        // that.
+        if (isHandshakeRejection(reason)) {
+          invalidateWaVersion(`405 for user ${this.userId}`);
+          this.handshakeRejects++;
+          this.state.status = "reconnecting";
+          this.state.qr     = null;
+          this.reconnectCount++;
+          const delay = Math.min(20_000 * this.handshakeRejects, 3 * 60_000);
+          this.log.warn({ version: waVersion, attempt: this.handshakeRejects, delayMs: delay },
+            "handshake refused (405) — client version rejected; refreshing it and retrying, credentials untouched");
+          await this.logEvent("reconnecting",
+            `handshake_rejected(405) version=${waVersion.join(".")} attempt=${this.handshakeRejects} delay=${Math.round(delay / 1000)}s`);
+          this.scheduleReconnect(delay);
           return;
         }
 
@@ -2016,8 +2134,15 @@ class WhatsAppInstance {
           .onConflictDoNothing()
           .catch(() => {});
 
-        // Skip messages sent by us for incoming_messages table
-        if (msg.key.fromMe) continue;
+        // Our own sends are already logged where they belong. A fromMe
+        // message this process did not send is the owner answering from
+        // their phone: from here the person holds the thread.
+        if (msg.key.fromMe) {
+          if (isLive && msg.key.id && !this.sentIds.has(msg.key.id)) {
+            emitHumanReply({ userId: this.userId, phone, text: text ?? "" });
+          }
+          continue;
+        }
 
         const msgId = msg.key.id ?? null;
 
@@ -2490,6 +2615,7 @@ class WhatsAppInstance {
 
       // Capture the Baileys message ID for delivery tracking
       sentMsgId = result?.key?.id ?? undefined;
+      this.rememberSent(sentMsgId);
 
       // ── Diagnostic log: what did Baileys return? ─────────────────────────
       this.log.info(
@@ -2613,6 +2739,50 @@ class WhatsAppInstance {
   }
 
   /**
+   * The host just came back from sleep.
+   *
+   * Every socket that was open is dead — WhatsApp drops a connection that
+   * misses its keepalive, and a laptop asleep misses all of them — but
+   * Baileys only notices on its next ping, up to 25 seconds later, and the
+   * reconnect backoff is still carrying the count of attempts made during
+   * the sleep's brief dark wakes, when there was no network to attempt on.
+   * So the counter is cleared and the reconnect happens now.
+   */
+  onSystemWake() {
+    this.consecutiveReconnectFails = 0;
+    this.reconnectingStartedAt = null;
+    if (this.manualLogout) return;
+
+    if (this.state.connected && this.state.socket) {
+      this.log.info("host woke from sleep — dropping the socket so it reconnects now rather than on the next failed ping");
+      try { (this.state.socket as any).ws?.close(); } catch {}
+      return; // the close handler reconnects from here
+    }
+    if (this.state.status === "reconnecting" && this.reconnectTimer) {
+      this.log.info("host woke from sleep — reconnecting now instead of waiting out the backoff");
+      this.scheduleReconnect(3_000);
+    }
+  }
+
+  /**
+   * Send the read receipt for an inbound message.
+   *
+   * A person reads a message before answering it, and the sender sees that
+   * happen: the ticks turn blue, and only then does "typing…" appear. A
+   * number whose replies arrive without its ever having read anything is
+   * describing itself, so the receipt goes out before the typing indicator.
+   */
+  async markRead(key: { remoteJid?: string | null; id?: string | null; fromMe?: boolean | null; participant?: string | null }) {
+    if (!this.state.socket || !this.state.connected) return;
+    if (!key?.id || !key?.remoteJid) return;
+    try {
+      await this.state.socket.readMessages([key as any]);
+    } catch (err) {
+      this.log.debug({ err: String((err as any)?.message ?? err) }, "read receipt not sent");
+    }
+  }
+
+  /**
    * After a message is sent, stay "available" for a random window then go
    * "unavailable" — mirrors how a real person exits the conversation.
    */
@@ -2663,6 +2833,10 @@ class WhatsAppManager {
   has(userId: number) { return this.instances.has(userId); }
 
   getAllUserIds(): number[] { return [...this.instances.keys()]; }
+
+  onSystemWake() {
+    for (const inst of this.instances.values()) inst.onSystemWake();
+  }
 }
 
 export const waManager = new WhatsAppManager();
@@ -2775,6 +2949,35 @@ export async function requestPairingCode(userId: number, phoneNumber: string): P
   return waManager.get(userId).requestPairingCode(phoneNumber);
 }
 
+export async function markRead(
+  userId: number,
+  key: { remoteJid?: string | null; id?: string | null; fromMe?: boolean | null; participant?: string | null },
+) {
+  return waManager.get(userId).markRead(key);
+}
+
+// ── Sleep detection ───────────────────────────────────────────────
+// A timer cannot fire while the machine is asleep, so a tick that arrives
+// much later than scheduled is the one reliable sign the host was down. On
+// this laptop that happened 206 times in two days. Dark wakes of a few seconds
+// pass under the threshold; a real sleep — long enough for WhatsApp to have
+// dropped every socket — does not.
+export function startWakeDetector() {
+  const TICK_MS = 15_000;
+  const JUMP_MS = 60_000;
+  let last = Date.now();
+  setInterval(() => {
+    const now = Date.now();
+    const gap = now - last;
+    last = now;
+    if (gap < TICK_MS + JUMP_MS) return;
+    appLogger.warn({ asleepSeconds: Math.round(gap / 1000) }, "clock jumped — the host was asleep; reconnecting every session");
+    invalidateWaVersion("host woke from sleep");
+    waManager.onSystemWake();
+  }, TICK_MS);
+  appLogger.info("sleep detector started");
+}
+
 export async function sendMessage(
   userId: number, phone: string, message: string,
   messageType?: string, mediaUrl?: string | null,
@@ -2804,6 +3007,17 @@ export type InboundHook = (ev: {
 
 const inboundHooks: InboundHook[] = [];
 export function registerInboundHook(fn: InboundHook) { inboundHooks.push(fn); }
+
+/** A person replied from the phone. The bot and the follow-ups must yield. */
+export type HumanReplyHook = (ev: { userId: number; phone: string; text: string }) => void | Promise<void>;
+const humanReplyHooks: HumanReplyHook[] = [];
+export function registerHumanReplyHook(fn: HumanReplyHook) { humanReplyHooks.push(fn); }
+function emitHumanReply(ev: Parameters<HumanReplyHook>[0]) {
+  for (const fn of humanReplyHooks) {
+    Promise.resolve().then(() => fn(ev)).catch((err) =>
+      appLogger.warn({ err: String((err as any)?.message ?? err), userId: ev.userId }, "human-reply hook failed"));
+  }
+}
 
 export function emitInbound(ev: Parameters<InboundHook>[0]) {
   for (const fn of inboundHooks) {
@@ -2927,49 +3141,6 @@ function extractText(msg: any): string {
     msg.message?.templateButtonReplyMessage?.selectedDisplayText ||
     ""
   ).trim();
-}
-
-/**
- * Anti-ban text transform — makes every outgoing message byte-unique.
- *
- * Strategy 1 (invisible fingerprint):
- *   Appends a short random sequence of invisible Unicode characters
- *   (Zero-Width Space, Word Joiner, Zero-Width Non-Joiner) that are
- *   completely invisible to recipients but make WhatsApp's hash-based
- *   duplicate-message detector treat each copy as a different message.
- *
- * Strategy 2 (inter-word scatter):
- *   Inserts a single invisible char at a random word boundary inside the
- *   message body. Combined with the fingerprint this gives two independent
- *   uniqueness vectors.
- *
- * All chars used are safe for Arabic RTL text — they carry no visual weight
- * and do not affect word joining or bidirectional layout.
- */
-function antiBanText(text: string): string {
-  // Pool of truly invisible, layout-safe Unicode codepoints
-  const INV = [
-    '\u200B', // Zero Width Space
-    '\u2060', // Word Joiner
-    '\u200C', // Zero Width Non-Joiner
-  ];
-
-  const pick = () => INV[Math.floor(Math.random() * INV.length)];
-
-  // Strategy 1: unique trailing fingerprint (3–5 invisible chars)
-  const fpLen = 3 + Math.floor(Math.random() * 3);
-  const fingerprint = Array.from({ length: fpLen }, pick).join('');
-
-  // Strategy 2: inject one invisible char at a random inter-word gap
-  const words = text.split(' ');
-  let scattered = text;
-  if (words.length > 2) {
-    const pos = 1 + Math.floor(Math.random() * (words.length - 2));
-    words[pos] = pick() + words[pos];
-    scattered = words.join(' ');
-  }
-
-  return scattered + fingerprint;
 }
 
 /**

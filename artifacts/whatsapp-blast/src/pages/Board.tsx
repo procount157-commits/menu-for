@@ -170,6 +170,12 @@ export default function Board() {
   const cols: any[] = data?.columns ?? [];
   const f = data?.followUp ?? {};
   const seg = data?.segments ?? { counts: {}, labels: {} };
+  const fn = data?.funnel ?? null;
+  const stageName = (n: number) => (fn?.byStage ?? []).find((s: any) => s.stage === n)?.name ?? `مرحلة ${n}`;
+  const factsOf = (c: any) => [
+    c.licence === "mainland" ? "مين لاند" : c.licence === "freezone" ? "فري زون" : null,
+    c.activity, c.size, c.pain ? `وجعه: ${c.pain}` : null,
+  ].filter(Boolean).join(" · ");
 
   return (
     <div className="p-6 space-y-5">
@@ -187,6 +193,58 @@ export default function Board() {
       <div className="flex gap-3 overflow-x-auto pb-3 -mx-6 px-6">
         {cols.map((c) => <Column key={c.id} c={c} />)}
       </div>
+
+      {/* Where every lead is in the sale — from the cards, not from a feeling */}
+      {fn && (
+        <div className={cn(card, "p-4")}>
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <p className="font-semibold text-sm">قمع البيع — آخر ٣٠ يوماً</p>
+              <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                كل عميل له بطاقة تُكتب من كلامه هو: رخصته ونشاطه وحجمه ووجعه، وأي مرحلة بلغها. الموظف يقرأها قبل كل رد ولا يسأل عمّا فيها.
+              </p>
+            </div>
+            <Link href="/inbox" className={ghost}><Inbox className="w-3.5 h-3.5" /> المحادثات</Link>
+          </div>
+          <div className="flex gap-2 overflow-x-auto mt-3">
+            {(fn.byStage as any[]).map((s) => (
+              <div key={s.stage} className={cn("rounded-lg border p-2.5 min-w-[6.5rem] shrink-0",
+                s.n > 0 ? (s.stage >= 5 ? "border-primary/40 bg-primary/5" : "border-card-border") : "border-card-border opacity-50")}>
+                <p className="text-[11px] text-muted-foreground">{s.stage} · {s.name}</p>
+                <p className="text-lg font-bold leading-none mt-1">{s.n}</p>
+              </div>
+            ))}
+          </div>
+
+          {(fn.hot as any[])?.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-semibold mb-2 flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5 text-primary" /> الأقرب إلى الإغلاق</p>
+              <div className="divide-y divide-card-border rounded-lg border border-card-border">
+                {(fn.hot as any[]).map((c) => (
+                  <div key={c.phone} className="p-2.5 flex items-center gap-3 flex-wrap">
+                    <span className="text-xs font-mono" dir="ltr">{c.phone}</span>
+                    <span className={cn("text-[10px] px-2 py-0.5 rounded border",
+                      c.stage >= 7 ? "border-primary/40 text-primary" : c.stage === 6 ? "border-orange-500/40 text-orange-400" : "border-card-border text-muted-foreground")}>
+                      {c.stage} · {stageName(c.stage)}{c.stage === 6 && c.objection ? ` — ${c.objection}` : ""}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground min-w-0 flex-1 truncate">{factsOf(c) || "لا معلومات بعد"}</span>
+                    {c.humanUntil && new Date(c.humanUntil).getTime() > Date.now() && (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-muted text-muted-foreground">يتولاه بشري</span>
+                    )}
+                    <span className="text-[10px] text-muted-foreground/60">{ago(c.updatedAt)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(fn.held as any[])?.length > 0 && (
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              {fn.held.length} محادثة يتولاها شخص الآن — البوت والمتابعات صامتان فيها حتى ينتهي وقته أو يُعيدها من صفحة المحادثات.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* The follow-up ladder */}
       <div className={cn(card, f.dryRun && "border-yellow-500/30")}>

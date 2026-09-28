@@ -219,6 +219,50 @@ export default function AgentOps() {
         <Stat icon={Clock} value={a.pendingFollowUps ?? 0} label="متابعات منتظرة" />
       </div>
 
+      {/* The composite risk — what فهد acts on */}
+      {data?.risk && (() => {
+        const r = data.risk;
+        const tone = r.score < 20 ? "bg-primary" : r.score < 40 ? "bg-yellow-400" : r.score < 60 ? "bg-orange-400" : "bg-red-500";
+        const text = r.score < 20 ? "text-primary" : r.score < 40 ? "text-yellow-400" : r.score < 60 ? "text-orange-400" : "text-red-400";
+        return (
+          <div className={cn(card, "p-4", r.score >= 40 && "border-orange-500/30")}>
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-semibold text-sm">مؤشر خطر الحظر</p>
+                  <span className={cn("text-[11px] px-2 py-0.5 rounded border border-card-border", text)}>{r.levelAr}</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                  التسليم والفشل وطلبات الإيقاف والحظر المحتمل والتذبذب وعمر الرقم — مجموعة في رقم واحد. فهد يبطئ من ٢٠، ويقلّص الحصة من ٤٠، ويوقف عند ٨٠.
+                </p>
+              </div>
+              <div className="text-end shrink-0">
+                <p className={cn("text-3xl font-bold leading-none", text)}>{r.score}<span className="text-sm text-muted-foreground">/100</span></p>
+              </div>
+            </div>
+            <div className="mt-3 h-2 rounded-full bg-muted overflow-hidden" dir="ltr">
+              <div className={cn("h-full rounded-full transition-all", tone)} style={{ width: `${Math.max(2, r.score)}%` }} />
+            </div>
+            {r.reasons?.length > 0 ? (
+              <ul className="mt-3 space-y-1">
+                {r.reasons.map((x: string, i: number) => (
+                  <li key={i} className="text-[11px] text-muted-foreground flex gap-2"><span className="text-foreground/40">•</span>{x}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-[11px] text-muted-foreground">لا إشارة تستدعي القلق الآن.</p>
+            )}
+            {(r.throttle > 1 || r.ceilingFactor < 1 || r.holdMinutes > 0) && (
+              <p className="mt-2 text-[11px]">
+                <span className="text-muted-foreground">ردّ فهد على هذا المستوى: </span>
+                {r.holdMinutes > 0 ? `إيقاف ${r.holdMinutes} دقيقة` : `إبطاء ${r.throttle}×`}
+                {r.ceilingFactor < 1 && r.holdMinutes === 0 ? ` · الحصة ${Math.round(r.ceilingFactor * 100)}% من المسموح` : ""}
+              </p>
+            )}
+          </div>
+        );
+      })()}
+
       {/* What the officer has done to the number right now */}
       <div className={cn(card, "p-4", throttled && "border-yellow-500/30 bg-yellow-500/5")}>
         <div className="flex items-start justify-between gap-3 flex-wrap">

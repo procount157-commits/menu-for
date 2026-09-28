@@ -21,6 +21,7 @@ import { complete } from "./llm";
 import { notify, esc, linkedUsers } from "./telegram";
 import { say } from "./agent-comms";
 import { logger } from "./logger";
+import { skillsFor, skillsPreamble } from "./agent-skills";
 
 export const COLLECTOR_ROLE = "collector";
 
@@ -232,10 +233,12 @@ export async function buildReport(userId: number): Promise<string> {
   const [emp] = await db.select().from(botEmployeesTable)
     .where(and(eq(botEmployeesTable.userId, userId), eq(botEmployeesTable.role, COLLECTOR_ROLE))).limit(1);
 
+  const trade = skillsPreamble(await skillsFor(userId, COLLECTOR_ROLE, "internal").catch(() => []));
   const note = await complete([
     { role: "system", content: [
       emp ? `أنت ${emp.name}${emp.title ? `، ${emp.title}` : ""}.` : "أنت محلل بيانات.",
       emp?.persona ?? "",
+      trade,
       "اكتب سطرين بالعربية يلخّصان ما يعنيه هذا التقرير عملياً لصاحب العمل، وما أهم شيء يفعله اليوم.",
       "لا تكرر الأرقام كما هي — اشرح دلالتها. لا تستخدم HTML ولا رموزاً.",
     ].filter(Boolean).join("\n") },

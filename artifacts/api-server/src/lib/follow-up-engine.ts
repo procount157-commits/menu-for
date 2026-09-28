@@ -25,7 +25,10 @@ import { memoryPreamble, learnFromOutcome } from "./agent-memory";
 import { skillsFor, skillsPreamble, finalCheckPreamble } from "./agent-skills";
 import { inboxPreamble } from "./agent-comms";
 import { thinkTime } from "./reply-timing";
-import { sendMessage, getStatus, registerInboundHook, registerOnConnectHook } from "./whatsapp";
+import { sendMessage, getStatus, registerInboundHook, registerOnConnectHook, registerHumanReplyHook, markRead } from "./whatsapp";
+import { updateCard, cardPreamble, isHumanHeld, takeover, lastCustomerLine } from "./lead-card";
+import { notify, esc } from "./telegram";
+import { say } from "./agent-comms";
 import { provisionOnConnect } from "./provision";
 
 // How often the worker looks for due jobs.
@@ -306,7 +309,11 @@ async function isFirstContact(userId: number, phone: string): Promise<boolean> {
 // talk to each other until someone notices.
 const AUTO_REPLY_MAX_PER_HOUR = 8;
 
-async function autoReplyIfAppropriate(userId: number, phone: string, text: string, intent: Intent) {
+async function autoReplyIfAppropriate(
+  userId: number, phone: string, text: string, intent: Intent,
+  /** The inbound message's key, for the read receipt. */
+  key?: { remoteJid?: string | null; id?: string | null; fromMe?: boolean | null; participant?: string | null },
+) {
   // Other companies answer campaigns with their own bots. Replying to those
   // spends the daily allowance on nobody, produces bot-to-bot threads that
   // read as automation, and occasionally says something absurd — this account
@@ -337,6 +344,13 @@ async function autoReplyIfAppropriate(userId: number, phone: string, text: strin
   if (auto.isAuto) {
     logger.info({ userId, phone, confidence: auto.confidence, signals: auto.signals }, "inbound looks automated — not replying");
     await logAutoReply({ userId, phone, incoming: text, intent, skipped: `رد آلي من الطرف الآخر (${auto.confidence})` });
+    return;
+  }
+
+  // A person on the thread outranks every employee. The owner who answered
+  // from their phone an hour ago does not want the bot answering over them.
+  if (await isHumanHeld(userId, phone)) {
+    await logAutoReply({ userId, phone, incoming: text, intent, skipped: "يتولاها بشري" });
     return;
   }
 
@@ -383,12 +397,17 @@ async function autoReplyIfAppropriate(userId: number, phone: string, text: strin
       .filter(Boolean).join("\n\n");
     finalCheck = finalCheckPreamble(skills);
   }
+  // What the team knows about this lead and where the sale is — told to the
+  // employee outright, so it is not inferred from the transcript and asked
+  // about again.
+  const card = await cardPreamble(userId, phone).catch(() => "");
 
   // Pass the phone so the reply sees the conversation, not just this line.
   const answer = await answerFromKnowledge(
     userId, text, phone, voice,
     routing ? agentJob(routing) : undefined,
     finalCheck,
+    card || undefined,
   );
   if (!answer.reply) {
     await logAutoReply({ userId, phone, incoming: text, intent, skipped: answer.reason ?? "لا رد", agentRole: routing?.agent.role });
@@ -426,7 +445,16 @@ async function autoReplyIfAppropriate(userId: number, phone: string, text: strin
     });
     logger.info({ userId, phone, pace: wait.pace, seconds: Math.round(wait.ms / 1000) },
       "ينتظر قبل أن يبدأ الكتابة");
-    await new Promise((r) => setTimeout(r, wait.ms));
+
+    // The pause has two parts a person would recognise: noticing the message
+    // and opening it (the ticks turn blue), then reading and thinking before
+    // "typing…" appears. The read receipt goes out between them. Without it
+    // every reply from this number arrives from someone who never opened the
+    // message, which no phone user has ever seen a person do.
+    const noticeMs = Math.round(wait.ms * (0.3 + Math.random() * 0.3));
+    await new Promise((r) => setTimeout(r, noticeMs));
+    if (key) await markRead(userId, key).catch(() => {});
+    await new Promise((r) => setTimeout(r, wait.ms - noticeMs));
 
     await sendMessage(userId, phone, answer.reply);
     await logAutoReply({ userId, phone, incoming: text, reply: answer.reply, provider: answer.provider, kbIds: answer.kbIds, intent, agentRole: routing?.agent.role });
@@ -434,6 +462,30 @@ async function autoReplyIfAppropriate(userId: number, phone: string, text: strin
   } catch (err: any) {
     await logAutoReply({ userId, phone, incoming: text, intent, skipped: `فشل الإرسال: ${String(err?.message).slice(0, 40)}`, agentRole: routing?.agent.role });
   }
+}
+
+/**
+ * Tell the owner when a lead gets hot, and when one agrees.
+ *
+ * Once each, per lead. A person who wants to close the sale themselves
+ * needs to hear about it at the moment it becomes closable, not in the
+ * evening report — and the alert says how to take the thread over.
+ */
+async function announceStage(userId: number, phone: string, reached: 5 | 7, text: string) {
+  const c = (await cardPreamble(userId, phone).catch(() => "")).split("\n")[1] ?? "";
+  const last = text.slice(0, 160) || await lastCustomerLine(userId, phone).catch(() => "");
+  const head = reached === 7 ? "🤝 <b>عميل وافق</b>" : "🔥 <b>عميل مهتم</b>";
+  await notify(userId, [
+    `${head} — <code>${esc(phone)}</code>`,
+    c ? esc(c.replace(/^- /, "")) : "",
+    last ? `آخر ما قال: «${esc(last)}»` : "",
+    "",
+    reached === 7
+      ? "البوت لن يبيع من جديد. ردّ من هاتفك أو من التطبيق ويصمت 24 ساعة."
+      : "إن أردت أن تتولاه بنفسك: ردّ من هاتفك ويصمت البوت 24 ساعة.",
+  ].filter(Boolean).join("\n")).catch(() => {});
+  await say({ userId, fromRole: "sales", toRole: "chief", kind: "report", phone,
+    body: reached === 7 ? `${phone} وافق — ينتظر تسليماً لبشري.` : `${phone} أبدى اهتماماً — وصل مرحلة العرض.` }).catch(() => {});
 }
 
 export async function handleInbound(ev: { userId: number; phone: string; text: string; message: unknown }) {
@@ -480,12 +532,22 @@ export async function handleInbound(ev: { userId: number; phone: string; text: s
   // Judge the previous reply before composing the next one: what the customer
   // just said is the only outcome signal a WhatsApp thread offers, and it is
   // about the message before this one, not this one.
-  await learnFromOutcome(userId, phone, verdict.intent).catch((err) => {
+  // Fold what they just said into the card first: the reply is composed
+  // against the card, and the outcome of the previous reply is judged partly
+  // by whether this message taught us something.
+  const cardUpdate = await updateCard(userId, phone, text, verdict.intent).catch((err) => {
+    logger.warn({ userId, phone, err: String(err?.message ?? err) }, "تعذّر تحديث بطاقة العميل");
+    return null;
+  });
+
+  await learnFromOutcome(userId, phone, verdict.intent, { qualified: (cardUpdate?.learnt.length ?? 0) > 0 }).catch((err) => {
     // A lesson not learnt must never cost a reply.
     logger.warn({ userId, phone, err: String(err?.message ?? err) }, "تعذّر تسجيل نتيجة الرد السابق");
   });
 
-  await autoReplyIfAppropriate(userId, phone, text, verdict.intent);
+  if (cardUpdate?.reached) void announceStage(userId, phone, cardUpdate.reached, text);
+
+  await autoReplyIfAppropriate(userId, phone, text, verdict.intent, (ev.message as any)?.key);
 
   if (first) {
     // Someone whose opening line is a refusal or a complaint should not be
@@ -569,6 +631,11 @@ export async function runDueFollowUps(now = new Date()): Promise<{ sent: number;
     const left = remainingByUser.get(job.userId)!;
     if (left <= 0) continue;                        // stays pending for tomorrow
 
+    // A person on the thread wins over the ladder: a follow-up landing in
+    // the middle of the owner's own conversation reads as a second, dumber
+    // salesman. Stays pending; the rung goes out when the person steps back.
+    if (await isHumanHeld(job.userId, job.phone)) continue;
+
     // Opt-out wins over any schedule.
     const [optedOut] = await db.select({ phone: unsubscribedPhonesTable.phone })
       .from(unsubscribedPhonesTable)
@@ -619,6 +686,11 @@ export async function runDueFollowUps(now = new Date()): Promise<{ sent: number;
 }
 
 let timer: NodeJS.Timeout | null = null;
+
+// The owner answered from their phone. The bot has nothing to add for a day.
+registerHumanReplyHook(async ({ userId, phone }) => {
+  await takeover(userId, phone, "phone");
+});
 
 export function startFollowUpEngine() {
   registerInboundHook(handleInbound);

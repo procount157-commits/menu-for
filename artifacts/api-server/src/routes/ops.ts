@@ -10,6 +10,8 @@ import {
   agentRoutineRunsTable, leadSourcesTable, followUpJobsTable,
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
+import { scoreRisk, RISK_LEVEL_AR } from "../lib/risk";
+import { funnel } from "../lib/lead-card";
 import { runOpsAgent, getControls, gather, decide } from "../lib/ops-agent";
 import { recentTraffic, say } from "../lib/agent-comms";
 import { getStatus } from "../lib/whatsapp";
@@ -41,8 +43,8 @@ router.get("/", async (req, res) => {
       role:    autoReplyLogTable.agentRole,
       replied: sql<number>`count(*) filter (where ${autoReplyLogTable.reply} is not null)`,
       silent:  sql<number>`count(*) filter (where ${autoReplyLogTable.reply} is null)`,
-      wins:    sql<number>`count(*) filter (where ${autoReplyLogTable.outcome} = 'win')`,
-      losses:  sql<number>`count(*) filter (where ${autoReplyLogTable.outcome} = 'loss')`,
+      wins:    sql<number>`count(*) filter (where ${autoReplyLogTable.outcome} in ('win','qualified'))`,
+      losses:  sql<number>`count(*) filter (where ${autoReplyLogTable.outcome} in ('loss','quiet'))`,
     }).from(autoReplyLogTable)
       .where(and(eq(autoReplyLogTable.userId, userId), gte(autoReplyLogTable.createdAt, day)))
       .groupBy(autoReplyLogTable.agentRole),
@@ -63,6 +65,13 @@ router.get("/", async (req, res) => {
   ]);
 
   const wa = getStatus(userId) as any;
+  // The composite risk — what فهد acts on — and the sales funnel from the
+  // lead cards. Both read here so the page and the officer cannot disagree.
+  const [signals, leadFunnel] = await Promise.all([
+    gather(userId).catch(() => null),
+    funnel(userId).catch(() => null),
+  ]);
+  const risk = signals?.risk ? { ...scoreRisk(signals.risk), levelAr: RISK_LEVEL_AR[scoreRisk(signals.risk).level] } : null;
   const statsBy = new Map(perAgent.map((r) => [r.role ?? "", r]));
   const holdingBy = new Map(owners.map((r) => [r.role, Number(r.n)]));
 
@@ -107,6 +116,8 @@ router.get("/", async (req, res) => {
           routines: routines.filter((r) => r.role === e.role).length,
         };
       }),
+    risk,
+    funnel: leadFunnel,
     traffic,
     // Weighted edges for the who-talks-to-whom view. Built here rather than in
     // the page so the counts cannot drift from the list beside them.

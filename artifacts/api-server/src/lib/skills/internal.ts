@@ -1,4 +1,10 @@
 // ── Skills for the employees who never meet a customer ────────────
+// These carry `intents: ["internal"]`: they load for a meeting, a coaching
+// round or an alert, and never for a customer reply. The manager used to take
+// all three of hers into every customer conversation she answered, which was
+// 2,400 characters of pipeline theory in front of "كم السعر؟".
+
+export const INTERNAL = ["internal"];
 
 // The hard part is not the first follow-up, it is the sixth without sounding
 // like the fifth — so each rung gets its own angle rather than a request for
@@ -16,7 +22,9 @@ export const FOLLOWUP_WRITING_SKILL = {
 بعد أسبوع — مخرج كريم، وهو غالباً ما يستدعي الرد: «إذا ما عاد يهمك أفهم، بس قل لي عشان ما أزعجك.»
 بعد شهر — باب مفتوح بلا بيع: «مرّيت على اسمك. إذا احتجت شي أنا موجود.»
 
-لكل الرسائل: سطران كحد أقصى · اذكر شيئاً يخصّه هو (الرسالة التي تصلح لأي أحد لا تُقرأ) · لا تحية مكررة · لا تذكر أنك تابعت من قبل ولا كم مرة · علامة تعجب واحدة ورمز واحد كحد أقصى.
+إحياء عميل صامت: لا تُذكّر بل أعطِ سبباً جديداً للرد — تغيّر يخصّ نشاطه، سؤال بكلمة واحدة، أو مخرج كريم. من فتح ولم يرد رآك ولم يجد سبباً؛ العيب في زاويتك لا فيه. من لم يفتح ثلاث مرات: توقّف.
+
+لكل الرسائل: سطران كحد أقصى · اذكر شيئاً يخصّه هو · لا تحية مكررة · لا تذكر أنك تابعت من قبل ولا كم مرة · علامة تعجب واحدة ورمز واحد كحد أقصى.
 
 ممنوع: «أردت فقط المتابعة» · «هل اطّلعت على رسالتي؟» · «في انتظار ردكم» · «نأمل تجاوبكم».`,
 };
@@ -26,7 +34,7 @@ export const FOLLOWUP_WRITING_SKILL = {
 // and producing a list nobody acts on.
 export const ANALYSIS_SKILL = {
   name: "التحليل",
-  intents: [] as string[],
+  intents: INTERNAL,
   instruction: `عند تحليل أرقام — ولا تصف الأرقام كما هي:
 
 ١. افصل «منخفض» عن «تغيّر». المنخفض المستقر ليس خبراً؛ الذي تحرّك هو الخبر.
@@ -44,7 +52,7 @@ export const ANALYSIS_SKILL = {
 // can follow tomorrow.
 export const COACHING_SKILL = {
   name: "تدريب الفريق",
-  intents: [] as string[],
+  intents: INTERNAL,
   instruction: `القاعدة التي تكتبينها سلوك يُنفَّذ، لا نصيحة.
 صحيح: «لا تذكر السعر قبل أن يخبرك بعدد فواتيره الشهرية.»
 خطأ: «كن أكثر احترافية في التعامل مع الأسعار.»
@@ -66,7 +74,7 @@ export const COACHING_SKILL = {
 // real one asks them.
 export const SALES_MANAGEMENT_SKILL = {
   name: "إدارة المبيعات",
-  intents: [] as string[],
+  intents: INTERNAL,
   instruction: `تقرئين الفريق كما يقرأ مدير مبيعات حقيقي، لا كما يقرأ تقرير.
 
 القمع، ولكل خطوة سبب فشل مختلف — لا تخلطي بينها:
@@ -91,4 +99,23 @@ export const SALES_MANAGEMENT_SKILL = {
 - اسألي عن السبب لا عن الرقم: «ليش انصرف؟» لا «كم انصرف؟».
 - إن تناقض موظفان فأوقفي الاجتماع عند التناقض ولا تمرّي عليه.
 - اختمي بقرار لشخص واحد بعينه. قرار للجميع قرار لا أحد.`,
+};
+
+// The operations officer's trade. He had a personality — "precise, calm,
+// does not exaggerate" — and no account of what actually gets a number
+// banned, so his alerts explained a decision he could not have made. This is
+// the reading order a person who has lost a number before uses.
+export const NUMBER_PROTECTION_SKILL = {
+  name: "حماية الرقم",
+  intents: INTERNAL,
+  instruction: `ما يُحظَر عليه الرقم ليس نص الرسالة بل سلوك المستلمين: حظر، إبلاغ، عدم تسليم، طلبات إيقاف. اقرأ بهذا الترتيب:
+١. التسليم: الإرسال ينجح والرسائل لا تصل = خنق صامت. تحت ٧٥٪ أبطئ، تحت ٥٥٪ أوقف.
+٢. طلبات الإيقاف: أقوى مؤشر على الإطلاق. ٣٪ ممن وصلتهم = القائمة لا تريدنا؛ الإبطاء لا ينقذها، مصدر الأرقام هو المشكلة.
+٣. الحظر المحتمل: جهة اتصال كانت تستلم وتوقفت. خمسة منها أخطر من خمسين رقماً ميتاً.
+٤. الفشل: الأرقام الميتة تأكل الحصة وترفع النسبة — فحص الأرقام قبل الحملة لا بعدها.
+٥. التذبذب: رقم يعيد الاتصال كثيراً يبدو رقماً تحت ضغط.
+٦. عمر الرقم: تحت أسبوع لا يتحمّل ما يتحمّله رقم عمره شهر.
+القاعدة: أبطئ مبكراً بدل أن تعتذر متأخراً. الحصة سقف لا هدف. الإبطاء ثم تقليص الحصة ثم الإيقاف — بهذا الترتيب.
+حين تكتب لصاحب العمل: ما حدث، لماذا يهم، ما المطلوب منه إن كان عليه فعل شيء. الأرقام تُنقل حرفياً ولا تُقرّب.
+ممنوع: تهويل · مصطلحات تقنية · «كل شيء تمام» بينما مؤشر يتحرك · اقتراح قرار غير الذي نُفِّذ.`,
 };

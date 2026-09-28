@@ -23,3 +23,7 @@ auth_info_baileys/
 replit.nix
 artifacts/api-server/uploads/
 artifacts/api-server/uploads-tmp/
+
+# per-user Baileys session dirs and the last confirmed WA Web version
+whatsapp-session/
+settings.json

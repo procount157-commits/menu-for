@@ -21,15 +21,17 @@
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import {
   db, opsControlsTable, opsAlertsTable, campaignsTable, messageLogs,
-  waSessionEventsTable, botEmployeesTable,
+  waSessionEventsTable, botEmployeesTable, unsubscribedPhonesTable,
   type OpsControls,
 } from "@workspace/db";
 import { getStatus, getHealth, waManager } from "./whatsapp";
-import { assessDeliveryHealth, assessAccountHealth } from "./delivery-health";
-import { getDailySentCount, getEffectiveDailyLimit } from "./daily-limit";
+import { assessAccountHealth, assessBlockSignals, strangerShare24h } from "./delivery-health";
+import { getDailySentCount, getEffectiveDailyLimit, numberAgeDays, engagement7d } from "./daily-limit";
+import { scoreRisk, RISK_LEVEL_AR, type RiskSignals } from "./risk";
 import { complete } from "./llm";
 import { logger } from "./logger";
 import { say } from "./agent-comms";
+import { skillsFor, skillsPreamble } from "./agent-skills";
 
 export const OPS_ROLE = "ops";
 export const OPS_SWEEP_MS = 10 * 60_000;
@@ -51,14 +53,22 @@ export type OpsSignals = {
   /** Failures as a share of today's attempts. */
   failureRate: number;
   activeCampaigns: number;
+  /**
+   * The slower signals, read together by the risk score. Optional so the
+   * decision can still be made — and tested — from the fast ones alone.
+   */
+  risk?: RiskSignals;
 };
 
 export async function gather(userId: number): Promise<OpsSignals> {
   const day = new Date(Date.now() - 24 * 60 * 60_000);
   const sixHours = new Date(Date.now() - 6 * 60 * 60_000);
 
-  const [delivery, account, sentToday, dailyLimit, [recon], [today], [camps]] = await Promise.all([
-    assessDeliveryHealth(userId).catch(() => null),
+  // assessDeliveryHealth takes a campaign id and was being handed the user
+  // id, so the per-campaign figure here was whichever campaign happened to
+  // share a number with the user. The account-wide read is the one that
+  // means anything to an operations officer anyway.
+  const [account, sentToday, dailyLimit, [recon], [today], [camps], blocks, strangers, age, eng, [optOuts]] = await Promise.all([
     assessAccountHealth(userId).catch(() => null),
     getDailySentCount(userId).catch(() => 0),
     getEffectiveDailyLimit(userId).catch(() => 0),
@@ -71,6 +81,12 @@ export async function gather(userId: number): Promise<OpsSignals> {
     }).from(messageLogs).where(gte(messageLogs.createdAt, day)),
     db.select({ n: sql<number>`count(*)` }).from(campaignsTable)
       .where(and(eq(campaignsTable.userId, userId), eq(campaignsTable.status, "running"))),
+    assessBlockSignals(userId).catch(() => ({ sample: 0, probableBlocks: 0 })),
+    strangerShare24h(userId).catch(() => ({ sent: 0, share: null })),
+    numberAgeDays(userId).catch(() => 30),
+    engagement7d(userId).catch(() => null),
+    db.select({ n: sql<number>`count(*)` }).from(unsubscribedPhonesTable)
+      .where(and(eq(unsubscribedPhonesTable.userId, userId), gte(unsubscribedPhonesTable.createdAt, day))),
   ]);
 
   const st = getStatus(userId) as any;
@@ -78,18 +94,36 @@ export async function gather(userId: number): Promise<OpsSignals> {
   const lastEvent = health?.lastEventReceivedAt ? new Date(health.lastEventReceivedAt).getTime() : null;
 
   const sent = Number(today?.sent ?? 0), failed = Number(today?.failed ?? 0);
+  const failureRate = sent + failed > 0 ? failed / (sent + failed) : 0;
+  const reconnects6h = Number(recon?.n ?? 0);
+  const optOuts24h = Number(optOuts?.n ?? 0);
+  const hasSample = !!account && account.level !== "insufficient_data";
 
   return {
     connected: !!st?.connected,
     status: st?.status ?? "unknown",
     silentMin: lastEvent ? Math.round((Date.now() - lastEvent) / 60_000) : null,
-    reconnects6h: Number(recon?.n ?? 0),
-    deliveryLevel: (delivery as any)?.level ?? "unknown",
-    deliveryRate: (delivery as any)?.rate ?? null,
-    accountLevel: (account as any)?.level ?? "unknown",
+    reconnects6h,
+    deliveryLevel: account?.level ?? "unknown",
+    deliveryRate: hasSample ? account!.deliveryRate : null,
+    accountLevel: account?.level ?? "unknown",
     sentToday, dailyLimit,
-    failureRate: sent + failed > 0 ? failed / (sent + failed) : 0,
+    failureRate,
     activeCampaigns: Number(camps?.n ?? 0),
+    risk: {
+      deliveryRate: hasSample ? account!.deliveryRate : null,
+      deliverySample: account?.sample ?? 0,
+      failureRate,
+      optOutRate: strangers.sent > 0 ? optOuts24h / strangers.sent : 0,
+      optOuts24h,
+      sent24h: strangers.sent,
+      probableBlocks: blocks.probableBlocks,
+      blockSample: blocks.sample,
+      replyRate: eng && eng.sent >= 30 ? eng.repliers / eng.sent : null,
+      reconnects6h,
+      numberAgeDays: age,
+      strangerShare: strangers.share,
+    },
   };
 }
 
@@ -202,6 +236,30 @@ export function decide(s: OpsSignals): Decision {
     findings.push(`استُهلك ${Math.round((s.sentToday / s.dailyLimit) * 100)}% من حصة اليوم (${s.sentToday}/${s.dailyLimit}).`);
   }
 
+  // ── The composite ──
+  // Everything above is a line that was crossed. This is the sum of the
+  // things that were not: delivery a little low, a few opt-outs, a couple of
+  // known contacts gone quiet, a number four days old. None of them alone is
+  // a finding; together they are the reason numbers get flagged on a day
+  // when every guard read green.
+  if (s.risk) {
+    const r = scoreRisk(s.risk);
+    if (r.level !== "ok") {
+      worse(r.level === "caution" ? "warning" : r.level === "warning" ? "warning" : "critical");
+      findings.push(`مؤشر الخطر ${r.score}/100 (${RISK_LEVEL_AR[r.level]}): ${r.reasons.join(" ")}`);
+      if (r.holdMinutes > 0) {
+        actions.push({ kind: "hold", value: r.holdMinutes, why: `مؤشر الخطر ${r.score}/100 — الاستمرار يعني الحظر` });
+      }
+      if (r.throttle > 1) {
+        actions.push({ kind: "throttle", value: r.throttle, why: `مؤشر الخطر ${r.score}/100` });
+      }
+      if (r.ceilingFactor < 1 && s.dailyLimit > 0) {
+        actions.push({ kind: "ceiling", value: Math.max(50, Math.round(s.dailyLimit * r.ceilingFactor)),
+          why: `مؤشر الخطر ${r.score}/100 — تقليص الحصة حتى تهدأ الإشارات` });
+      }
+    }
+  }
+
   if (findings.length === 0) {
     findings.push(`كل شيء طبيعي — ${s.sentToday} رسالة اليوم من ${s.dailyLimit}، والاتصال مستقر.`);
   }
@@ -211,7 +269,11 @@ export function decide(s: OpsSignals): Decision {
   const strongest = new Map<string, OpsAction>();
   for (const a of actions) {
     const prev = strongest.get(a.kind);
-    if (!prev || (a.value ?? 0) > (prev.value ?? 0)) strongest.set(a.kind, a);
+    // A ceiling is strongest when lowest; everything else when highest.
+    const wins = a.kind === "ceiling"
+      ? (a.value ?? Infinity) < (prev?.value ?? Infinity)
+      : (a.value ?? 0) > (prev?.value ?? 0);
+    if (!prev || wins) strongest.set(a.kind, a);
   }
   // A ceiling alongside a hold is noise: nothing is sending either way.
   if (strongest.has("hold")) strongest.delete("ceiling");
@@ -292,10 +354,12 @@ async function narrate(userId: number, d: Decision, done: string[]): Promise<str
   const plain = [...d.findings, ...(done.length ? ["", "ما فعلته:", ...done.map((x) => `• ${x}`)] : [])].join("\n");
   if (d.level === "ok") return plain;
 
+  const trade = skillsPreamble(await skillsFor(userId, OPS_ROLE, "internal").catch(() => []));
   const out = await complete([
     { role: "system", content: [
       emp ? `أنت ${emp.name}${emp.title ? `، ${emp.title}` : ""}.` : "أنت مسؤول تشغيل.",
       emp?.persona ?? "",
+      trade,
       "تكتب تنبيهاً قصيراً لصاحب العمل عن حالة رقم واتساب يُرسل حملات.",
       "القرار اتُّخذ ونُفِّذ بالفعل — لا تقترح قراراً مختلفاً ولا تُشكّك فيه.",
       "اشرح بالعربية في ٣ أسطر كحد أقصى: ما الذي حدث، ولماذا يهم، وماذا على صاحب العمل أن يفعل إن كان عليه فعل شيء.",
@@ -330,7 +394,7 @@ export async function runOpsAgent(userId: number) {
   // The same unresolved problem should not file a new alert on every sweep.
   // A list of nine identical "الاتصال منقطع" rows is harder to read than one,
   // and hides whatever else happened in between.
-  const [previous] = await db.select({ id: opsAlertsTable.id, headline: opsAlertsTable.headline, at: opsAlertsTable.createdAt })
+  const [previous] = await db.select({ id: opsAlertsTable.id, headline: opsAlertsTable.headline, level: opsAlertsTable.level, at: opsAlertsTable.createdAt })
     .from(opsAlertsTable)
     .where(and(eq(opsAlertsTable.userId, userId), eq(opsAlertsTable.acknowledged, false)))
     .orderBy(desc(opsAlertsTable.createdAt)).limit(1);
@@ -351,7 +415,9 @@ export async function runOpsAgent(userId: number) {
 
   // The manager is told, because a hold on sending changes what the rest of
   // the team should be doing and nobody else would know why it went quiet.
-  if (decision.level !== "ok") {
+  // Told once per change, not once per sweep: 263 of the 288 messages in her
+  // inbox were this alert repeating itself every ten minutes.
+  if (decision.level !== "ok" && previous?.level !== decision.level) {
     await say({
       userId, fromRole: OPS_ROLE, toRole: "chief", kind: "alert",
       body: `${headline}${done.length ? ` — ${done.join("؛ ")}` : ""}`,

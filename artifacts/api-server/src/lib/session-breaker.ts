@@ -1,27 +1,41 @@
 // ── Dead-credential breaker ───────────────────────────────────────
 // Decides when a WhatsApp pairing has stopped being usable, so the credentials
-// can be cleared and a QR offered.
+// can be cleared and a QR offered — and, just as importantly, when it has not.
 //
-// Two failure modes hide behind an endless reconnect loop, and neither
-// announces itself:
+// Clearing the pairing is the most destructive thing this system can do on its
+// own: nothing works again until a person scans a code. The first version of
+// this breaker fired fifty times on one account in three days, and every one
+// of those fifty was wrong. The close reason each time was 405, which is
+// WhatsApp refusing the *client version* in the handshake — the credentials
+// were fine, and the version was stale because the lookup had failed on a
+// laptop that was asleep. Wiping the pairing turned a two-minute problem into
+// a two-day outage.
 //
-//   1. WhatsApp refuses the pairing — the socket closes with 401/403/405 and
-//      Baileys never offers a QR, because it can see stored credentials and
-//      assumes it should restore rather than pair. Retrying identical rejected
-//      credentials cannot recover, so it runs for ever: connected? no. QR? no.
+// So the rules are now:
 //
-//   2. It accepts and drops, repeatedly, so nothing ever holds. Counting a
-//      connection as success the moment it opens makes this invisible — the
-//      counter resets on every pass of a connect-die loop.
+//   1. Only a reason that names the credentials counts toward clearing them:
+//      401 (logged out) and 403 (forbidden). Five of those in a row with no
+//      connection having held in between, and the pairing is dead.
 //
-// Hence "stable", not "connected": a connection has to survive long enough to
-// mean something before it clears the record.
+//   2. 405 is a handshake refusal. The caller refreshes the client version and
+//      retries; the credentials are never touched over it.
+//
+//   3. Connects that never hold — eight inside fifteen minutes — mean the
+//      environment is unstable, not the pairing. The verdict is a cooldown:
+//      stop hammering for a while, credentials intact.
+//
+// "Held" means survived STABLE_AFTER_MS. A connection that dies in five
+// seconds is not evidence the credentials are good, and clearing the count on
+// it is what let a connect-die loop run for a day looking healthy.
 
-export const CREDENTIAL_REJECTED = new Set([401, 403, 405]);
+export const CREDENTIAL_REJECTED = new Set([401, 403]);
+export const HANDSHAKE_REJECTED  = new Set([405]);
 export const MAX_REJECTS_BEFORE_REPAIR = 5;
 export const STABLE_AFTER_MS = 45_000;
 export const FLAP_WINDOW_MS = 15 * 60_000;
 export const FLAP_LIMIT = 8;
+/** How long a cooldown keeps the socket down. */
+export const COOLDOWN_MS = 10 * 60_000;
 
 export interface BreakerInput {
   /** Disconnect reason from the last close, if any. */
@@ -36,24 +50,33 @@ export interface BreakerInput {
 }
 
 export interface BreakerVerdict {
+  /** Clear the credentials; a scan will be needed. */
   repair: boolean;
+  /** Keep the credentials but stop reconnecting for COOLDOWN_MS. */
+  cooldown: boolean;
   cause?: "credentials_rejected" | "flapping";
   reason?: string;
 }
+
+const QUIET: BreakerVerdict = { repair: false, cooldown: false };
 
 export function isRejection(reason?: number): boolean {
   return reason !== undefined && CREDENTIAL_REJECTED.has(reason);
 }
 
+export function isHandshakeRejection(reason?: number): boolean {
+  return reason !== undefined && HANDSHAKE_REJECTED.has(reason);
+}
+
 export function assessSession(input: BreakerInput): BreakerVerdict {
-  if (input.manualLogout) return { repair: false };
+  if (input.manualLogout) return QUIET;
 
   const now = input.now ?? Date.now();
   const connects = input.recentConnects.filter((t) => now - t < FLAP_WINDOW_MS);
 
   if (input.failuresSinceStable >= MAX_REJECTS_BEFORE_REPAIR) {
     return {
-      repair: true,
+      repair: true, cooldown: false,
       cause: "credentials_rejected",
       reason: `رفض واتساب الاعتمادات ${input.failuresSinceStable} مرات متتالية${input.reason ? ` (آخرها ${input.reason})` : ""}`,
     };
@@ -61,11 +84,11 @@ export function assessSession(input: BreakerInput): BreakerVerdict {
 
   if (connects.length >= FLAP_LIMIT) {
     return {
-      repair: true,
+      repair: false, cooldown: true,
       cause: "flapping",
-      reason: `اتصل ${connects.length} مرات خلال ${FLAP_WINDOW_MS / 60_000} دقيقة دون أن يثبت`,
+      reason: `اتصل ${connects.length} مرات خلال ${FLAP_WINDOW_MS / 60_000} دقيقة دون أن يثبت — توقّف ${COOLDOWN_MS / 60_000} دقائق قبل المحاولة التالية`,
     };
   }
 
-  return { repair: false };
+  return QUIET;
 }
