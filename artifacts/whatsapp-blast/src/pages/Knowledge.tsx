@@ -54,6 +54,12 @@ export default function Knowledge() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["kb-entries"] }),
   });
 
+  const startInterview = useMutation({
+    mutationFn: () => api("/api/assistant/interview", { method: "POST" }),
+    onSuccess: (d: any) => { window.location.href = `/assistant?thread=${d.threadId}`; },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const testProvider = useMutation({
     mutationFn: () => api("/api/knowledge/provider/test", { method: "POST" }),
     onSuccess: (d: any) => d.ok ? toast.success(`${d.provider} يعمل — ${d.sample}`) : toast.error(d.error),
@@ -109,6 +115,20 @@ export default function Knowledge() {
         <button onClick={() => testProvider.mutate()} disabled={testProvider.isPending}
           className="px-3 py-1.5 rounded-lg border border-card-border text-xs hover:border-primary/50 shrink-0">
           {testProvider.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "اختبر"}
+        </button>
+      </div>
+
+      {/* The interview: the fast way to fill all of this */}
+      <div className={cn(card, "flex items-start justify-between gap-3 flex-wrap border-primary/30")}>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">🎤 مقابلة التأهيل</p>
+          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+            بدل أن تكتب الملف وقاعدة المعرفة بيدك: مديرة المبيعات تسألك عشرة أسئلة، واحداً في كل مرة، وتكتب هي الملف والمدخلات من إجاباتك. عشر دقائق بدل يوم.
+          </p>
+        </div>
+        <button onClick={() => startInterview.mutate()} disabled={startInterview.isPending}
+          className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-xs shrink-0">
+          {startInterview.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "ابدأ المقابلة"}
         </button>
       </div>
 

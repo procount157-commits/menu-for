@@ -24,9 +24,57 @@ app.use(
   })
 );
 
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: "100mb" }));
-app.use(express.urlencoded({ extended: true, limit: "20mb" }));
+// ── Hardening ─────────────────────────────────────────────────────
+// This was `cors({ origin: true, credentials: true })`: reflect any origin
+// and send the session cookie with it, which means any page on the internet
+// could make authenticated calls on behalf of a logged-in user. The app
+// calls the API same-origin — the Vite proxy in development, nginx on the
+// VPS — so cross-origin is only ever needed for what CORS_ORIGINS lists.
+const allowedOrigins = new Set([
+  ...(process.env["CORS_ORIGINS"] ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+  "http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173",
+]);
+app.use(cors({
+  origin: (origin, cb) => cb(null, !origin || allowedOrigins.has(origin)),
+  credentials: true,
+}));
+
+// Behind nginx the connection is TLS at the proxy; this is what lets the
+// session cookie's `secure: "auto"` below tell the difference.
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  next();
+});
+
+// Login and registration get a budget per address. A password form with no
+// limit is a password list's favourite thing. In memory, per process — good
+// enough for one server, and reset by a restart, which is fine.
+const attempts = new Map<string, { n: number; resetAt: number }>();
+const LOGIN_WINDOW_MS = 15 * 60_000;
+const LOGIN_MAX = 20;
+app.use(["/api/auth/login", "/api/auth/register", "/api/auth/bootstrap-admin"], (req, res, next) => {
+  const key = req.ip ?? "?";
+  const now = Date.now();
+  const a = attempts.get(key);
+  if (!a || a.resetAt < now) { attempts.set(key, { n: 1, resetAt: now + LOGIN_WINDOW_MS }); return next(); }
+  if (++a.n > LOGIN_MAX) {
+    res.setHeader("Retry-After", String(Math.ceil((a.resetAt - now) / 1000)));
+    return res.status(429).json({ error: "محاولات كثيرة — انتظر ربع ساعة" });
+  }
+  next();
+});
+setInterval(() => { const now = Date.now(); for (const [k, a] of attempts) if (a.resetAt < now) attempts.delete(k); }, 60_000).unref();
+
+// 100 MB of JSON was a limit for something that never happens; media goes
+// through its own upload route. A contact import of ten thousand rows is
+// under a megabyte.
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // ── Session middleware ─────────────────────────────────────────────
 const sessionSecret = process.env["SESSION_SECRET"];
@@ -52,7 +100,11 @@ app.use(
     saveUninitialized: false,
     rolling: true,   // renew cookie on every request
     cookie: {
-      secure: false,
+      // Secure when the request arrived over TLS (nginx sets the forwarded
+      // proto), plain on a laptop over http://localhost. A fixed `true`
+      // would break the local login; a fixed `false` sends the cookie in
+      // clear on the VPS.
+      secure: "auto",
       httpOnly: true,
       maxAge: SESSION_TTL_SECS * 1_000, // ms — must match TTL
       sameSite: "lax",

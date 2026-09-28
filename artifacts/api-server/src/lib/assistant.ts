@@ -16,6 +16,7 @@ import { getProfile } from "./knowledge";
 import { getDailySentCount, getEffectiveDailyLimit } from "./daily-limit";
 import { complete, activeProvider } from "./llm";
 import { logger } from "./logger";
+import { INTERVIEW_KIND, INTERVIEW_DONE, QUESTIONS, STOP, interviewPrompt, managerFor, harvest, applyHarvest } from "./onboarding";
 
 /** How much of a thread is replayed to the model. */
 const HISTORY_TURNS = 24;
@@ -133,6 +134,10 @@ export interface ChatResult {
  */
 export async function chat(userId: number, threadId: number | null, message: string): Promise<ChatResult> {
   let tid = threadId;
+  const [thread] = tid
+    ? await db.select().from(assistantThreadsTable).where(and(eq(assistantThreadsTable.id, tid), eq(assistantThreadsTable.userId, userId))).limit(1)
+    : [];
+  if (tid && !thread) tid = null;
   if (!tid) {
     const [t] = await db.insert(assistantThreadsTable).values({
       userId,
@@ -153,27 +158,55 @@ export async function chat(userId: number, threadId: number | null, message: str
   }
 
   const history = await getThreadMessages(userId, tid);
-  const context = await buildContext(userId);
+
+  // The interview is the manager asking the owner about the business; the
+  // ordinary assistant is the owner asking about the account. Different
+  // prompt, different ending: the interview closes by writing the profile
+  // and the knowledge entries, and the code reads them out of the reply.
+  const interviewing = thread?.kind === INTERVIEW_KIND;
+  let system: string;
+  if (interviewing) {
+    const answered = history.filter((m) => m.role === "user").length;   // includes this message
+    const finishing = STOP.test(message) || answered > QUESTIONS.length;
+    system = interviewPrompt(await managerFor(userId), Math.min(answered, QUESTIONS.length), finishing);
+  } else {
+    system = systemPrompt(await buildContext(userId));
+  }
 
   const out = await complete([
-    { role: "system", content: systemPrompt(context) },
+    { role: "system", content: system },
     ...history.slice(-HISTORY_TURNS).map((m) => ({
       role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
       content: m.content,
     })),
-  ], 30_000);
+  ], interviewing ? 60_000 : 30_000);
 
   if (!out?.text) {
     return { threadId: tid, reply: null, provider, error: "النموذج لم يستجب — جرّب مرة أخرى أو بدّل المزوّد." };
   }
 
+  let reply = out.text;
+  if (interviewing) {
+    const h = harvest(reply);
+    if (h && (h.entries.length || Object.keys(h.profile).length)) {
+      const done = await applyHarvest(userId, h);
+      await db.update(assistantThreadsTable).set({ kind: INTERVIEW_DONE }).where(eq(assistantThreadsTable.id, tid));
+      reply = [
+        `كتبتُ ${done.entries} مدخلاً في قاعدة المعرفة وحدّثت ${done.profileFields} من حقول الملف.`,
+        "راجعها في صفحة «معرفة البوت» وعدّل ما تشاء — ثم فعّل الرد التلقائي من هناك حين تكون جاهزاً.",
+        "",
+        reply.replace(/\[الملف\][\s\S]*?\[\/الملف\]/, "").replace(/\[معرفة\][\s\S]*?\[\/معرفة\]/, "").trim(),
+      ].filter(Boolean).join("\n");
+    }
+  }
+
   await db.insert(assistantMessagesTable).values({
-    threadId: tid, userId, role: "assistant", content: out.text, provider: out.provider,
+    threadId: tid, userId, role: "assistant", content: reply, provider: out.provider,
   });
   await db.update(assistantThreadsTable).set({ updatedAt: new Date() }).where(eq(assistantThreadsTable.id, tid));
 
-  logger.info({ userId, threadId: tid, provider: out.provider }, "assistant replied");
-  return { threadId: tid, reply: out.text, provider: out.provider };
+  logger.info({ userId, threadId: tid, provider: out.provider, interviewing }, "assistant replied");
+  return { threadId: tid, reply, provider: out.provider };
 }
 
 export async function deleteThread(userId: number, threadId: number) {

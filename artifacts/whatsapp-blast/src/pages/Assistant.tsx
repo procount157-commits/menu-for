@@ -25,7 +25,12 @@ const SUGGESTIONS = [
 
 export default function Assistant() {
   const qc = useQueryClient();
-  const [threadId, setThreadId] = useState<number | null>(null);
+  // ?thread=ID opens a thread directly — how the knowledge page hands over
+  // to the interview it just started.
+  const [threadId, setThreadId] = useState<number | null>(() => {
+    const q = new URLSearchParams(window.location.search).get("thread");
+    return q && /^\d+$/.test(q) ? Number(q) : null;
+  });
   const [input, setInput] = useState("");
   const [showContext, setShowContext] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
@@ -57,6 +62,12 @@ export default function Assistant() {
     onSuccess: () => { setThreadId(null); qc.invalidateQueries({ queryKey: ["as-threads"] }); },
   });
 
+  const interview = useMutation({
+    mutationFn: () => api("/api/assistant/interview", { method: "POST" }),
+    onSuccess: (d: any) => { setThreadId(d.threadId); qc.invalidateQueries({ queryKey: ["as-threads"] }); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const submit = (text?: string) => {
     const m = (text ?? input).trim();
     if (!m || send.isPending) return;
@@ -73,6 +84,13 @@ export default function Assistant() {
           className="w-full flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-sm"
         >
           <Plus className="w-4 h-4" /> محادثة جديدة
+        </button>
+        <button
+          onClick={() => interview.mutate()} disabled={interview.isPending}
+          title="عشرة أسئلة من مديرة المبيعات، تكتب منها ملف الشركة وقاعدة المعرفة"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm border border-primary/40 text-primary hover:bg-primary/10"
+        >
+          🎤 مقابلة التأهيل
         </button>
         {threads.map((t) => (
           <div key={t.id} className={cn("group flex items-center gap-1 rounded-lg", threadId === t.id && "bg-muted")}>

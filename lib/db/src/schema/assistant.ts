@@ -10,6 +10,8 @@ export const assistantThreadsTable = pgTable("assistant_threads", {
   id:        serial("id").primaryKey(),
   userId:    integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   title:     varchar("title", { length: 255 }).notNull().default("محادثة جديدة"),
+  /** chat | interview | interview-done */
+  kind:      varchar("kind", { length: 20 }).notNull().default("chat"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [index("idx_assistant_threads_user").on(t.userId, t.updatedAt)]);

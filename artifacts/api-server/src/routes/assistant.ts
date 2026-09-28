@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../lib/auth";
 import { listThreads, getThreadMessages, chat, deleteThread, buildContext } from "../lib/assistant";
+import { startInterview } from "../lib/onboarding";
 import { providerStatus } from "../lib/llm";
 
 const router = Router();
@@ -24,6 +25,11 @@ router.post("/chat", async (req, res) => {
   const threadId = req.body?.threadId ? parseInt(String(req.body.threadId)) : null;
   const out = await chat(req.session.userId!, Number.isFinite(threadId!) ? threadId : null, message.slice(0, 4_000));
   res.json(out);
+});
+
+/** The manager interviews the owner and writes the knowledge base from it. */
+router.post("/interview", async (req, res) => {
+  res.json(await startInterview(req.session.userId!));
 });
 
 /** What the assistant currently knows — shown so its answers can be checked. */
