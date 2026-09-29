@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "wouter";
+import { useRef, useState } from "react";
+import { Link, useLocation } from "wouter";
 import {
   useListContacts,
   useCreateContactGroup,
@@ -7,7 +7,7 @@ import {
   getListContactsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Users, Trash2, ChevronLeft, Loader2 } from "lucide-react";
+import { Plus, Users, Trash2, ChevronLeft, Loader2, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +39,32 @@ export default function ContactsList() {
   const [desc, setDesc]       = useState("");
   const [segment, setSegment] = useState("");
   const [filterSeg, setFilterSeg] = useState("");
+
+  // One step from a spreadsheet to a list: the file is read on the server —
+  // every sheet, the mobile columns, the company names — saved as a new list
+  // named after the file, and opened.
+  const [, navigate] = useLocation();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [country, setCountry] = useState("AE");
+  const [uploading, setUploading] = useState(false);
+  const uploadFile = async (file: File) => {
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("country", country);
+      const r = await fetch("/api/contacts/import", { method: "POST", body: fd, credentials: "include" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error ?? "تعذّر الاستيراد");
+      toast.success(`حُفظ ${d.added.toLocaleString("ar-SA")} رقم واتساب${d.named ? " بأسماء الشركات" : ""}${d.autoSplit ? ` في ${d.groups.length} قوائم` : ""}${d.verifying ? " — يجري التحقق على واتساب" : ""}`);
+      queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
+      if (d.groups?.[0]?.id) navigate(`/contacts/${d.groups[0].id}`);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const createMutation = useCreateContactGroup({
     mutation: {
@@ -82,13 +108,27 @@ export default function ContactsList() {
           <h1 className="text-2xl font-bold text-foreground">قوائم الأرقام</h1>
           <p className="text-sm text-muted-foreground mt-1">إدارة قوائم أرقام الهاتف وشرائح الجمهور</p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          قائمة جديدة
-        </button>
+        <div className="flex items-center gap-2">
+          <select value={country} onChange={(e) => setCountry(e.target.value)} title="الدولة للأرقام المكتوبة بلا رمز دولة"
+            className="px-2 py-2 bg-input border border-border rounded-lg text-xs">
+            <option value="AE">+971</option><option value="SA">+966</option><option value="QA">+974</option>
+            <option value="KW">+965</option><option value="BH">+973</option><option value="OM">+968</option><option value="EG">+20</option>
+          </select>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadFile(f); e.target.value = ""; }} />
+          <button onClick={() => fileRef.current?.click()} disabled={uploading}
+            className="flex items-center gap-2 px-4 py-2 border border-primary/40 text-primary rounded-lg text-sm font-medium hover:bg-primary/10 transition-colors disabled:opacity-50">
+            {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+            {uploading ? "يقرأ الملف…" : "ارفع ملف Excel"}
+          </button>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            قائمة جديدة
+          </button>
+        </div>
       </div>
 
       {/* Segment filter chips */}

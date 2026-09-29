@@ -4,7 +4,9 @@ import { eq, count, and, inArray, ne } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 import { assertCanAddContacts, planErrorToResponse } from "../lib/plans";
 import * as XLSX from "xlsx";
-import { checkNumbers } from "../lib/whatsapp";
+import multer from "multer";
+import { readWorkbook, readText, parseTables, whatsappEntries } from "../lib/phone-import";
+import { saveToGroup, saveToNewGroup, validateGroup, validateInBackground } from "../lib/contact-save";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -143,77 +145,91 @@ router.get("/:id/export", async (req, res) => {
 router.post("/:id/validate", async (req, res) => {
   const userId  = req.session.userId!;
   const groupId = parseInt(req.params.id!);
-
-  const [group] = await db
-    .select()
-    .from(contactGroupsTable)
+  const [group] = await db.select().from(contactGroupsTable)
     .where(and(eq(contactGroupsTable.id, groupId), eq(contactGroupsTable.userId, userId)));
   if (!group) return res.status(404).json({ error: "القائمة غير موجودة" });
-
-  const rows = await db
-    .select({ id: contactsTable.id, phone: contactsTable.phone })
-    .from(contactsTable)
-    .where(eq(contactsTable.groupId, groupId));
-
-  if (rows.length === 0) {
-    return res.json({ total: 0, valid: 0, invalid: 0, unknown: 0, invalidPhones: [] });
-  }
-
-  // De-duplicate before querying — the same number can appear more than once.
-  const byPhone = new Map<string, number[]>();
-  for (const r of rows) {
-    const list = byPhone.get(r.phone) ?? [];
-    list.push(r.id);
-    byPhone.set(r.phone, list);
-  }
-  const phones = [...byPhone.keys()];
-
-  let results: Array<{ phone: string; exists: boolean | null }>;
   try {
-    results = await checkNumbers(userId, phones);
+    res.json(await validateGroup(userId, groupId));
   } catch (err: any) {
     const msg = String(err?.message ?? err);
     req.log?.warn({ err: msg, groupId }, "list validation failed");
-    return res.status(409).json({
+    res.status(409).json({
       error: msg.startsWith("WA_DISCONNECTED")
         ? "واتساب غير متصل — اربط الجهاز أولاً ثم أعد الفحص"
         : "تعذّر فحص الأرقام، حاول مرة أخرى",
     });
   }
+});
 
-  const invalidIds: number[] = [];
-  const validIds:   number[] = [];
-  const invalidPhones: string[] = [];
-  let unknown = 0;
+// ── Import: a file or pasted text, saved on arrival ───────────────
+// The spreadsheet as it came. lib/phone-import.ts finds the header row on
+// every sheet, every number column (the mobile first, never the fax), the
+// company's name, and each row's country; this saves one WhatsApp number per
+// company under the company's name, into the given list or a new one named
+// after the file, and checks the numbers against WhatsApp in the background
+// when the number is linked. No preview step: the report says what was kept
+// and why the rest was not.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 60 * 1024 * 1024 } });
 
-  for (const r of results) {
-    const ids = byPhone.get(r.phone) ?? [];
-    if (r.exists === null)      { unknown += ids.length; continue; }
-    if (r.exists)               { validIds.push(...ids); }
-    else                        { invalidIds.push(...ids); invalidPhones.push(r.phone); }
+router.post("/import", upload.single("file"), async (req, res) => {
+  const userId = req.session.userId!;
+  const b: any = req.body ?? {};
+  const country = String(b.country ?? "AE").toUpperCase().slice(0, 2);
+  const mobileOnly = b.mobileOnly !== "false" && b.mobileOnly !== false;
+  const allMobiles = b.allMobiles === "true" || b.allMobiles === true;
+  const verify = b.verify !== "false" && b.verify !== false;
+
+  let tables;
+  let fileName = "";
+  try {
+    if (req.file) { fileName = req.file.originalname; tables = readWorkbook(req.file.buffer); }
+    else if (typeof b.text === "string" && b.text.trim()) tables = readText(b.text);
+    else return res.status(400).json({ error: "ارفع ملفاً أو الصق الأرقام" });
+  } catch {
+    return res.status(400).json({ error: "تعذّر قراءة الملف — تأكد أنه Excel أو CSV" });
   }
 
-  // Park the dead ones; revive any previously-parked number that now resolves,
-  // so a number that was off WhatsApp and came back is not stuck as invalid.
-  if (invalidIds.length) {
-    await db.update(contactsTable).set({ status: "invalid" }).where(inArray(contactsTable.id, invalidIds));
-  }
-  if (validIds.length) {
-    await db.update(contactsTable).set({ status: "active" })
-      .where(and(inArray(contactsTable.id, validIds), ne(contactsTable.status, "active")));
+  const parsed = parseTables(tables, country);
+  const wa = whatsappEntries(parsed.rows, { mobileOnly, allMobiles });
+  if (!wa.entries.length) {
+    return res.status(400).json({
+      error: parsed.total ? "لم أجد أرقام واتساب في الملف" : "الملف فارغ",
+      total: parsed.total, landlineOnly: parsed.landlineOnly, noNumber: parsed.noNumber, sheets: parsed.sheets,
+    });
   }
 
-  logger.info(
-    { groupId, userId, total: rows.length, valid: validIds.length, invalid: invalidIds.length, unknown },
-    "list validated",
-  );
+  try { await assertCanAddContacts(userId, wa.entries.length); }
+  catch (err) { if (planErrorToResponse(err, res)) return; throw err; }
+
+  const groupId = Number(b.groupId) || null;
+  const listName = String(b.name ?? "").trim() || (fileName ? fileName.replace(/\.[a-z0-9]+$/i, "") : `أرقام ${new Date().toISOString().slice(0, 10)}`);
+  let saved;
+  try {
+    saved = groupId
+      ? await saveToGroup(userId, groupId, wa.entries)
+      : await saveToNewGroup(userId, listName, fileName ? `من ملف: ${fileName.slice(0, 80)}` : null, wa.entries);
+  } catch (err: any) {
+    return res.status(400).json({ error: String(err?.message ?? err) });
+  }
+
+  const verifying = verify && validateInBackground(userId, saved.groups.map((g) => g.id));
+  logger.info({ userId, file: fileName, total: parsed.total, added: saved.added, groups: saved.groups.length, verifying }, "استيراد أرقام واتساب");
 
   res.json({
-    total:   rows.length,
-    valid:   validIds.length,
-    invalid: invalidIds.length,
-    unknown,
-    invalidPhones: invalidPhones.slice(0, 100),
+    file: fileName || null,
+    total: parsed.total,
+    added: saved.added,
+    alreadyInList: saved.existing,
+    duplicates: wa.duplicates,
+    skippedLandline: wa.skippedLandline,
+    noNumber: parsed.noNumber,
+    named: wa.entries.filter((e) => e.name).length,
+    byCountry: parsed.byCountry,
+    sheets: parsed.sheets,
+    autoSplit: saved.autoSplit,
+    groups: saved.groups,
+    verifying,
+    sample: wa.entries.slice(0, 8),
   });
 });
 

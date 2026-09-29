@@ -447,6 +447,34 @@ the free tier were failing, and each was a customer who got nothing.
 `WA_FULL_HISTORY=false` stops the full chat history sync per linked number,
 for when the tenant count makes memory matter.
 
+## Importing numbers
+
+One reader for every door (`lib/phone-import.ts`), because the same kind of
+file arrives at all of them: a directory export, a scraped list, a client's
+CRM dump. It reads every sheet, finds the header row wherever it is (reports
+open with a title), recognises headers in Arabic and English by what they
+contain rather than by exact match, and takes numbers from every number
+column — WhatsApp first, then mobile, then phone, never the fax — plus any
+unlabelled column whose values are mostly numbers. A cell holding two
+numbers gives two. Each row's country comes from its city or country column
+when the file has one (a Riyadh row is +966 whatever the default), otherwise
+from the country chosen at import. The mobile is told from the landline by
+each country's numbering plan. The company's name is found by header, or by
+being the column of distinct names when there is no header, and the number
+is saved under it.
+
+`POST /api/contacts/import` takes the file (or pasted text) and saves on
+arrival — into a given list, or a new one named after the file — split into
+lists of a thousand past that (`lib/contact-save.ts`), and, when WhatsApp is
+linked, checks every number against WhatsApp in the background and parks the
+unregistered ones as `invalid`. The lists page has a one-step upload; the
+list page uploads into itself. The email import reads the file the same way
+and also saves each row's WhatsApp number — including rows with no email — to
+a list named after the email list, so one file feeds both channels.
+
+50,000 rows parse in about half a second; uploads go to 60 MB.
+
+
 ## Email marketing
 
 The same shape as the WhatsApp side, for the same reasons: contacts and

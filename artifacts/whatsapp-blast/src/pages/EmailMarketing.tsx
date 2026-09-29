@@ -163,7 +163,7 @@ function Import() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<any>(null);
   const [busy, setBusy] = useState<"preview" | "import" | null>(null);
-  const [opts, setOpts] = useState({ listName: "", splitBy: "", mx: true, sequenceId: "" });
+  const [opts, setOpts] = useState({ listName: "", splitBy: "", mx: true, sequenceId: "", country: "AE", saveWhatsapp: true });
   const [result, setResult] = useState<any>(null);
   const { data: seqs = [] } = useQuery<any[]>({ queryKey: ["email-seqs"], queryFn: () => api("/api/email/sequences") });
   useEffect(() => { const d = seqs.find((s) => s.isDefault); if (d && !opts.sequenceId) setOpts((o) => ({ ...o, sequenceId: String(d.id) })); }, [seqs]);
@@ -179,17 +179,17 @@ function Import() {
   };
   const doPreview = async (f: File) => {
     setFile(f); setResult(null); setBusy("preview");
-    try { setPreview(await (async () => { const fd = new FormData(); fd.append("file", f); const r = await fetch(`${BASE}/api/email/contacts/preview`, { method: "POST", body: fd, credentials: "include" }); const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; })()); setOpts((o) => ({ ...o, listName: f.name.replace(/\.[a-z]+$/i, "") })); }
+    try { setPreview(await (async () => { const fd = new FormData(); fd.append("file", f); fd.append("country", opts.country); const r = await fetch(`${BASE}/api/email/contacts/preview`, { method: "POST", body: fd, credentials: "include" }); const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; })()); setOpts((o) => ({ ...o, listName: f.name.replace(/\.[a-z]+$/i, "") })); }
     catch (e: any) { toast.error(e.message); }
     finally { setBusy(null); }
   };
   const doImport = async () => {
     setBusy("import");
     try {
-      const d = await post("/api/email/contacts/import", { listName: opts.listName, splitBy: opts.splitBy, mx: String(opts.mx), sequenceId: opts.sequenceId });
+      const d = await post("/api/email/contacts/import", { listName: opts.listName, splitBy: opts.splitBy, mx: String(opts.mx), sequenceId: opts.sequenceId, country: opts.country, saveWhatsapp: String(opts.saveWhatsapp) });
       setResult(d); setPreview(null); setFile(null);
       qc.invalidateQueries({ queryKey: ["email-overview"] }); qc.invalidateQueries({ queryKey: ["email-lists"] });
-      toast.success(`استُورد ${d.inserted} جديداً${d.enrolled ? ` وسُجّل ${d.enrolled.enrolled} في المتابعة` : ""}`);
+      toast.success(`استُورد ${d.inserted} بريداً جديداً${d.whatsapp?.added ? ` و${d.whatsapp.added} رقم واتساب` : ""}${d.enrolled ? ` وسُجّل ${d.enrolled.enrolled} في المتابعة` : ""}`);
     } catch (e: any) { toast.error(e.message); }
     finally { setBusy(null); }
   };
@@ -214,12 +214,21 @@ function Import() {
             <Stat label="مكرّرة" value={preview.duplicates} />
             <Stat label="عناوين عامة (info@…)" value={preview.roleAddresses} sub="تُبقى وتُعلَّم" />
           </div>
+          {preview.whatsapp && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span className="font-semibold text-primary">واتساب: {preview.whatsapp.numbers} رقم جوال</span>
+              {preview.whatsapp.withoutEmail > 0 && <span className="text-muted-foreground">منها {preview.whatsapp.withoutEmail} لشركات بلا بريد — تُحفظ أيضاً</span>}
+              {preview.whatsapp.landlineOnly > 0 && <span className="text-muted-foreground">{preview.whatsapp.landlineOnly} شركة برقم أرضي فقط</span>}
+              {preview.whatsapp.byCountry && Object.keys(preview.whatsapp.byCountry).length > 1 && <span className="text-muted-foreground">{Object.entries(preview.whatsapp.byCountry).map(([k, v]: any) => `${k} ${v}`).join("، ")}</span>}
+              <label className="flex items-center gap-1.5 mr-auto"><input type="checkbox" checked={opts.saveWhatsapp} onChange={(e) => setOpts({ ...opts, saveWhatsapp: e.target.checked })} /> احفظها في قائمة واتساب</label>
+            </div>
+          )}
           <div className="text-xs">
             <p className="font-semibold mb-1.5">الأعمدة كما فهمتها:</p>
             <div className="flex flex-wrap gap-1.5">
               {Object.entries(preview.columns as Record<string, string | null>).map(([k, v]) => (
                 <span key={k} className={cn("px-2 py-0.5 rounded border text-[11px]", v ? "border-primary/40 text-primary" : "border-card-border text-muted-foreground")}>
-                  {({ email: "البريد", name: "الاسم", company: "الشركة", phone: "الجوال", industry: "النشاط", city: "المدينة" } as any)[k]}: {v ?? "—"}
+                  {({ email: "البريد", name: "الاسم", company: "الشركة", phone: "الأرقام", industry: "النشاط", city: "المدينة" } as any)[k]}: {v ?? "—"}
                 </span>
               ))}
             </div>
@@ -242,6 +251,11 @@ function Import() {
                 {seqs.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select></div>
             <label className="flex items-center gap-2 text-xs pb-2"><input type="checkbox" checked={opts.mx} onChange={(e) => setOpts({ ...opts, mx: e.target.checked })} /> فحص MX لكل نطاق</label>
+            <div><label className="text-xs font-semibold block mb-1.5">الدولة للأرقام المحلية</label>
+              <select className={input} value={opts.country} onChange={(e) => setOpts({ ...opts, country: e.target.value })}>
+                <option value="AE">الإمارات +971</option><option value="SA">السعودية +966</option><option value="QA">قطر +974</option>
+                <option value="KW">الكويت +965</option><option value="BH">البحرين +973</option><option value="OM">عُمان +968</option><option value="EG">مصر +20</option>
+              </select></div>
           </div>
           {(preview.byIndustry?.length > 1 || preview.byCity?.length > 1) && (
             <div className="text-[11px] text-muted-foreground flex flex-wrap gap-1.5">
@@ -262,6 +276,9 @@ function Import() {
             <li>{result.inserted} جهة اتصال جديدة، {result.alreadyKnown} كانت موجودة، {result.invalid} بلا بريد صالح، {result.duplicates} مكرّرة{result.mxBad ? `، ${result.mxBad} نطاقها لا يستقبل بريداً (لن تُراسَل)` : ""}.</li>
             <li>القائمة: <b className="text-foreground">{result.list?.name}</b>{result.subLists?.length ? ` + ${result.subLists.length} قائمة فرعية` : ""}.</li>
             {result.enrolled && <li>سُجّل {result.enrolled.enrolled} في تسلسل المتابعة ({result.enrolled.skipped} تُخطّوا). الرسالة الأولى تبدأ خلال ساعة وتتوزع بحسب حصة الإرسال.</li>}
+            {result.whatsapp && (result.whatsapp.error
+              ? <li className="text-yellow-400">أرقام واتساب لم تُحفظ: {result.whatsapp.error}</li>
+              : <li>واتساب: حُفظ <b className="text-foreground">{result.whatsapp.added}</b> رقم جوال باسم الشركة في {result.whatsapp.groups.map((g: any) => <Link key={g.id} href={`/contacts/${g.id}`} className="text-primary underline mx-0.5">{g.name}</Link>)}{result.whatsapp.skippedLandline ? ` · ${result.whatsapp.skippedLandline} أرضي تُرك` : ""}{result.whatsapp.verifying ? " · يجري التحقق على واتساب" : ""}.</li>)}
           </ul>
           <div className="flex gap-2 mt-3"><Link href="/email/overview" className={ghost}>راقب الإرسال</Link><Link href="/email/contacts" className={ghost}>جهات الاتصال</Link></div>
         </div>

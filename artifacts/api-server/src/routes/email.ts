@@ -13,19 +13,21 @@ import {
   emailMessagesTable, emailEventsTable, emailInboundTable, type EmailStep,
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
-import { assertCanSend, planErrorToResponse } from "../lib/plans";
+import { assertCanSend, assertCanAddContacts, planErrorToResponse } from "../lib/plans";
 import { getSettings, overview, startCampaign, pauseCampaign, enrolInSequence, cancelSequencesFor, recordEvent, verdictFor, signals } from "../lib/email/service";
 import { verifySettings, sendEmail, isConfigured, messageIdFor } from "../lib/email/provider";
 import { checkDomain } from "../lib/email/dns";
 import { cleanRows, detectColumns, checkMx, splitBy, type ImportRow } from "../lib/email/importer";
 import { draftReply, sendReply, pollMailbox } from "../lib/email/inbound";
+import { readWorkbook, parseTables, whatsappEntries } from "../lib/phone-import";
+import { saveToNewGroup, validateInBackground } from "../lib/contact-save";
 import { seedEmailDefaults, DEFAULT_SEQUENCE_NAME } from "../lib/email/seed";
 import { newToken, renderEmail, personalize } from "../lib/email/tracking";
 import { logger } from "../lib/logger";
 
 const router = Router();
 router.use(requireAuth);
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 60 * 1024 * 1024 } });
 
 // ── Overview ──────────────────────────────────────────────────────
 router.get("/overview", async (req, res) => res.json(await overview(req.session.userId!)));
@@ -160,13 +162,16 @@ router.post("/contacts/import", upload.single("file"), async (req, res) => {
   const body: any = req.body ?? {};
   let rawRows: Array<Record<string, unknown>> = [];
   let fileName = "";
+  const country = String(body.country ?? "AE").toUpperCase().slice(0, 2);
+  // Rows the shared reader found, for the WhatsApp half: every sheet, the
+  // header row wherever it is, every number column, each row's country.
+  let parsed: ReturnType<typeof parseTables> | null = null;
   if (req.file) {
     fileName = req.file.originalname;
-    const wb = XLSX.read(req.file.buffer, { type: "buffer" });
-    for (const name of wb.SheetNames) {
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[name]!, { defval: "" });
-      rawRows.push(...rows);
-    }
+    try { parsed = parseTables(readWorkbook(req.file.buffer), country); }
+    catch { return res.status(400).json({ error: "تعذّر قراءة الملف — تأكد أنه Excel أو CSV" }); }
+    // The email half reads the same rows, already mapped.
+    rawRows = parsed.rows.map((r) => ({ email: r.email ?? "", name: r.person ?? "", company: r.company ?? "", phone: r.whatsapp?.e164 ?? "", industry: r.industry ?? "", city: r.city ?? "" }));
   } else if (Array.isArray(body.rows)) {
     rawRows = body.rows;
   } else if (typeof body.rows === "string") {
@@ -177,8 +182,12 @@ router.post("/contacts/import", upload.single("file"), async (req, res) => {
   }
   if (!rawRows.length) return res.status(400).json({ error: "لم أجد صفوفاً في الملف" });
 
-  const columns = detectColumns(rawRows);
-  if (!columns.email) return res.status(400).json({ error: "لم أجد عمود البريد الإلكتروني في الملف", columns });
+  const columns = parsed
+    ? { email: "email", name: "name", company: "company", phone: "phone", industry: "industry", city: "city" } as ReturnType<typeof detectColumns>
+    : detectColumns(rawRows);
+  const hasEmails = parsed ? parsed.rows.some((r) => r.email) : !!columns.email;
+  const waOnly = parsed ? whatsappEntries(parsed.rows).entries.length : 0;
+  if (!hasEmails && !waOnly) return res.status(400).json({ error: "لم أجد بريداً إلكترونياً ولا أرقام واتساب في الملف", columns });
   const report = cleanRows(rawRows, columns);
 
   // MX per domain, so a dead domain never costs a bounce.
@@ -238,25 +247,51 @@ router.post("/contacts/import", upload.single("file"), async (req, res) => {
   const sequenceId = Number(body.sequenceId) || null;
   if (sequenceId) enrolled = await enrolInSequence(userId, sequenceId, activeIds).catch((err) => { logger.warn({ err: String(err?.message ?? err) }, "enrol after import failed"); return null; });
 
-  logger.info({ userId, file: fileName, total: report.total, kept: report.kept, inserted, mxBad, listId, sub: subLists.length, enrolled }, "استيراد بريد");
+  // The WhatsApp half. Every row with a WhatsApp number — including rows
+  // with no email at all — goes into a number list named after this one,
+  // under the company's name, so the same file feeds both channels.
+  let whatsapp: null | { added: number; alreadyInList: number; duplicates: number; skippedLandline: number; groups: Array<{ id: number; name: string; count: number }>; verifying: boolean; error?: string } = null;
+  if (parsed && body.saveWhatsapp !== "false" && body.saveWhatsapp !== false) {
+    const wa = whatsappEntries(parsed.rows);
+    if (wa.entries.length) {
+      try {
+        await assertCanAddContacts(userId, wa.entries.length);
+        const saved = await saveToNewGroup(userId, `${listName} — واتساب`, `أرقام واتساب من ملف البريد${fileName ? `: ${fileName.slice(0, 80)}` : ""}`, wa.entries);
+        const verifying = validateInBackground(userId, saved.groups.map((g) => g.id));
+        whatsapp = { added: saved.added, alreadyInList: saved.existing, duplicates: wa.duplicates, skippedLandline: wa.skippedLandline, groups: saved.groups, verifying };
+      } catch (err: any) {
+        whatsapp = { added: 0, alreadyInList: 0, duplicates: wa.duplicates, skippedLandline: wa.skippedLandline, groups: [], verifying: false, error: String(err?.message ?? err) };
+      }
+    }
+  }
+
+  logger.info({ userId, file: fileName, total: report.total, kept: report.kept, inserted, mxBad, listId, sub: subLists.length, enrolled, whatsapp: whatsapp?.added ?? 0 }, "استيراد بريد");
   res.json({
     file: fileName || null, columns, total: report.total, kept: report.kept, inserted, alreadyKnown: report.kept - inserted,
     invalid: report.invalid, duplicates: report.duplicates, roleAddresses: report.roleAddresses, mxBad,
     list: { id: listId, name: listName }, subLists, enrolled, sample: report.sample,
+    whatsapp, sheets: parsed?.sheets ?? null, byCountry: parsed?.byCountry ?? null,
   });
 });
 
 /** What the file looks like before committing to it. */
 router.post("/contacts/preview", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "ارفع ملفاً" });
-  const wb = XLSX.read(req.file.buffer, { type: "buffer" });
-  const rows: Array<Record<string, unknown>> = [];
-  for (const name of wb.SheetNames) rows.push(...XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[name]!, { defval: "" }));
-  const columns = detectColumns(rows);
+  const country = String(req.body?.country ?? "AE").toUpperCase().slice(0, 2);
+  let parsed: ReturnType<typeof parseTables>;
+  try { parsed = parseTables(readWorkbook(req.file.buffer), country); }
+  catch { return res.status(400).json({ error: "تعذّر قراءة الملف — تأكد أنه Excel أو CSV" }); }
+  const rows = parsed.rows.map((r) => ({ email: r.email ?? "", name: r.person ?? "", company: r.company ?? "", phone: r.whatsapp?.e164 ?? "", industry: r.industry ?? "", city: r.city ?? "" }));
+  const columns = { email: "email", name: "name", company: "company", phone: "phone", industry: "industry", city: "city" } as ReturnType<typeof detectColumns>;
   const report = cleanRows(rows, columns);
+  const wa = whatsappEntries(parsed.rows);
+  // The columns as found in the file, for the owner to check.
+  const found = parsed.sheets[0]?.columns ?? {};
+  const shown = { email: found["email"] ?? null, company: found["company"] ?? null, name: found["person"] ?? null, phone: found["phones"] ?? null, industry: found["industry"] ?? null, city: found["city"] ?? null };
   const byIndustry = [...splitBy(report.rows, "industry")].map(([k, v]) => ({ key: k, n: v.length })).sort((a, b) => b.n - a.n).slice(0, 20);
   const byCity = [...splitBy(report.rows, "city")].map(([k, v]) => ({ key: k, n: v.length })).sort((a, b) => b.n - a.n).slice(0, 20);
-  res.json({ file: req.file.originalname, headers: rows.length ? Object.keys(rows[0]!) : [], columns, total: report.total, kept: report.kept, invalid: report.invalid, duplicates: report.duplicates, roleAddresses: report.roleAddresses, sample: report.sample, byIndustry, byCity });
+  res.json({ file: req.file.originalname, sheets: parsed.sheets, columns: shown, total: report.total, kept: report.kept, invalid: report.invalid, duplicates: report.duplicates, roleAddresses: report.roleAddresses, sample: report.sample, byIndustry, byCity,
+    whatsapp: { numbers: wa.entries.length, landlineOnly: parsed.landlineOnly, duplicates: wa.duplicates, withoutEmail: parsed.rows.filter((r) => r.whatsapp && !r.email).length, byCountry: parsed.byCountry } });
 });
 
 router.patch("/contacts/:id", async (req, res) => {
