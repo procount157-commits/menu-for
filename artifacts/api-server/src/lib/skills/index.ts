@@ -17,7 +17,7 @@ import { DIALECT_SKILL, INTENT_READING_SKILL } from "./dialect";
 import { STAGE_SKILL, NEGOTIATION_SKILL, DISCOVERY_SKILL, COMPLAINT_SKILL } from "./selling";
 import {
   FOLLOWUP_WRITING_SKILL, ANALYSIS_SKILL, COACHING_SKILL, SALES_MANAGEMENT_SKILL,
-  NUMBER_PROTECTION_SKILL,
+  NUMBER_PROTECTION_SKILL, EMAIL_WRITING_SKILL,
 } from "./internal";
 import { HUMAN_WRITING_SKILL, DIALECT_MATCH_SKILL } from "./writing";
 import { logger } from "../logger";
@@ -29,7 +29,7 @@ export const LIBRARY: SkillDef[] = [
   DIALECT_SKILL, INTENT_READING_SKILL,
   STAGE_SKILL, NEGOTIATION_SKILL, DISCOVERY_SKILL, COMPLAINT_SKILL,
   FOLLOWUP_WRITING_SKILL, ANALYSIS_SKILL, COACHING_SKILL, SALES_MANAGEMENT_SKILL,
-  NUMBER_PROTECTION_SKILL,
+  NUMBER_PROTECTION_SKILL, EMAIL_WRITING_SKILL,
 ];
 
 // Skills a library version used to install under another name. Seeding
@@ -67,6 +67,7 @@ export const GRANTS: Record<string, string[]> = {
   collector: [ANALYSIS_SKILL.name],
   intake:    [ANALYSIS_SKILL.name],
   ops:       [NUMBER_PROTECTION_SKILL.name],
+  email:     [EMAIL_WRITING_SKILL.name, ANALYSIS_SKILL.name, NEGOTIATION_SKILL.name, DISCOVERY_SKILL.name],
 };
 
 export type SeedResult = { created: number; updated: number; untouched: number; granted: number };

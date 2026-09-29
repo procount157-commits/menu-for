@@ -10,7 +10,8 @@ import { and, desc, eq, inArray, sql, gte } from "drizzle-orm";
 import {
   db, emailSettingsTable, emailContactsTable, emailListsTable, emailListMembersTable,
   emailTemplatesTable, emailCampaignsTable, emailSequencesTable, emailSequenceJobsTable,
-  emailMessagesTable, emailEventsTable, emailInboundTable, type EmailStep,
+  emailMessagesTable, emailEventsTable, emailInboundTable, emailSegmentsTable, emailMissionsTable,
+  botEmployeesTable, agentMemoryTable, type EmailStep,
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
 import { assertCanSend, assertCanAddContacts, planErrorToResponse } from "../lib/plans";
@@ -21,6 +22,10 @@ import { cleanRows, detectColumns, checkMx, splitBy, type ImportRow } from "../l
 import { draftReply, sendReply, pollMailbox } from "../lib/email/inbound";
 import { readWorkbook, parseTables, whatsappEntries } from "../lib/phone-import";
 import { saveToNewGroup, validateInBackground } from "../lib/contact-save";
+import { classifySector, SECTORS, UNCLASSIFIED } from "../lib/email/sector";
+import { cleanFilter, facets, resolve as resolveSegment, count as countSegment, describe as describeSegment, conditions as segmentConditions } from "../lib/email/segments";
+import { ensureEmailAgent, memory as agentMemory, teach, rememberKnowledge, writeCampaign, EMAIL_ROLE } from "../lib/email/agent";
+import { createMission, approve as approveMission, runMission, missionsFor, missionReport } from "../lib/email/missions";
 import { seedEmailDefaults, DEFAULT_SEQUENCE_NAME } from "../lib/email/seed";
 import { newToken, renderEmail, personalize } from "../lib/email/tracking";
 import { logger } from "../lib/logger";
@@ -114,22 +119,252 @@ router.post("/settings/poll", async (req, res) => {
 });
 
 // ── Contacts & lists ──────────────────────────────────────────────
+// ── Contacts: filter, count, act ──────────────────────────────────
+// The filter is a segment filter, posted as JSON (arrays do not survive a
+// query string well), so the table, the counts and a saved segment all mean
+// the same thing by it.
+function filterFrom(req: any) {
+  const raw = req.method === "GET" ? { ...req.query, sectors: req.query.sectors ? String(req.query.sectors).split("|") : undefined, cities: req.query.cities ? String(req.query.cities).split("|") : undefined, engagement: req.query.engagement ? String(req.query.engagement).split("|") : undefined, statuses: req.query.status ? [String(req.query.status)] : undefined, listIds: req.query.listId ? [Number(req.query.listId)] : undefined } : req.body?.filter ?? {};
+  return cleanFilter(raw);
+}
+
+router.post("/contacts/search", async (req, res) => {
+  const userId = req.session.userId!;
+  const f = filterFrom(req);
+  const limit = Math.min(500, Number(req.body?.limit) || 100);
+  const offset = Number(req.body?.offset) || 0;
+  const where = and(...segmentConditions(userId, f));
+  const [rows, [{ n }]] = await Promise.all([
+    db.select().from(emailContactsTable).where(where).orderBy(desc(emailContactsTable.createdAt)).limit(limit).offset(offset),
+    db.select({ n: sql<number>`count(*)` }).from(emailContactsTable).where(where),
+  ]);
+  res.json({ rows, total: Number(n), description: describeSegment(f) });
+});
+
 router.get("/contacts", async (req, res) => {
   const userId = req.session.userId!;
-  const q = String(req.query["q"] ?? "").trim().toLowerCase();
-  const listId = Number(req.query["listId"]) || null;
-  const status = String(req.query["status"] ?? "");
+  const f = filterFrom(req);
   const limit = Math.min(500, Number(req.query["limit"]) || 100);
   const offset = Number(req.query["offset"]) || 0;
-  const conds = [eq(emailContactsTable.userId, userId)];
-  if (q) conds.push(sql`(lower(${emailContactsTable.email}) like ${"%" + q + "%"} or lower(coalesce(${emailContactsTable.company},'')) like ${"%" + q + "%"} or lower(coalesce(${emailContactsTable.name},'')) like ${"%" + q + "%"})`);
-  if (status) conds.push(eq(emailContactsTable.status, status));
-  if (listId) conds.push(inArray(emailContactsTable.id, db.select({ id: emailListMembersTable.contactId }).from(emailListMembersTable).where(eq(emailListMembersTable.listId, listId))));
+  const where = and(...segmentConditions(userId, f));
   const [rows, [{ n }]] = await Promise.all([
-    db.select().from(emailContactsTable).where(and(...conds)).orderBy(desc(emailContactsTable.createdAt)).limit(limit).offset(offset),
-    db.select({ n: sql<number>`count(*)` }).from(emailContactsTable).where(and(...conds)),
+    db.select().from(emailContactsTable).where(where).orderBy(desc(emailContactsTable.createdAt)).limit(limit).offset(offset),
+    db.select({ n: sql<number>`count(*)` }).from(emailContactsTable).where(where),
   ]);
   res.json({ rows, total: Number(n) });
+});
+
+router.post("/facets", async (req, res) => res.json(await facets(req.session.userId!, filterFrom(req))));
+
+/** Sector for every contact that has none — or for all, when the rules have improved. */
+router.post("/contacts/classify", async (req, res) => {
+  const userId = req.session.userId!;
+  const all = req.body?.all === true;
+  const rows = await db.select({ id: emailContactsTable.id, company: emailContactsTable.company, industry: emailContactsTable.industry, source: emailContactsTable.source, sector: emailContactsTable.sector })
+    .from(emailContactsTable).where(and(eq(emailContactsTable.userId, userId), all ? sql`true` : sql`${emailContactsTable.sector} is null`));
+  // The list a contact is in says something too: "real-estate-companies-ALL".
+  const lists = await db.select({ contactId: emailListMembersTable.contactId, name: emailListsTable.name }).from(emailListMembersTable)
+    .innerJoin(emailListsTable, eq(emailListsTable.id, emailListMembersTable.listId)).where(eq(emailListsTable.userId, userId));
+  const listOf = new Map<number, string>(); for (const l of lists) if (!listOf.has(l.contactId)) listOf.set(l.contactId, l.name);
+  const bySector = new Map<string, number[]>();
+  for (const r of rows) {
+    const sector = classifySector({ industry: r.industry, company: r.company, hint: [listOf.get(r.id), r.source].filter(Boolean).join(" ") });
+    if (!sector || sector === r.sector) continue;
+    bySector.set(sector, [...(bySector.get(sector) ?? []), r.id]);
+  }
+  let updated = 0;
+  for (const [sector, ids] of bySector) {
+    for (let i = 0; i < ids.length; i += 1000) {
+      await db.update(emailContactsTable).set({ sector }).where(inArray(emailContactsTable.id, ids.slice(i, i + 1000)));
+    }
+    updated += ids.length;
+  }
+  res.json({ checked: rows.length, updated, bySector: Object.fromEntries([...bySector].map(([k, v]) => [k, v.length])) });
+});
+
+router.get("/sectors", (_req, res) => res.json({ sectors: SECTORS, unclassified: UNCLASSIFIED }));
+
+/**
+ * One action on many contacts: the ticked ones (`ids`) or everyone the
+ * filter selects (`filter`). Add to a list, a new list, set the sector,
+ * enrol in a sequence, stop or restart them.
+ */
+router.post("/contacts/bulk", async (req, res) => {
+  const userId = req.session.userId!;
+  const b: any = req.body ?? {};
+  let ids: number[] = Array.isArray(b.ids) ? b.ids.map(Number).filter(Boolean) : [];
+  if (!ids.length && b.filter) ids = (await resolveSegment(userId, cleanFilter(b.filter))).map((c) => c.id);
+  if (!ids.length) return res.status(400).json({ error: "لم تختر أحداً" });
+  // Only this account's contacts, whatever was posted.
+  ids = (await db.select({ id: emailContactsTable.id }).from(emailContactsTable).where(and(eq(emailContactsTable.userId, userId), inArray(emailContactsTable.id, ids)))).map((r) => r.id);
+
+  const addTo = async (listId: number) => {
+    for (let i = 0; i < ids.length; i += 1000) await db.insert(emailListMembersTable).values(ids.slice(i, i + 1000).map((contactId) => ({ listId, contactId }))).onConflictDoNothing();
+  };
+  switch (b.action) {
+    case "addToList": {
+      const [l] = await db.select().from(emailListsTable).where(and(eq(emailListsTable.id, Number(b.listId)), eq(emailListsTable.userId, userId))).limit(1);
+      if (!l) return res.status(404).json({ error: "القائمة غير موجودة" });
+      await addTo(l.id); return res.json({ done: ids.length, list: l });
+    }
+    case "newList": {
+      const [l] = await db.insert(emailListsTable).values({ userId, name: String(b.name ?? "قائمة").slice(0, 160), description: b.description ?? null }).returning();
+      await addTo(l!.id); return res.json({ done: ids.length, list: l });
+    }
+    case "setSector": {
+      const sector = String(b.sector ?? "").trim().slice(0, 60) || null;
+      for (let i = 0; i < ids.length; i += 1000) await db.update(emailContactsTable).set({ sector }).where(inArray(emailContactsTable.id, ids.slice(i, i + 1000)));
+      return res.json({ done: ids.length });
+    }
+    case "enrol": {
+      try { await assertCanSend(userId); } catch (err) { if (planErrorToResponse(err, res)) return; throw err; }
+      return res.json(await enrolInSequence(userId, Number(b.sequenceId), ids));
+    }
+    case "unsubscribe": case "activate": {
+      const status = b.action === "activate" ? "active" : "unsubscribed";
+      for (let i = 0; i < ids.length; i += 1000) await db.update(emailContactsTable).set({ status }).where(inArray(emailContactsTable.id, ids.slice(i, i + 1000)));
+      if (status !== "active") for (const id of ids) await cancelSequencesFor(userId, id, "أوقفه صاحب العمل");
+      return res.json({ done: ids.length });
+    }
+    case "delete": {
+      for (let i = 0; i < ids.length; i += 1000) await db.delete(emailContactsTable).where(inArray(emailContactsTable.id, ids.slice(i, i + 1000)));
+      return res.json({ done: ids.length });
+    }
+  }
+  res.status(400).json({ error: "إجراء غير معروف" });
+});
+
+// ── Segments ──────────────────────────────────────────────────────
+router.get("/segments", async (req, res) => {
+  const userId = req.session.userId!;
+  const rows = await db.select().from(emailSegmentsTable).where(eq(emailSegmentsTable.userId, userId)).orderBy(desc(emailSegmentsTable.createdAt));
+  res.json(await Promise.all(rows.map(async (sg) => ({ ...sg, description: describeSegment(sg.filter as any), count: await countSegment(userId, sg.filter as any), sendable: await countSegment(userId, sg.filter as any, true) }))));
+});
+router.post("/segments", async (req, res) => {
+  const f = cleanFilter(req.body?.filter);
+  const [row] = await db.insert(emailSegmentsTable).values({ userId: req.session.userId!, name: String(req.body?.name ?? describeSegment(f)).slice(0, 160), filter: f }).returning();
+  res.status(201).json(row);
+});
+router.delete("/segments/:id", async (req, res) => {
+  await db.delete(emailSegmentsTable).where(and(eq(emailSegmentsTable.id, Number(req.params.id)), eq(emailSegmentsTable.userId, req.session.userId!)));
+  res.json({ ok: true });
+});
+
+// ── نورة ──────────────────────────────────────────────────────────
+router.get("/agent", async (req, res) => {
+  const userId = req.session.userId!;
+  const agent = await ensureEmailAgent(userId);
+  const mem = await agentMemory(userId);
+  res.json({ agent, memory: mem, topics: [...new Set(mem.map((m) => m.topic).filter(Boolean))], sectors: SECTORS });
+});
+router.patch("/agent", async (req, res) => {
+  const userId = req.session.userId!;
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  for (const k of ["name", "title", "persona"] as const) if (typeof req.body?.[k] === "string") set[k] = req.body[k].slice(0, k === "persona" ? 3000 : 120);
+  const [row] = await db.update(botEmployeesTable).set(set).where(and(eq(botEmployeesTable.userId, userId), eq(botEmployeesTable.role, EMAIL_ROLE))).returning();
+  res.json(row ?? null);
+});
+/** Teach her: text in the owner's words, or a pasted document; she splits it into facts. */
+router.post("/agent/teach", upload.single("file"), async (req, res) => {
+  const userId = req.session.userId!;
+  let text = String(req.body?.text ?? "");
+  if (req.file) {
+    const name = req.file.originalname.toLowerCase();
+    if (/\.(xlsx|xls|csv)$/.test(name)) {
+      const wb = XLSX.read(req.file.buffer, { type: "buffer" });
+      text += "\n\n" + wb.SheetNames.map((n) => XLSX.utils.sheet_to_csv(wb.Sheets[n]!)).join("\n\n");
+    } else {
+      text += "\n\n" + req.file.buffer.toString("utf8");
+    }
+  }
+  if (!text.trim()) return res.status(400).json({ error: "اكتب ما تريد أن تتعلمه أو ارفع ملفاً نصياً" });
+  const topic = typeof req.body?.topic === "string" && req.body.topic.trim() ? req.body.topic.trim().slice(0, 80) : null;
+  res.json({ saved: await teach(userId, text, topic) });
+});
+router.post("/agent/memory", async (req, res) => {
+  const userId = req.session.userId!;
+  await ensureEmailAgent(userId);
+  const content = String(req.body?.content ?? "").trim();
+  if (!content) return res.status(400).json({ error: "فارغ" });
+  await rememberKnowledge(userId, content, req.body?.topic ? String(req.body.topic).slice(0, 80) : null);
+  res.json({ ok: true });
+});
+router.patch("/agent/memory/:id", async (req, res) => {
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (typeof req.body?.content === "string") set["content"] = req.body.content.slice(0, 1500);
+  if (req.body?.topic !== undefined) set["topic"] = req.body.topic ? String(req.body.topic).slice(0, 80) : null;
+  const [row] = await db.update(agentMemoryTable).set(set).where(and(eq(agentMemoryTable.id, Number(req.params.id)), eq(agentMemoryTable.userId, req.session.userId!), eq(agentMemoryTable.role, EMAIL_ROLE))).returning();
+  res.json(row ?? null);
+});
+router.delete("/agent/memory/:id", async (req, res) => {
+  await db.delete(agentMemoryTable).where(and(eq(agentMemoryTable.id, Number(req.params.id)), eq(agentMemoryTable.userId, req.session.userId!), eq(agentMemoryTable.role, EMAIL_ROLE)));
+  res.json({ ok: true });
+});
+/** She writes a campaign for the target the owner picked. Nothing is sent. */
+router.post("/agent/write", async (req, res) => {
+  const userId = req.session.userId!;
+  const goal = String(req.body?.goal ?? "").trim();
+  if (!goal) return res.status(400).json({ error: "اكتب الهدف" });
+  const out = await writeCampaign(userId, { filter: cleanFilter(req.body?.filter), goal, language: req.body?.language, tone: req.body?.tone, notes: req.body?.notes });
+  if (!out) return res.status(502).json({ error: "تعذّرت الكتابة — النموذج لم يستجب أو خرج عن الشكل. جرّب مرة أخرى." });
+  res.json(out);
+});
+/** Turn an approved draft into a campaign (with the subject test) and its two follow-up sequences. */
+router.post("/agent/launch", async (req, res) => {
+  const userId = req.session.userId!;
+  const d = req.body?.draft;
+  if (!d?.subjects?.length || !d?.html) return res.status(400).json({ error: "المسودة ناقصة" });
+  const m = await createMission(userId, { name: String(req.body?.name ?? d.subjects[0]).slice(0, 160), goal: String(req.body?.goal ?? ""), filter: cleanFilter(req.body?.filter), language: req.body?.language, tone: req.body?.tone, requireApproval: true, followAfterHours: req.body?.followAfterHours });
+  await db.update(emailMissionsTable).set({ stage: "awaiting_approval", pending: d }).where(eq(emailMissionsTable.id, m.id));
+  try { await assertCanSend(userId); await approveMission(userId, m.id, d); }
+  catch (err: any) { if (planErrorToResponse(err, res)) return; return res.status(400).json({ error: String(err?.message ?? err), missionId: m.id }); }
+  res.json({ missionId: m.id });
+});
+
+// ── Missions ──────────────────────────────────────────────────────
+router.get("/missions", async (req, res) => res.json(await missionsFor(req.session.userId!)));
+router.post("/missions", async (req, res) => {
+  const userId = req.session.userId!;
+  const b = req.body ?? {};
+  if (!String(b.goal ?? "").trim()) return res.status(400).json({ error: "اكتب هدف المهمة" });
+  const f = cleanFilter(b.filter);
+  await ensureEmailAgent(userId);
+  const m = await createMission(userId, { name: String(b.name || describeSegment(f)), goal: String(b.goal), filter: f, language: b.language, tone: b.tone, requireApproval: b.requireApproval !== false, followAfterHours: b.followAfterHours });
+  // Write straight away rather than at the next sweep — the owner is watching.
+  void runMission(m).catch(() => {});
+  res.status(201).json(m);
+});
+router.post("/missions/:id/approve", async (req, res) => {
+  try { await assertCanSend(req.session.userId!); await approveMission(req.session.userId!, Number(req.params.id), req.body?.draft); res.json({ ok: true }); }
+  catch (err: any) { if (planErrorToResponse(err, res)) return; res.status(400).json({ error: String(err?.message ?? err) }); }
+});
+router.post("/missions/:id/redraft", async (req, res) => {
+  const [m] = await db.update(emailMissionsTable).set({ stage: "draft", pending: null, goal: req.body?.goal ? String(req.body.goal).slice(0, 2000) : sql`${emailMissionsTable.goal}` as any })
+    .where(and(eq(emailMissionsTable.id, Number(req.params.id)), eq(emailMissionsTable.userId, req.session.userId!), inArray(emailMissionsTable.stage, ["draft", "awaiting_approval"]))).returning();
+  if (!m) return res.status(400).json({ error: "المهمة بدأت الإرسال — لا يمكن إعادة كتابتها" });
+  void runMission(m).catch(() => {});
+  res.json({ ok: true });
+});
+for (const action of ["pause", "resume"] as const) {
+  router.post(`/missions/:id/${action}`, async (req, res) => {
+    await db.update(emailMissionsTable).set({ status: action === "pause" ? "paused" : "active" })
+      .where(and(eq(emailMissionsTable.id, Number(req.params.id)), eq(emailMissionsTable.userId, req.session.userId!)));
+    res.json({ ok: true });
+  });
+}
+router.post("/missions/:id/run", async (req, res) => {
+  const [m] = await db.select().from(emailMissionsTable).where(and(eq(emailMissionsTable.id, Number(req.params.id)), eq(emailMissionsTable.userId, req.session.userId!))).limit(1);
+  if (!m) return res.status(404).json({ error: "غير موجودة" });
+  await runMission(m); res.json({ ok: true });
+});
+router.get("/missions/:id/report", async (req, res) => {
+  const [m] = await db.select().from(emailMissionsTable).where(and(eq(emailMissionsTable.id, Number(req.params.id)), eq(emailMissionsTable.userId, req.session.userId!))).limit(1);
+  if (!m) return res.status(404).json({ error: "غير موجودة" });
+  res.json(m.report ?? await missionReport(m));
+});
+router.delete("/missions/:id", async (req, res) => {
+  await db.delete(emailMissionsTable).where(and(eq(emailMissionsTable.id, Number(req.params.id)), eq(emailMissionsTable.userId, req.session.userId!)));
+  res.json({ ok: true });
 });
 
 router.get("/lists", async (req, res) => {
@@ -199,6 +434,9 @@ router.post("/contacts/import", upload.single("file"), async (req, res) => {
     mxBad = report.rows.filter((r) => (r as any).mxOk === false).length;
   }
 
+  const sectorOverride = typeof body.sector === "string" && body.sector.trim() ? body.sector.trim().slice(0, 60) : null;
+  const listNameHint = String(body.listName ?? "");
+
   // Upsert the contacts; existing ones keep their status.
   const source = (body.source ?? (fileName ? `ملف: ${fileName.slice(0, 50)}` : "استيراد")).slice(0, 60);
   let inserted = 0;
@@ -208,6 +446,9 @@ router.post("/contacts/import", upload.single("file"), async (req, res) => {
     const rows = await db.insert(emailContactsTable).values(chunk.map((r) => ({
       userId, email: r.email, name: r.name ?? null, company: r.company ?? null, phone: r.phone ?? null,
       industry: r.industry ?? null, city: r.city ?? null, source, mxOk: (r as any).mxOk ?? null,
+      // The owner's word for the whole file wins; otherwise the row's own
+      // activity or name, and the file's name as a last hint.
+      sector: sectorOverride || classifySector({ industry: r.industry, company: r.company, hint: fileName || listNameHint }),
     }))).onConflictDoNothing().returning({ id: emailContactsTable.id, email: emailContactsTable.email });
     inserted += rows.length;
     for (const r of rows) ids.set(r.email, r.id);
@@ -348,16 +589,24 @@ router.post("/preview", async (req, res) => {
 
 // ── Campaigns ─────────────────────────────────────────────────────
 router.get("/campaigns", async (req, res) => {
-  const rows = await db.select({ c: emailCampaignsTable, list: emailListsTable.name }).from(emailCampaignsTable)
+  const rows = await db.select({ c: emailCampaignsTable, list: sql<string | null>`coalesce(${emailListsTable.name}, ${emailSegmentsTable.name})` }).from(emailCampaignsTable)
     .leftJoin(emailListsTable, eq(emailListsTable.id, emailCampaignsTable.listId))
+    .leftJoin(emailSegmentsTable, eq(emailSegmentsTable.id, emailCampaignsTable.segmentId))
     .where(eq(emailCampaignsTable.userId, req.session.userId!)).orderBy(desc(emailCampaignsTable.createdAt));
   res.json(rows.map((r) => ({ ...r.c, listName: r.list })));
 });
 router.post("/campaigns", async (req, res) => {
   const { name, listId, subject, html, scheduledAt, subjectB, abPct, abWaitHours } = req.body ?? {};
   if (!name || !subject || !html) return res.status(400).json({ error: "الاسم والعنوان والمحتوى مطلوبة" });
+  // A saved segment, or a filter picked on the spot (saved as a segment).
+  let segmentId = Number(req.body?.segmentId) || null;
+  if (!segmentId && req.body?.filter && !listId) {
+    const f = cleanFilter(req.body.filter);
+    const [sg] = await db.insert(emailSegmentsTable).values({ userId: req.session.userId!, name: `${String(name).slice(0, 100)} — ${describeSegment(f)}`.slice(0, 160), filter: f }).returning();
+    segmentId = sg!.id;
+  }
   const [c] = await db.insert(emailCampaignsTable).values({
-    userId: req.session.userId!, name: String(name).slice(0, 160), listId: Number(listId) || null, subject: String(subject).slice(0, 300), html: String(html),
+    userId: req.session.userId!, name: String(name).slice(0, 160), listId: Number(listId) || null, segmentId, subject: String(subject).slice(0, 300), html: String(html),
     status: scheduledAt ? "scheduled" : "draft", scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
     subjectB: subjectB ? String(subjectB).slice(0, 300) : null,
     abPct: subjectB ? Math.min(50, Math.max(0, Number(abPct) || 20)) : 0,
@@ -457,6 +706,8 @@ router.post("/sequences/:id/enrol", async (req, res) => {
     if (req.body?.listId) {
       const members = await db.select({ id: emailListMembersTable.contactId }).from(emailListMembersTable).where(eq(emailListMembersTable.listId, Number(req.body.listId)));
       ids = members.map((m) => m.id);
+    } else if (req.body?.filter) {
+      ids = (await resolveSegment(userId, cleanFilter(req.body.filter), { sendable: true })).map((c) => c.id);
     }
     res.json(await enrolInSequence(userId, Number(req.params.id), ids));
   } catch (err: any) { if (planErrorToResponse(err, res)) return; res.status(400).json({ error: String(err?.message ?? err) }); }

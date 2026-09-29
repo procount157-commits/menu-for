@@ -73,7 +73,7 @@ const again = await enrolInSequence(USER, seq!.id, contacts.slice(2, 5).map((c) 
 check("someone already on the ladder is not enrolled twice", again.enrolled === 0);
 // Make the first rungs due.
 await db.update(emailSequenceJobsTable).set({ dueAt: new Date(Date.now() - 60_000) }).where(and(eq(emailSequenceJobsTable.sequenceId, seq!.id), eq(emailSequenceJobsTable.stepIndex, 0)));
-check("due rungs become queued messages", (await enqueueDueSequenceSteps()) === 3);
+check("due rungs become queued messages", (await enqueueDueSequenceSteps(new Date(), USER)) === 3);
 const [rung] = await db.select().from(emailMessagesTable).where(and(eq(emailMessagesTable.contactId, contacts[2]!.id), inArray(emailMessagesTable.sequenceJobId, db.select({ id: emailSequenceJobsTable.id }).from(emailSequenceJobsTable).where(eq(emailSequenceJobsTable.sequenceId, seq!.id)))));
 check("...with the subject personalised", rung?.subject === "مرحبا شركة 2", rung?.subject);
 

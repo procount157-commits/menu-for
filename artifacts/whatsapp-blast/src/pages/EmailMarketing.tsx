@@ -10,10 +10,11 @@ import { Link, useRoute, useLocation } from "wouter";
 import { toast } from "sonner";
 import {
   Mail, Upload, Users, Megaphone, ListOrdered, FileText, Inbox, Settings2, Loader2, Play, Pause,
-  CheckCircle2, AlertTriangle, Eye, MousePointerClick, Reply, ShieldAlert, RefreshCw, Trash2, Plus, Send, Sparkles,
+  CheckCircle2, AlertTriangle, Eye, MousePointerClick, Reply, ShieldAlert, RefreshCw, Trash2, Plus, Send, Sparkles, Rocket,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, input } from "@/components/AgentPanel";
+import { AudienceTab, AgentTab, MissionsTab, type Filter } from "./EmailAgent";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const card = "bg-card border border-card-border rounded-xl";
@@ -30,7 +31,9 @@ const pct = (n?: number | null) => (n === null || n === undefined ? "—" : `${n
 const TABS = [
   { key: "overview",  label: "النظرة العامة", icon: Mail },
   { key: "import",    label: "رفع Excel",      icon: Upload },
-  { key: "contacts",  label: "جهات الاتصال",   icon: Users },
+  { key: "contacts",  label: "الجمهور",        icon: Users },
+  { key: "agent",     label: "نورة",           icon: Sparkles },
+  { key: "missions",  label: "المهام",         icon: Rocket },
   { key: "campaigns", label: "الحملات",         icon: Megaphone },
   { key: "sequences", label: "المتابعة",        icon: ListOrdered },
   { key: "templates", label: "القوالب",         icon: FileText },
@@ -50,6 +53,8 @@ export default function EmailMarketing() {
   const [, navigate] = useLocation();
   const tab = (TABS.find((t) => t.key === params?.tab)?.key ?? "overview") as Tab;
   const { data: ov } = useQuery<any>({ queryKey: ["email-overview"], queryFn: () => api("/api/email/overview"), refetchInterval: 10_000 });
+  // The audience the owner handed to نورة from the audience tab.
+  const [writeFor, setWriteFor] = useState<Filter | null>(null);
 
   return (
     <div className="p-6 space-y-5 max-w-6xl">
@@ -76,7 +81,9 @@ export default function EmailMarketing() {
 
       {tab === "overview"  && <Overview ov={ov} />}
       {tab === "import"    && <Import />}
-      {tab === "contacts"  && <Contacts />}
+      {tab === "contacts"  && <AudienceTab onWrite={(f) => { setWriteFor(f); navigate("/email/agent"); }} />}
+      {tab === "agent"     && <AgentTab initialFilter={writeFor} onMissionCreated={() => navigate("/email/missions")} />}
+      {tab === "missions"  && <MissionsTab />}
       {tab === "campaigns" && <Campaigns />}
       {tab === "sequences" && <Sequences />}
       {tab === "templates" && <Templates />}
@@ -163,10 +170,11 @@ function Import() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<any>(null);
   const [busy, setBusy] = useState<"preview" | "import" | null>(null);
-  const [opts, setOpts] = useState({ listName: "", splitBy: "", mx: true, sequenceId: "", country: "AE", saveWhatsapp: true });
+  const [opts, setOpts] = useState({ listName: "", splitBy: "", mx: true, sequenceId: "", country: "AE", saveWhatsapp: true, sector: "" });
+  const { data: sectorList } = useQuery<any>({ queryKey: ["email-sectors"], queryFn: () => api("/api/email/sectors") });
   const [result, setResult] = useState<any>(null);
   const { data: seqs = [] } = useQuery<any[]>({ queryKey: ["email-seqs"], queryFn: () => api("/api/email/sequences") });
-  useEffect(() => { const d = seqs.find((s) => s.isDefault); if (d && !opts.sequenceId) setOpts((o) => ({ ...o, sequenceId: String(d.id) })); }, [seqs]);
+
 
   const post = async (path: string, extra: Record<string, string> = {}) => {
     const fd = new FormData();
@@ -186,7 +194,7 @@ function Import() {
   const doImport = async () => {
     setBusy("import");
     try {
-      const d = await post("/api/email/contacts/import", { listName: opts.listName, splitBy: opts.splitBy, mx: String(opts.mx), sequenceId: opts.sequenceId, country: opts.country, saveWhatsapp: String(opts.saveWhatsapp) });
+      const d = await post("/api/email/contacts/import", { listName: opts.listName, splitBy: opts.splitBy, mx: String(opts.mx), sequenceId: opts.sequenceId, country: opts.country, saveWhatsapp: String(opts.saveWhatsapp), sector: opts.sector });
       setResult(d); setPreview(null); setFile(null);
       qc.invalidateQueries({ queryKey: ["email-overview"] }); qc.invalidateQueries({ queryKey: ["email-lists"] });
       toast.success(`استُورد ${d.inserted} بريداً جديداً${d.whatsapp?.added ? ` و${d.whatsapp.added} رقم واتساب` : ""}${d.enrolled ? ` وسُجّل ${d.enrolled.enrolled} في المتابعة` : ""}`);
@@ -247,10 +255,14 @@ function Import() {
               </select></div>
             <div><label className="text-xs font-semibold block mb-1.5">تسجيل الجميع في المتابعة</label>
               <select className={input} value={opts.sequenceId} onChange={(e) => setOpts({ ...opts, sequenceId: e.target.value })}>
-                <option value="">لا — الاستيراد فقط</option>
+                <option value="">لا — الاستيراد فقط (ثم اختر القطاع ودع نورة تكتب)</option>
                 {seqs.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select></div>
             <label className="flex items-center gap-2 text-xs pb-2"><input type="checkbox" checked={opts.mx} onChange={(e) => setOpts({ ...opts, mx: e.target.checked })} /> فحص MX لكل نطاق</label>
+            <div><label className="text-xs font-semibold block mb-1.5">القطاع</label>
+              <select className={input} value={opts.sector} onChange={(e) => setOpts({ ...opts, sector: e.target.value })}>
+                <option value="">تلقائي — من اسم الشركة</option>{(sectorList?.sectors ?? []).map((x: string) => <option key={x} value={x}>كل الملف: {x}</option>)}
+              </select></div>
             <div><label className="text-xs font-semibold block mb-1.5">الدولة للأرقام المحلية</label>
               <select className={input} value={opts.country} onChange={(e) => setOpts({ ...opts, country: e.target.value })}>
                 <option value="AE">الإمارات +971</option><option value="SA">السعودية +966</option><option value="QA">قطر +974</option>
@@ -287,56 +299,12 @@ function Import() {
   );
 }
 
-// ── Contacts ──────────────────────────────────────────────────────
-function Contacts() {
-  const qc = useQueryClient();
-  const [q, setQ] = useState(""); const [listId, setListId] = useState<number | null>(null); const [status, setStatus] = useState("");
-  const { data: lists = [] } = useQuery<any[]>({ queryKey: ["email-lists"], queryFn: () => api("/api/email/lists") });
-  const { data, isLoading } = useQuery<any>({ queryKey: ["email-contacts", q, listId, status], queryFn: () => api(`/api/email/contacts?q=${encodeURIComponent(q)}&listId=${listId ?? ""}&status=${status}&limit=200`) });
-  const setStat = useMutation({ mutationFn: ({ id, s }: { id: number; s: string }) => api(`/api/email/contacts/${id}`, { method: "PATCH", body: JSON.stringify({ status: s }) }), onSuccess: () => qc.invalidateQueries({ queryKey: ["email-contacts"] }) });
-  const delList = useMutation({ mutationFn: (id: number) => api(`/api/email/lists/${id}`, { method: "DELETE" }), onSuccess: () => { setListId(null); qc.invalidateQueries({ queryKey: ["email-lists"] }); } });
-  const S: Record<string, string> = { active: "نشط", unsubscribed: "ألغى", bounced: "ارتدّ", complained: "بلّغ" };
-  const [openId, setOpenId] = useState<number | null>(null);
-  return (
-    <div className="grid lg:grid-cols-[16rem_1fr] gap-4">
-      {openId && <ContactDrawer id={openId} onClose={() => setOpenId(null)} />}
-      <div className={cn(card, "p-3 space-y-1 h-fit")}>
-        <button onClick={() => setListId(null)} className={cn("w-full text-right px-2 py-1.5 rounded text-xs", listId === null ? "bg-muted" : "hover:bg-muted/50")}>كل جهات الاتصال</button>
-        {lists.map((l) => (
-          <div key={l.id} className="group flex items-center gap-1">
-            <button onClick={() => setListId(l.id)} className={cn("flex-1 text-right px-2 py-1.5 rounded text-xs truncate", listId === l.id ? "bg-muted" : "hover:bg-muted/50")}>{l.name} <span className="text-muted-foreground">({l.count})</span></button>
-            <button onClick={() => confirm("حذف القائمة؟ (جهات الاتصال تبقى)") && delList.mutate(l.id)} className="p-1 opacity-0 group-hover:opacity-100"><Trash2 className="w-3 h-3 text-red-400" /></button>
-          </div>
-        ))}
-      </div>
-      <div className={cn(card)}>
-        <div className="p-3 border-b border-card-border flex gap-2 flex-wrap">
-          <input className={cn(input, "flex-1 min-w-[10rem]")} placeholder="بحث بالبريد أو الشركة" value={q} onChange={(e) => setQ(e.target.value)} />
-          <select className={cn(input, "w-36")} value={status} onChange={(e) => setStatus(e.target.value)}><option value="">كل الحالات</option>{Object.entries(S).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
-          <span className="text-xs text-muted-foreground self-center">{data?.total ?? 0}</span>
-        </div>
-        <div className="overflow-x-auto max-h-[36rem] overflow-y-auto">
-          {isLoading ? <div className="p-6 text-center"><Loader2 className="w-5 h-5 animate-spin inline text-muted-foreground" /></div> :
-          <table className="w-full text-[11px]"><thead className="sticky top-0 bg-card"><tr className="text-muted-foreground"><th className="text-right p-2">البريد</th><th className="text-right p-2">الشركة</th><th className="text-right p-2">النشاط / المدينة</th><th className="text-right p-2">الحالة</th><th className="text-right p-2">آخر إرسال</th><th className="text-right p-2">فتح</th><th className="text-right p-2">ردّ</th><th></th></tr></thead>
-            <tbody>{(data?.rows ?? []).map((c: any) => (
-              <tr key={c.id} className="border-t border-card-border">
-                <td className="p-2 font-mono cursor-pointer hover:text-primary" dir="ltr" onClick={() => setOpenId(c.id)}>{c.email}{c.mxOk === false && <span title="النطاق لا يستقبل بريداً" className="text-red-400"> ✗</span>}</td>
-                <td className="p-2">{c.company ?? c.name ?? ""}</td><td className="p-2 text-muted-foreground">{[c.industry, c.city].filter(Boolean).join(" · ")}</td>
-                <td className="p-2"><span className={cn("px-1.5 py-0.5 rounded", c.status === "active" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>{S[c.status] ?? c.status}</span></td>
-                <td className="p-2 text-muted-foreground">{ago(c.lastSentAt)}</td><td className="p-2 text-muted-foreground">{ago(c.lastOpenedAt)}</td><td className="p-2 text-muted-foreground">{ago(c.lastRepliedAt)}</td>
-                <td className="p-2">{c.status === "active" ? <button onClick={() => setStat.mutate({ id: c.id, s: "unsubscribed" })} className="text-[10px] text-muted-foreground hover:text-red-400">أوقف</button> : <button onClick={() => setStat.mutate({ id: c.id, s: "active" })} className="text-[10px] text-muted-foreground hover:text-primary">فعّل</button>}</td>
-              </tr>))}</tbody></table>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Campaigns ─────────────────────────────────────────────────────
 function Campaigns() {
   const qc = useQueryClient();
   const [open, setOpen] = useState<number | null>(null);
   const [form, setForm] = useState<{ name: string; listId: string; subject: string; html: string; subjectB?: string; abPct?: number; abWaitHours?: number } | null>(null);
+  const { data: segs = [] } = useQuery<any[]>({ queryKey: ["email-segments"], queryFn: () => api("/api/email/segments") });
   const { data: rows = [] } = useQuery<any[]>({ queryKey: ["email-campaigns"], queryFn: () => api("/api/email/campaigns"), refetchInterval: 10_000 });
   const { data: lists = [] } = useQuery<any[]>({ queryKey: ["email-lists"], queryFn: () => api("/api/email/lists") });
   const { data: templates = [] } = useQuery<any[]>({ queryKey: ["email-templates"], queryFn: () => api("/api/email/templates") });
@@ -355,7 +323,10 @@ function Campaigns() {
         <div className={cn(card, "p-4 space-y-3")}>
           <div className="grid md:grid-cols-3 gap-3">
             <div><label className="text-xs font-semibold block mb-1.5">الاسم</label><input className={input} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-            <div><label className="text-xs font-semibold block mb-1.5">القائمة</label><select className={input} value={form.listId} onChange={(e) => setForm({ ...form, listId: e.target.value })}>{lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.count})</option>)}</select></div>
+            <div><label className="text-xs font-semibold block mb-1.5">إلى من</label><select className={input} value={form.listId} onChange={(e) => setForm({ ...form, listId: e.target.value })}>
+              <optgroup label="قوائم">{lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.count})</option>)}</optgroup>
+              {segs.length > 0 && <optgroup label="جماهير محفوظة">{segs.map((sg) => <option key={`s${sg.id}`} value={`s${sg.id}`}>{sg.name} ({sg.sendable})</option>)}</optgroup>}
+            </select></div>
             <div><label className="text-xs font-semibold block mb-1.5">من قالب</label><select className={input} defaultValue="" onChange={(e) => { const t = templates.find((x) => String(x.id) === e.target.value); if (t) setForm({ ...form, subject: t.subject, html: t.html, name: form.name || t.name }); }}><option value="">—</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
           </div>
           <div><label className="text-xs font-semibold block mb-1.5">العنوان</label><input className={input} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="{{company}} و…" /></div>
@@ -366,7 +337,7 @@ function Campaigns() {
           </div>
           {form.subjectB && <p className="text-[11px] text-muted-foreground">نصف الشريحة يأخذ العنوان الأول والنصف الآخر البديل؛ بعد الانتظار يُرسل الباقي بالعنوان الذي فُتح أكثر. لا اختبار لقائمة أقل من ٤٠.</p>}
           <div><label className="text-xs font-semibold block mb-1.5">المحتوى (HTML — تُقبل {"{{name}} {{first_name}} {{company}} {{city}} {{sender}}"})</label><textarea className={ta} value={form.html} onChange={(e) => setForm({ ...form, html: e.target.value })} /></div>
-          <div className="flex gap-2"><button onClick={() => create.mutate({ ...form, listId: Number(form.listId) })} disabled={create.isPending} className={primary}>احفظ كمسودة</button><button onClick={() => setForm(null)} className={ghost}>إلغاء</button><PreviewButton subject={form.subject} html={form.html} /></div>
+          <div className="flex gap-2"><button onClick={() => create.mutate(String(form.listId).startsWith("s") ? { ...form, listId: null, segmentId: Number(String(form.listId).slice(1)) } : { ...form, listId: Number(form.listId) })} disabled={create.isPending} className={primary}>احفظ كمسودة</button><button onClick={() => setForm(null)} className={ghost}>إلغاء</button><PreviewButton subject={form.subject} html={form.html} /></div>
         </div>
       )}
       <div className={cn(card, "divide-y divide-card-border")}>
@@ -632,39 +603,3 @@ function SettingsTab() {
   );
 }
 
-// ── One company, everything that happened with it ────────────────
-function ContactDrawer({ id, onClose }: { id: number; onClose: () => void }) {
-  const { data } = useQuery<any>({ queryKey: ["email-contact", id], queryFn: () => api(`/api/email/contacts/${id}`), refetchInterval: 15_000 });
-  const c = data?.contact;
-  type Item = { at: string; kind: string; text: string; cls?: string };
-  const items: Item[] = [];
-  for (const m of data?.messages ?? []) {
-    if (m.sentAt) items.push({ at: m.sentAt, kind: "أُرسلت", text: m.subject });
-    if (m.openedAt) items.push({ at: m.openedAt, kind: "فتح", text: `${m.subject}${m.openCount > 1 ? ` (${m.openCount} مرات)` : ""}`, cls: "text-blue-400" });
-    if (m.clickedAt) items.push({ at: m.clickedAt, kind: "نقر", text: m.subject, cls: "text-primary" });
-    if (m.bouncedAt) items.push({ at: m.bouncedAt, kind: "ارتدّت", text: m.error ?? m.subject, cls: "text-red-400" });
-    if (m.status === "failed") items.push({ at: m.createdAt, kind: "فشلت", text: m.error ?? "", cls: "text-red-400" });
-  }
-  for (const i of data?.inbound ?? []) items.push({ at: i.receivedAt, kind: "ردّ", text: i.summary ?? i.text?.slice(0, 160) ?? "", cls: "text-green-400" });
-  items.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-  const pending = (data?.jobs ?? []).filter((j: any) => j.status === "pending");
-  return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex justify-start" onClick={onClose}>
-      <div className="w-full max-w-md h-full bg-background border-l border-card-border overflow-y-auto p-4 space-y-4" onClick={(e) => e.stopPropagation()}>
-        {!c ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : <>
-          <div>
-            <p className="font-bold">{c.company ?? c.name ?? c.email}</p>
-            <p className="text-xs font-mono text-muted-foreground" dir="ltr">{c.email}{c.phone ? ` · +${c.phone}` : ""}</p>
-            <p className="text-[11px] text-muted-foreground mt-1">{[c.name, c.industry, c.city, c.source].filter(Boolean).join(" · ")}</p>
-          </div>
-          {pending.length > 0 && <div className="rounded-lg border border-card-border p-3 text-xs"><p className="font-semibold mb-1">المتابعات المجدولة</p>{pending.map((j: any) => <p key={j.id} className="text-muted-foreground">الخطوة {j.stepIndex + 1} — {new Date(j.dueAt).toLocaleString("ar-AE", { dateStyle: "short", timeStyle: "short" })}</p>)}</div>}
-          <div className="space-y-2">
-            {items.length === 0 ? <p className="text-xs text-muted-foreground">لم يحدث شيء بعد.</p> : items.map((it, i) => (
-              <div key={i} className="text-xs border-r-2 border-card-border pr-2"><span className={cn("font-semibold", it.cls)}>{it.kind}</span> <span className="text-muted-foreground">{ago(it.at)}</span><p className="text-muted-foreground">{it.text}</p></div>
-            ))}
-          </div>
-        </>}
-      </div>
-    </div>
-  );
-}

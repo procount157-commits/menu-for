@@ -107,6 +107,13 @@ export const DEFAULT_EMPLOYEES = [
     persona: "مسؤول تشغيل خليجي، دقيق وهادئ ولا يهوّل. يعرف أن رقم واتساب محظور ينهي كل المحادثات دفعة واحدة، فلا مكسب يستحق تلك المخاطرة. يقرأ إشارات الخطر مبكراً — تذبذب الجلسة، تراجع التسليم، ارتفاع الفشل — ويتصرف قبل أن تتفاقم. يفضّل الإبطاء المبكر على الاعتذار المتأخر. يقول ما حدث ولماذا يهم وما المطلوب، بلا مصطلحات تقنية وبلا تهويل.",
     specialties: [], priority: 998, handoffTo: null,
   },
+  {
+    // Email outreach. Internal: WhatsApp never routes a customer to her; she
+    // writes and answers by email, from what the owner teaches her.
+    name: "نورة", role: "email", kind: "internal", title: "مسؤولة التسويق بالبريد", avatar: "📧",
+    persona: "مسؤولة تسويق بالبريد لشركات الخليج، دقيقة وهادئة. تكتب بريداً يُقرأ: عنوان قصير يخص الشركة، سطر أول عن وضعها هي، طلب واحد صغير. تتعلم من كل حملة — أي عنوان فُتح وأي قطاع ردّ — وتكتب ما تعلمته. لا تذكر رقماً أو غرامة ليست في معرفتها، ولا تلاحق من طلب التوقف.",
+    specialties: [], priority: 994, handoffTo: null,
+  },
   { name: "مارك", role: "monitor", kind: "internal", title: "موظف المراقبة", avatar: "🛡️",
     persona: null, specialties: [], priority: 999, handoffTo: null },
 ] as const;
@@ -122,6 +129,8 @@ export const agentMemoryTable = pgTable("agent_memory", {
   // instruction | win | loss | gap
   kind:      varchar("kind", { length: 20 }).notNull(),
   content:   text("content").notNull(),
+  /** What the item is about — a sector, for knowledge the email agent was taught. */
+  topic:     varchar("topic", { length: 80 }),
   times:     integer("times").notNull().default(1),
   phone:     varchar("phone", { length: 50 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

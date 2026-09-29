@@ -27,6 +27,7 @@ import { recordEvent, getSettings } from "./service";
 import { sendEmail, messageIdFor, isConfigured } from "./provider";
 import { newToken, htmlToText } from "./tracking";
 import { updateCard } from "../lead-card";
+import { replyVoice } from "./agent";
 import { lt, isNotNull } from "drizzle-orm";
 
 /** Intents an automatic reply may answer. A complaint or a refusal waits for a person. */
@@ -160,7 +161,11 @@ export async function draftReply(userId: number, inboundId: number): Promise<{ s
   const [inb] = await db.select().from(emailInboundTable).where(and(eq(emailInboundTable.id, inboundId), eq(emailInboundTable.userId, userId))).limit(1);
   if (!inb) return null;
   const [contact] = inb.contactId ? await db.select().from(emailContactsTable).where(eq(emailContactsTable.id, inb.contactId)).limit(1) : [null];
-  const [sales] = await db.select().from(botEmployeesTable).where(and(eq(botEmployeesTable.userId, userId), eq(botEmployeesTable.role, "sales"))).limit(1);
+  // نورة answers email when she is on the team — with what she was taught
+  // about this contact's sector — and the salesman when she is not.
+  const [nora] = await db.select().from(botEmployeesTable).where(and(eq(botEmployeesTable.userId, userId), eq(botEmployeesTable.role, "email"), eq(botEmployeesTable.isActive, true))).limit(1);
+  const [sales] = nora ? [nora] : await db.select().from(botEmployeesTable).where(and(eq(botEmployeesTable.userId, userId), eq(botEmployeesTable.role, "sales"))).limit(1);
+  const noraVoice = nora ? await replyVoice(userId, contact?.sector ?? null).catch(() => "") : "";
   const [profile] = await db.select().from(businessProfileTable).where(eq(businessProfileTable.userId, userId)).limit(1);
   const [ours] = inb.messageId ? await db.select({ subject: emailMessagesTable.subject }).from(emailMessagesTable).where(eq(emailMessagesTable.id, inb.messageId)).limit(1) : [null];
   const s = await getSettings(userId);
@@ -173,8 +178,8 @@ export async function draftReply(userId: number, inboundId: number): Promise<{ s
 
   const out = await complete([
     { role: "system", content: [
-      sales ? `اسمك ${sales.name}${sales.title ? `، ${sales.title}` : ""}.` : "أنت مندوب مبيعات.",
-      sales?.persona ?? "",
+      noraVoice || (sales ? `اسمك ${sales.name}${sales.title ? `، ${sales.title}` : ""}.` : "أنت مندوب مبيعات."),
+      noraVoice ? "" : sales?.persona ?? "",
       profile?.name ? `تعمل لدى ${profile.name}${profile.industry ? ` — ${profile.industry}` : ""}.` : "",
       profile?.description ? `عن الشركة: ${profile.description}` : "",
       "",

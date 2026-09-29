@@ -10,8 +10,9 @@ import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import {
   db, emailSettingsTable, emailContactsTable, emailListsTable, emailListMembersTable,
   emailCampaignsTable, emailSequencesTable, emailSequenceJobsTable, emailMessagesTable,
-  emailEventsTable, type EmailSettings, type EmailStep, type EmailContact,
+  emailEventsTable, emailSegmentsTable, type EmailSettings, type EmailStep, type EmailContact,
 } from "@workspace/db";
+import { resolve as resolveSegment } from "./segments";
 import { isWithinSendingHours } from "../sending-hours";
 import { logger } from "../logger";
 import { notify, esc } from "../telegram";
@@ -81,13 +82,21 @@ export async function startCampaign(userId: number, campaignId: number): Promise
   const [c] = await db.select().from(emailCampaignsTable)
     .where(and(eq(emailCampaignsTable.id, campaignId), eq(emailCampaignsTable.userId, userId))).limit(1);
   if (!c) throw new Error("الحملة غير موجودة");
-  if (!c.listId) throw new Error("الحملة بلا قائمة");
+  if (!c.listId && !c.segmentId) throw new Error("الحملة بلا قائمة ولا جمهور");
   const s = await getSettings(userId);
   if (!isConfigured(s)) throw new Error("إعدادات البريد غير مكتملة — اضبط المُرسِل أولاً");
 
-  const members = await db.select({ c: emailContactsTable }).from(emailListMembersTable)
-    .innerJoin(emailContactsTable, eq(emailContactsTable.id, emailListMembersTable.contactId))
-    .where(eq(emailListMembersTable.listId, c.listId));
+  // A list, or a saved audience resolved now — so a segment is who matches
+  // on the day the campaign starts, not when it was drawn up.
+  let members: Array<{ c: EmailContact }>;
+  if (c.segmentId) {
+    const [seg] = await db.select().from(emailSegmentsTable).where(eq(emailSegmentsTable.id, c.segmentId)).limit(1);
+    members = (await resolveSegment(userId, (seg?.filter ?? {}) as any)).map((x) => ({ c: x }));
+  } else {
+    members = await db.select({ c: emailContactsTable }).from(emailListMembersTable)
+      .innerJoin(emailContactsTable, eq(emailContactsTable.id, emailListMembersTable.contactId))
+      .where(eq(emailListMembersTable.listId, c.listId!));
+  }
 
   // One message per contact per campaign — a resume must not double up.
   const already = new Set((await db.select({ contactId: emailMessagesTable.contactId }).from(emailMessagesTable)
@@ -177,10 +186,19 @@ async function stopSequenceIf(jobId: number, flag: "stopOnOpen" | "stopOnReply",
   if (seq?.[flag]) await cancelSequencesFor(job.userId, job.contactId, reason);
 }
 
-/** Turn due rungs into queued messages. Runs every minute. */
-export async function enqueueDueSequenceSteps(now = new Date()): Promise<number> {
+/**
+ * Turn due rungs into queued messages. Runs every minute.
+ *
+ * Not for an account with no sender: a queue that grows while nothing can
+ * leave turns a week of follow-ups into one burst the day the sender is set
+ * up. The rungs stay pending until there is a way out.
+ */
+export async function enqueueDueSequenceSteps(now = new Date(), onlyUserId?: number): Promise<number> {
+  const configured = db.select({ userId: emailSettingsTable.userId }).from(emailSettingsTable)
+    .where(sql`${emailSettingsTable.fromEmail} is not null and (${emailSettingsTable.smtpHost} is not null or ${emailSettingsTable.apiKey} is not null)`);
   const due = await db.select().from(emailSequenceJobsTable)
-    .where(and(eq(emailSequenceJobsTable.status, "pending"), lt(emailSequenceJobsTable.dueAt, now)))
+    .where(and(eq(emailSequenceJobsTable.status, "pending"), lt(emailSequenceJobsTable.dueAt, now), inArray(emailSequenceJobsTable.userId, configured),
+      onlyUserId ? eq(emailSequenceJobsTable.userId, onlyUserId) : sql`true`))
     .orderBy(asc(emailSequenceJobsTable.dueAt)).limit(200);
   let n = 0;
   for (const job of due) {
@@ -290,9 +308,15 @@ async function drainOne(userId: number) {
   // Next in line: campaigns that are sending, and any sequence rung.
   const sending = db.select({ id: emailCampaignsTable.id }).from(emailCampaignsTable)
     .where(and(eq(emailCampaignsTable.userId, userId), eq(emailCampaignsTable.status, "sending")));
+  // A follow-up waits while its sequence is switched off, and never lands
+  // within two days of another email to the same company — a backlog that
+  // clears slowly must not deliver step two the day after step one.
   const [m] = await db.select().from(emailMessagesTable)
     .where(and(eq(emailMessagesTable.userId, userId), eq(emailMessagesTable.status, "queued"),
-      sql`(${emailMessagesTable.campaignId} is null or ${emailMessagesTable.campaignId} in (${sending}))`))
+      sql`(${emailMessagesTable.campaignId} is null or ${emailMessagesTable.campaignId} in (${sending}))`,
+      sql`(${emailMessagesTable.sequenceJobId} is null or (
+        not exists (select 1 from email_sequence_jobs j join email_sequences q on q.id = j.sequence_id where j.id = ${emailMessagesTable.sequenceJobId} and not q.is_active)
+        and not exists (select 1 from email_contacts c where c.id = ${emailMessagesTable.contactId} and c.last_sent_at > now() - interval '48 hours')))`))
     .orderBy(asc(emailMessagesTable.createdAt)).limit(1);
   if (!m) { await completeFinishedCampaigns(userId); return; }
 

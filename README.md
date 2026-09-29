@@ -546,6 +546,45 @@ timeline — every send, open, click, reply and bounce, and what is still
 scheduled.
 
 
+## Email: sectors, audiences, نورة and her missions
+
+**Sectors.** Every email contact gets a sector (`lib/email/sector.ts`), read
+from its activity column when there is one, from the company's name when there
+is not ("… REAL ESTATE L.L.C", «مؤسسة … للمقاولات»), and from the file or list
+name as a last hint — in Arabic and English, specific trades before general
+ones. On import, the owner can also name the sector for the whole file.
+`POST /api/email/contacts/classify` fills in the ones without.
+
+**Audiences** (`lib/email/segments.ts`): a filter over sector, city, list,
+status, what the contact has done (never sent, sent and not opened, opened and
+not replied, clicked, replied) and whether it has a WhatsApp number. The
+audience tab shows the count beside every choice, lets the owner tick contacts
+or take the whole filter, and make a list, set a sector, enrol, stop or delete
+— or save the filter as a segment. Campaigns and sequences target a list or a
+segment; a segment is resolved when it is used, not when it was saved.
+
+**نورة** (`lib/email/agent.ts`) is the email agent — an employee with her own
+memory. The owner teaches her in their own words, a pasted document or a file;
+she splits it into facts, each tagged with its sector, and brings the right
+ones to whatever she writes. She writes a campaign for the target the owner
+picks: two subjects to test, the body, a follow-up for those who open and do
+not reply and one for those who never open — in labelled blocks the code
+parses (`parseDraft`). She answers email replies too, with what she knows
+about the contact's sector. After a subject test she writes down which subject
+won for that sector.
+
+**Missions** (`lib/email/missions.ts`) are her working an audience toward a
+goal: draft → awaiting approval (on by default) → sending, with the two
+subjects tested on a slice and the winner sent to the rest → following up,
+openers who did not reply getting the warm follow-up and non-openers the cold
+one → done, with a report by subject, stage, city and sector, and the lessons
+written into her memory and sent to Telegram.
+
+Follow-ups no longer pile up while no sender is configured, never land within
+48 hours of another email to the same company, and wait while their sequence
+is switched off. Imports no longer enrol everyone in a sequence by default.
+
+
 ## Hardening
 
 CORS is an allow-list (`CORS_ORIGINS`, plus localhost dev ports) — it used

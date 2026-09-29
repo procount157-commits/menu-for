@@ -48,6 +48,8 @@ export const emailContactsTable = pgTable("email_contacts", {
   industry:      varchar("industry", { length: 120 }),
   city:          varchar("city", { length: 120 }),
   source:        varchar("source", { length: 60 }),
+  /** Canonical sector, worked out from the name and activity (lib/email/sector.ts). */
+  sector:        varchar("sector", { length: 60 }),
   /** active | unsubscribed | bounced | complained */
   status:        varchar("status", { length: 20 }).notNull().default("active"),
   tags:          jsonb("tags").notNull().default([]),
@@ -83,11 +85,24 @@ export const emailTemplatesTable = pgTable("email_templates", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const emailSegmentsTable = pgTable("email_segments", {
+  id:        serial("id").primaryKey(),
+  userId:    integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  name:      varchar("name", { length: 160 }).notNull(),
+  filter:    jsonb("filter").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const emailCampaignsTable = pgTable("email_campaigns", {
   id:          serial("id").primaryKey(),
   userId:      integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   name:        varchar("name", { length: 160 }).notNull(),
   listId:      integer("list_id").references(() => emailListsTable.id, { onDelete: "set null" }),
+  /** A saved audience instead of a list; resolved when the campaign starts. */
+  segmentId:   integer("segment_id"),
+  missionId:   integer("mission_id"),
+  /** owner | agent */
+  createdBy:   varchar("created_by", { length: 20 }).notNull().default("owner"),
   subject:     varchar("subject", { length: 300 }).notNull(),
   html:        text("html").notNull(),
   /** draft | scheduled | sending | paused | completed */
@@ -208,3 +223,48 @@ export type EmailSequence   = typeof emailSequencesTable.$inferSelect;
 export type EmailMessage    = typeof emailMessagesTable.$inferSelect;
 export type EmailInbound    = typeof emailInboundTable.$inferSelect;
 export interface EmailStep { afterHours: number; subject: string; html: string }
+
+export const emailMissionsTable = pgTable("email_missions", {
+  id:               serial("id").primaryKey(),
+  userId:           integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  name:             varchar("name", { length: 160 }).notNull(),
+  goal:             text("goal").notNull(),
+  filter:           jsonb("filter").notNull().default({}),
+  language:         varchar("language", { length: 10 }).notNull().default("ar"),
+  tone:             varchar("tone", { length: 40 }),
+  /** draft | awaiting_approval | sending | following_up | done */
+  stage:            varchar("stage", { length: 30 }).notNull().default("draft"),
+  /** active | paused */
+  status:           varchar("status", { length: 20 }).notNull().default("active"),
+  requireApproval:  boolean("require_approval").notNull().default(true),
+  pending:          jsonb("pending"),
+  campaignId:       integer("campaign_id"),
+  warmSequenceId:   integer("warm_sequence_id"),
+  coldSequenceId:   integer("cold_sequence_id"),
+  followAfterHours: integer("follow_after_hours").notNull().default(48),
+  report:           jsonb("report"),
+  lastRunAt:        timestamp("last_run_at", { withTimezone: true }),
+  createdAt:        timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const emailMissionLogTable = pgTable("email_mission_log", {
+  id:        serial("id").primaryKey(),
+  missionId: integer("mission_id").notNull().references(() => emailMissionsTable.id, { onDelete: "cascade" }),
+  kind:      varchar("kind", { length: 20 }).notNull().default("note"),
+  text:      text("text").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type EmailSegment = typeof emailSegmentsTable.$inferSelect;
+export type EmailMission = typeof emailMissionsTable.$inferSelect;
+export interface SegmentFilter {
+  sectors?: string[];
+  cities?: string[];
+  listIds?: number[];
+  statuses?: string[];
+  /** never_sent | sent_no_open | opened_no_reply | clicked | replied */
+  engagement?: string[];
+  q?: string;
+  /** Only contacts with a WhatsApp number on file. */
+  hasPhone?: boolean;
+}
