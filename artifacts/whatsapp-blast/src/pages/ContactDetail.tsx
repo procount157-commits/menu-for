@@ -20,6 +20,8 @@ interface ImportExtra {
   byCountry?: Record<string, number>;
   sheets?: Array<{ sheet: string; rows: number; columns: Record<string, string> }>;
   sample?: Array<{ phone: string; name: string | null }>;
+  inOtherLists?: number;
+  otherListNames?: string[];
 }
 interface ImportResult {
   added: number;
@@ -52,6 +54,7 @@ export default function ContactDetail() {
   // country column says otherwise follow the file.
   const [country, setCountry]           = useState("AE");
   const [allMobiles, setAllMobiles]     = useState(false);
+  const [allowOther, setAllowOther]     = useState(false);
   const [importing, setImporting]       = useState(false);
   const [extra, setExtra]               = useState<ImportExtra | null>(null);
 
@@ -72,14 +75,15 @@ export default function ContactDetail() {
       fd.append("country", country);
       fd.append("mobileOnly", String(mobileOnly));
       fd.append("allMobiles", String(allMobiles));
+      fd.append("allowOtherLists", String(allowOther));
       const r = await fetch("/api/contacts/import", { method: "POST", body: fd, credentials: "include" });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error ?? "تعذّر الاستيراد");
       setImportResult({
-        added: d.added, duplicates: (d.duplicates ?? 0) + (d.alreadyInList ?? 0), invalid: d.noNumber ?? 0,
+        added: d.added, duplicates: (d.duplicates ?? 0) + (d.alreadyInList ?? 0) + (d.inOtherLists ?? 0), invalid: d.noNumber ?? 0,
         skippedLandline: d.skippedLandline ?? 0, total: d.total, autoSplit: d.autoSplit, groups: d.groups,
       });
-      setExtra({ verifying: d.verifying, named: d.named, byCountry: d.byCountry, sheets: d.sheets, sample: d.sample });
+      setExtra({ verifying: d.verifying, named: d.named, byCountry: d.byCountry, sheets: d.sheets, sample: d.sample, inOtherLists: d.inOtherLists, otherListNames: d.otherListNames });
       setPasteText("");
       toast.success(d.autoSplit
         ? `حُفظ ${d.added.toLocaleString("ar-SA")} رقم في ${d.groups.length} قائمة`
@@ -204,6 +208,10 @@ export default function ContactDetail() {
               <input type="checkbox" checked={allMobiles} onChange={(e) => setAllMobiles(e.target.checked)} />
               <span>كل أرقام الجوال للشركة (لا الأول فقط)</span>
             </label>
+            <label className="flex items-center gap-1.5 cursor-pointer" title="بدونها: الرقم الموجود في أي قائمة أخرى لا يُضاف مرة ثانية">
+              <input type="checkbox" checked={allowOther} onChange={(e) => setAllowOther(e.target.checked)} />
+              <span>اسمح بالرقم الموجود في قائمة أخرى</span>
+            </label>
             <span className="text-muted-foreground/70">الصف الذي فيه مدينة أو دولة يتبعها — رقم من الرياض يُحفظ +966 ولو اخترت الإمارات.</span>
           </div>
 
@@ -320,6 +328,7 @@ export default function ContactDetail() {
                   ))}
                   <p className="text-muted-foreground">
                     {extra.named ? `${extra.named.toLocaleString("ar-SA")} رقم محفوظ باسم الشركة. ` : ""}
+                    {extra.inOtherLists ? `${extra.inOtherLists.toLocaleString("ar-SA")} رقم لم يُضف لأنه موجود في: ${(extra.otherListNames ?? []).join("، ")}. ` : ""}
                     {extra.byCountry && Object.keys(extra.byCountry).length > 1 ? `الدول: ${Object.entries(extra.byCountry).map(([k, v]) => `${k} ${v}`).join("، ")}. ` : ""}
                     {extra.verifying ? "يجري الآن التحقق من الأرقام على واتساب — غير المسجّلة تُعلَّم «غير صالح» خلال دقائق." : "واتساب غير متصل — استخدم «فحص الأرقام» بعد الربط."}
                   </p>

@@ -7,7 +7,9 @@ import {
   getListContactsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Users, Trash2, ChevronLeft, Loader2, FileSpreadsheet } from "lucide-react";
+import { Plus, Users, Trash2, ChevronLeft, Loader2, FileSpreadsheet, CopyX } from "lucide-react";
+import { FolderSidebar, MoveToFolder, inFolder, type FolderSel } from "@/components/Folders";
+import { api } from "@/components/AgentPanel";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -53,12 +55,14 @@ export default function ContactsList() {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("country", country);
+      if (typeof folder === "number") fd.append("folderId", String(folder));
       const r = await fetch("/api/contacts/import", { method: "POST", body: fd, credentials: "include" });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error ?? "تعذّر الاستيراد");
-      toast.success(`حُفظ ${d.added.toLocaleString("ar-SA")} رقم واتساب${d.named ? " بأسماء الشركات" : ""}${d.autoSplit ? ` في ${d.groups.length} قوائم` : ""}${d.verifying ? " — يجري التحقق على واتساب" : ""}`);
+      toast.success(`حُفظ ${d.added.toLocaleString("ar-SA")} رقم واتساب${d.named ? " بأسماء الشركات" : ""}${d.autoSplit ? ` في ${d.groups.length} قوائم` : ""}${d.inOtherLists ? ` · تُرك ${d.inOtherLists} موجود في قوائم أخرى` : ""}${d.verifying ? " — يجري التحقق على واتساب" : ""}`);
       queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
       if (d.groups?.[0]?.id) navigate(`/contacts/${d.groups[0].id}`);
+      else if (d.inOtherLists) toast.info(`كل أرقام الملف موجودة مسبقاً في: ${(d.otherListNames ?? []).join("، ")}`);
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -94,10 +98,30 @@ export default function ContactsList() {
     createMutation.mutate({ data: { name: name.trim(), description: desc.trim(), segment: segment || undefined } as any });
   };
 
-  // Filter by segment
+  // Filter by folder, then by segment
+  const [folder, setFolder] = useState<FolderSel>("all");
+  const refreshLists = () => queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
+  const inThisFolder = inFolder((groups ?? []) as any[], folder);
   const filteredGroups = filterSeg
-    ? (groups ?? []).filter((g) => (g as any).segment === filterSeg)
-    : (groups ?? []);
+    ? inThisFolder.filter((g) => (g as any).segment === filterSeg)
+    : inThisFolder;
+
+  // Duplicates: counted first, removed on the owner's word.
+  const [dupes, setDupes] = useState<any>(null);
+  const [dedupeBusy, setDedupeBusy] = useState(false);
+  const checkDupes = async () => {
+    setDedupeBusy(true);
+    try { setDupes(await api("/api/contacts/duplicates")); } catch (e: any) { toast.error(e.message); } finally { setDedupeBusy(false); }
+  };
+  const removeDupes = async (across: boolean) => {
+    setDedupeBusy(true);
+    try {
+      const r = await api("/api/contacts/dedupe", { method: "POST", body: JSON.stringify({ across }) });
+      toast.success(`حُذف ${r.removed} مكرر${r.fixed ? ` · صُحّح ${r.fixed} رقم للصيغة الدولية` : ""}${r.named ? ` · نُقل ${r.named} اسم` : ""}`);
+      refreshLists();
+      setDupes(await api("/api/contacts/duplicates"));
+    } catch (e: any) { toast.error(e.message); } finally { setDedupeBusy(false); }
+  };
 
   const inputCls = "w-full px-3 py-2 bg-input border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring";
 
@@ -114,6 +138,10 @@ export default function ContactsList() {
             <option value="AE">+971</option><option value="SA">+966</option><option value="QA">+974</option>
             <option value="KW">+965</option><option value="BH">+973</option><option value="OM">+968</option><option value="EG">+20</option>
           </select>
+          <button onClick={checkDupes} disabled={dedupeBusy}
+            className="flex items-center gap-2 px-3 py-2 border border-border text-muted-foreground rounded-lg text-sm hover:text-foreground transition-colors disabled:opacity-50">
+            {dedupeBusy && !dupes ? <Loader2 className="w-4 h-4 animate-spin" /> : <CopyX className="w-4 h-4" />} المكرر
+          </button>
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadFile(f); e.target.value = ""; }} />
           <button onClick={() => fileRef.current?.click()} disabled={uploading}
@@ -252,6 +280,33 @@ export default function ContactsList() {
         </div>
       )}
 
+      {dupes && (
+        <div className="bg-card border border-card-border rounded-xl p-4 space-y-3">
+          <div className="flex items-center gap-2"><CopyX className="w-4 h-4 text-primary" /><p className="font-semibold text-sm">الأرقام المكررة</p>
+            <button onClick={() => setDupes(null)} className="text-xs text-muted-foreground mr-auto">إغلاق</button></div>
+          {dupes.withinLists + dupes.acrossLists + dupes.wrongFormat === 0 ? (
+            <p className="text-sm text-muted-foreground">لا مكرر — كل رقم موجود مرة واحدة. الرفع القادم يتجاهل تلقائياً أي رقم موجود في أي قائمة (بأي صيغة كُتب).</p>
+          ) : (<>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="rounded-lg bg-muted/40 p-2.5"><p className="text-xl font-bold">{dupes.withinLists}</p><p className="text-[11px] text-muted-foreground">مكرر داخل نفس القائمة</p></div>
+              <div className="rounded-lg bg-muted/40 p-2.5"><p className="text-xl font-bold">{dupes.numbersInSeveralLists}</p><p className="text-[11px] text-muted-foreground">رقم موجود في أكثر من قائمة</p></div>
+              <div className="rounded-lg bg-muted/40 p-2.5"><p className="text-xl font-bold">{dupes.wrongFormat}</p><p className="text-[11px] text-muted-foreground">بلا رمز الدولة (يُصحَّح)</p></div>
+            </div>
+            {dupes.samples?.length > 0 && <p className="text-[11px] text-muted-foreground">أمثلة: {dupes.samples.slice(0, 4).map((x: any) => `+${x.phone} في ${x.lists.join(" و")}`).join(" · ")}</p>}
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => removeDupes(false)} disabled={dedupeBusy} className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-xs disabled:opacity-50">احذف المكرر داخل كل قائمة وصحّح الصيغة</button>
+              {dupes.numbersInSeveralLists > 0 && <button onClick={() => confirm("سيبقى كل رقم في أقدم قائمة فيها فقط، ويُحذف من غيرها. متابعة؟") && removeDupes(true)} disabled={dedupeBusy} className="px-3 py-2 rounded-lg border border-red-500/40 text-red-400 text-xs disabled:opacity-50">احذفه أيضاً من القوائم الأخرى</button>}
+            </div>
+            <p className="text-[11px] text-muted-foreground">يُحفظ دائماً النسخة التي عليها اسم الشركة. الرقم نفسه بأي صيغة (050…، ‎+971…، 971…) يُعدّ رقماً واحداً.</p>
+          </>)}
+        </div>
+      )}
+
+      <div className="grid md:grid-cols-[14rem_1fr] gap-4 items-start">
+      <div className="bg-card border border-card-border rounded-xl p-2 md:sticky md:top-4">
+        <FolderSidebar kind="wa" value={folder} onChange={setFolder} total={groups?.length ?? 0} onChanged={refreshLists} />
+      </div>
+      <div>
       {isLoading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -264,15 +319,16 @@ export default function ContactsList() {
         </div>
       ) : filteredGroups.length === 0 ? (
         <div className="bg-card border border-card-border rounded-xl py-12 text-center">
-          <p className="text-sm text-muted-foreground">لا توجد قوائم في هذه الشريحة</p>
-          <button onClick={() => setFilterSeg("")} className="text-xs text-primary mt-2 hover:underline">
+          <p className="text-sm text-muted-foreground">{folder !== "all" && !inThisFolder.length ? "المجلد فارغ — اسحب إليه قائمة، أو ارفع ملفاً وهو مفتوح" : "لا توجد قوائم في هذه الشريحة"}</p>
+          <button onClick={() => { setFilterSeg(""); setFolder("all"); }} className="text-xs text-primary mt-2 hover:underline">
             إظهار الكل
           </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredGroups.map((group) => (
-            <div key={group.id} className="bg-card border border-card-border rounded-xl p-5 hover:border-primary/30 transition-colors">
+            <div key={group.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/list-id", String(group.id))}
+              className="bg-card border border-card-border rounded-xl p-5 hover:border-primary/30 transition-colors cursor-grab active:cursor-grabbing">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-foreground truncate">{group.name}</p>
@@ -300,6 +356,7 @@ export default function ContactsList() {
                   <span className="font-medium text-foreground">{group.count.toLocaleString("ar-SA")}</span>
                   <span className="text-muted-foreground">رقم</span>
                 </div>
+                <MoveToFolder kind="wa" listId={group.id} folderId={(group as any).folderId} onMoved={refreshLists} />
                 <Link
                   href={`/contacts/${group.id}`}
                   className="flex items-center gap-1 text-xs text-primary hover:underline"
@@ -312,6 +369,8 @@ export default function ContactsList() {
           ))}
         </div>
       )}
+      </div>
+      </div>
     </div>
   );
 }

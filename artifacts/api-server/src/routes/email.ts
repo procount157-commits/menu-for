@@ -377,7 +377,7 @@ router.get("/lists", async (req, res) => {
 });
 
 router.post("/lists", async (req, res) => {
-  const [l] = await db.insert(emailListsTable).values({ userId: req.session.userId!, name: String(req.body?.name ?? "قائمة").slice(0, 160), description: req.body?.description ?? null }).returning();
+  const [l] = await db.insert(emailListsTable).values({ userId: req.session.userId!, name: String(req.body?.name ?? "قائمة").slice(0, 160), description: req.body?.description ?? null, folderId: Number(req.body?.folderId) || null }).returning();
   res.status(201).json(l);
 });
 router.delete("/lists/:id", async (req, res) => {
@@ -499,7 +499,7 @@ router.post("/contacts/import", upload.single("file"), async (req, res) => {
         await assertCanAddContacts(userId, wa.entries.length);
         const saved = await saveToNewGroup(userId, `${listName} — واتساب`, `أرقام واتساب من ملف البريد${fileName ? `: ${fileName.slice(0, 80)}` : ""}`, wa.entries);
         const verifying = validateInBackground(userId, saved.groups.map((g) => g.id));
-        whatsapp = { added: saved.added, alreadyInList: saved.existing, duplicates: wa.duplicates, skippedLandline: wa.skippedLandline, groups: saved.groups, verifying };
+        whatsapp = { added: saved.added, alreadyInList: saved.existing + saved.inOtherLists, duplicates: wa.duplicates, skippedLandline: wa.skippedLandline, groups: saved.groups, verifying };
       } catch (err: any) {
         whatsapp = { added: 0, alreadyInList: 0, duplicates: wa.duplicates, skippedLandline: wa.skippedLandline, groups: [], verifying: false, error: String(err?.message ?? err) };
       }

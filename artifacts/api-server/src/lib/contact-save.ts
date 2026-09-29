@@ -8,6 +8,7 @@
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { db, contactGroupsTable, contactsTable } from "@workspace/db";
 import { checkNumbers, getStatus } from "./whatsapp";
+import { canonical, inOtherLists } from "./dedupe";
 import { logger } from "./logger";
 
 export const LIST_SIZE = 1000;
@@ -17,14 +18,19 @@ export interface SaveResult {
   added: number;
   /** Already in the list. */
   existing: number;
+  /** Already in another of the account's lists, and so not added (unless allowed). */
+  inOtherLists: number;
+  otherListNames: string[];
   autoSplit: boolean;
   groups: Array<{ id: number; name: string; count: number }>;
 }
 
 async function insertAll(groupId: number, entries: Array<{ phone: string; name: string | null }>) {
   for (let i = 0; i < entries.length; i += INSERT_BATCH) {
+    // The unique index is the last word: two imports racing into one list
+    // cannot both add the same number.
     await db.insert(contactsTable).values(entries.slice(i, i + INSERT_BATCH)
-      .map(({ phone, name }) => ({ groupId, phone, name: name || null, status: "active" })));
+      .map(({ phone, name }) => ({ groupId, phone, name: name || null, status: "active" }))).onConflictDoNothing();
   }
 }
 
@@ -33,22 +39,39 @@ async function insertAll(groupId: number, entries: Array<{ phone: string; name: 
  * where the list had the number without one. Past LIST_SIZE the rest goes
  * into numbered sister lists.
  */
-export async function saveToGroup(userId: number, groupId: number, entries: Array<{ phone: string; name: string | null }>): Promise<SaveResult> {
+export async function saveToGroup(
+  userId: number, groupId: number, entries: Array<{ phone: string; name: string | null }>,
+  opts: { allowOtherLists?: boolean } = {},
+): Promise<SaveResult> {
   const [group] = await db.select().from(contactGroupsTable)
     .where(and(eq(contactGroupsTable.id, groupId), eq(contactGroupsTable.userId, userId))).limit(1);
   if (!group) throw new Error("القائمة غير موجودة");
 
+  // Compared by the international form, so 0501234567 in the list and
+  // 971501234567 in the file are one number.
   const existing = await db.select({ id: contactsTable.id, phone: contactsTable.phone, name: contactsTable.name })
     .from(contactsTable).where(eq(contactsTable.groupId, groupId));
-  const have = new Map(existing.map((e) => [e.phone, e]));
-  const fresh = entries.filter((e) => !have.has(e.phone));
-  const named = entries.filter((e) => e.name && have.get(e.phone) && !have.get(e.phone)!.name);
-  for (const e of named) await db.update(contactsTable).set({ name: e.name }).where(eq(contactsTable.id, have.get(e.phone)!.id));
+  const have = new Map(existing.map((e) => [canonical(e.phone), e]));
+  let fresh = entries.filter((e) => !have.has(canonical(e.phone)));
+
+  // A number already in another list is not added again unless the owner
+  // says so — the same company in two lists gets every campaign twice.
+  let skippedOther = 0;
+  const otherNames = new Set<string>();
+  if (!opts.allowOtherLists && fresh.length) {
+    const elsewhere = await inOtherLists(userId, fresh.map((e) => canonical(e.phone)), groupId);
+    if (elsewhere.size) {
+      fresh = fresh.filter((e) => { const where = elsewhere.get(canonical(e.phone)); if (where === undefined) return true; skippedOther++; otherNames.add(where); return false; });
+    }
+  }
+  const extra = { inOtherLists: skippedOther, otherListNames: [...otherNames].slice(0, 10) };
+  const named = entries.filter((e) => e.name && have.get(canonical(e.phone)) && !have.get(canonical(e.phone))!.name);
+  for (const e of named) await db.update(contactsTable).set({ name: e.name }).where(eq(contactsTable.id, have.get(canonical(e.phone))!.id));
 
   const room = Math.max(0, LIST_SIZE - existing.length);
   if (fresh.length <= room) {
     await insertAll(groupId, fresh);
-    return { added: fresh.length, existing: entries.length - fresh.length, autoSplit: false, groups: [{ id: groupId, name: group.name, count: existing.length + fresh.length }] };
+    return { added: fresh.length, existing: entries.length - fresh.length - skippedOther, ...extra, autoSplit: false, groups: [{ id: groupId, name: group.name, count: existing.length + fresh.length }] };
   }
 
   // Fill this list, then sister lists of LIST_SIZE each. An empty list that
@@ -71,13 +94,16 @@ export async function saveToGroup(userId: number, groupId: number, entries: Arra
     groups.push({ id: g!.id, name: g!.name, count: chunk.length });
     n++;
   }
-  return { added: fresh.length, existing: entries.length - fresh.length, autoSplit: true, groups };
+  return { added: fresh.length, existing: entries.length - fresh.length - skippedOther, ...extra, autoSplit: true, groups };
 }
 
 /** A new list, named after the file, and the numbers in it. */
-export async function saveToNewGroup(userId: number, name: string, description: string | null, entries: Array<{ phone: string; name: string | null }>): Promise<SaveResult> {
-  const [g] = await db.insert(contactGroupsTable).values({ userId, name: name.slice(0, 240) || "قائمة جديدة", description }).returning();
-  return saveToGroup(userId, g!.id, entries);
+export async function saveToNewGroup(userId: number, name: string, description: string | null, entries: Array<{ phone: string; name: string | null }>, opts: { allowOtherLists?: boolean; folderId?: number | null } = {}): Promise<SaveResult> {
+  const [g] = await db.insert(contactGroupsTable).values({ userId, name: name.slice(0, 240) || "قائمة جديدة", description, folderId: opts.folderId ?? null }).returning();
+  const r = await saveToGroup(userId, g!.id, entries, opts);
+  // Everything in the file was already elsewhere: an empty list helps nobody.
+  if (r.added === 0) { await db.delete(contactGroupsTable).where(eq(contactGroupsTable.id, g!.id)); r.groups = []; }
+  return r;
 }
 
 export interface ValidateResult { total: number; valid: number; invalid: number; unknown: number; invalidPhones: string[] }

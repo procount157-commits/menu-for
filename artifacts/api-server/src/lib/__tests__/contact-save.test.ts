@@ -52,8 +52,10 @@ const counts = await Promise.all(r3.groups.map(async (g) => (await db.select().f
 check("no list holds more than a thousand", counts.every((c) => c <= LIST_SIZE) && counts.reduce((a, b) => a + b, 0) === n, counts.join("/"));
 
 // Topping up a partly full list fills it and spills into a sister list.
-const partial = await saveToNewGroup(USER, "اختبار-استيراد جزئي", null, big.slice(0, 900));
-const r4 = await saveToGroup(USER, partial.groups[0]!.id, big.slice(0, 1200));
+// The same numbers are in the large lists above; this is about splitting,
+// so the cross-list rule is waived (it has its own test in dedupe.test.ts).
+const partial = await saveToNewGroup(USER, "اختبار-استيراد جزئي", null, big.slice(0, 900), { allowOtherLists: true });
+const r4 = await saveToGroup(USER, partial.groups[0]!.id, big.slice(0, 1200), { allowOtherLists: true });
 check("topping up adds only the new ones", r4.added === 300 && r4.existing === 900, `${r4.added}/${r4.existing}`);
 check("...filling the list to a thousand and spilling the rest", r4.groups[0]!.count === LIST_SIZE && r4.groups[1]!.count === 200, r4.groups.map((g) => g.count).join("/"));
 

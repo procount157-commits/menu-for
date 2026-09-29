@@ -9,8 +9,23 @@ export const contactGroupsTable = pgTable("contact_groups", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   segment: varchar("segment", { length: 50 }),
+  /** The folder the owner keeps it in; null is "no folder". */
+  folderId: integer("folder_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Folders for lists — WhatsApp number lists (kind "wa") and email lists
+// (kind "email") — so real estate lists sit together, cleaning together.
+export const listFoldersTable = pgTable("list_folders", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  kind: varchar("kind", { length: 10 }).notNull().default("wa"),
+  name: varchar("name", { length: 120 }).notNull(),
+  color: varchar("color", { length: 20 }),
+  sort: integer("sort").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export type ListFolder = typeof listFoldersTable.$inferSelect;
 
 export const contactsTable = pgTable("contacts", {
   id: serial("id").primaryKey(),

@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, input } from "@/components/AgentPanel";
+import { FolderSidebar, MoveToFolder, inFolder, type FolderSel } from "@/components/Folders";
 
 const card = "bg-card border border-card-border rounded-xl";
 const ghost = "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs border border-card-border hover:border-primary/50 transition-colors disabled:opacity-40";
@@ -84,6 +85,7 @@ export function AudienceTab({ onWrite }: { onWrite: (f: Filter) => void }) {
   const [all, setAll] = useState(false);            // the whole filter, not only the ticked ones
   const [page, setPage] = useState(0);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [folder, setFolder] = useState<FolderSel>("all");
   const filter = { ...f, q: q || undefined };
   useEffect(() => { setSel(new Set()); setAll(false); setPage(0); }, [JSON.stringify(filter)]);
   const { data, isLoading } = useQuery<any>({
@@ -94,7 +96,7 @@ export function AudienceTab({ onWrite }: { onWrite: (f: Filter) => void }) {
   const { data: seqs = [] } = useQuery<any[]>({ queryKey: ["email-seqs"], queryFn: () => api("/api/email/sequences") });
   const { data: segs = [] } = useQuery<any[]>({ queryKey: ["email-segments"], queryFn: () => api("/api/email/segments") });
   const { data: sectorList } = useQuery<any>({ queryKey: ["email-sectors"], queryFn: () => api("/api/email/sectors") });
-  const inv = () => { for (const k of ["email-audience", "email-facets", "email-lists", "email-segments", "email-seqs"]) qc.invalidateQueries({ queryKey: [k] }); };
+  const inv = () => { for (const k of ["email-audience", "email-facets", "email-lists", "email-segments", "email-seqs", "folders"]) qc.invalidateQueries({ queryKey: [k] }); };
 
   const target = () => (all ? { filter } : { ids: [...sel] });
   const bulk = useMutation({
@@ -131,6 +133,26 @@ export function AudienceTab({ onWrite }: { onWrite: (f: Filter) => void }) {
             <button onClick={() => { const name = prompt("اسم الجمهور", describe(filter)); if (name) saveSeg.mutate(name); }} className={ghost}><Save className="w-3 h-3" /> احفظ الجمهور</button>
           </div>
         </div>
+        {lists.length > 0 && (
+          <div className={cn(card, "p-3 space-y-2")}>
+            <p className="text-xs font-semibold">القوائم والمجلدات</p>
+            <FolderSidebar kind="email" value={folder} onChange={setFolder} total={lists.length} onChanged={inv} compact />
+            <div className="border-t border-card-border pt-2 space-y-0.5 max-h-72 overflow-y-auto">
+              {inFolder(lists, folder).map((l) => {
+                const on = !!f.listIds?.includes(l.id);
+                return (
+                  <div key={l.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/list-id", String(l.id))}
+                    className={cn("group flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs cursor-grab", on ? "bg-primary/15 text-primary" : "hover:bg-muted/50")}>
+                    <button onClick={() => setF({ ...f, listIds: on ? f.listIds!.filter((x) => x !== l.id) : [...(f.listIds ?? []), l.id] })} className="flex-1 text-right truncate">{l.name} <span className="text-muted-foreground">({l.count})</span></button>
+                    <span className="hidden group-hover:block"><MoveToFolder kind="email" listId={l.id} folderId={l.folderId} onMoved={inv} /></span>
+                  </div>
+                );
+              })}
+              {inFolder(lists, folder).length === 0 && <p className="text-[11px] text-muted-foreground px-2 py-2">لا قوائم هنا — اسحب قائمة إلى المجلد.</p>}
+            </div>
+            <p className="text-[10px] text-muted-foreground/70">اضغط قائمة لتصفية الجمهور بها. البريد نفسه محفوظ مرة واحدة مهما تكرر في القوائم.</p>
+          </div>
+        )}
         {segs.length > 0 && (
           <div className={cn(card, "p-3.5 space-y-1")}>
             <p className="text-xs font-semibold mb-1.5">جماهير محفوظة</p>

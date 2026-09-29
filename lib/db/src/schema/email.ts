@@ -65,6 +65,7 @@ export const emailListsTable = pgTable("email_lists", {
   userId:      integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   name:        varchar("name", { length: 160 }).notNull(),
   description: text("description"),
+  folderId:    integer("folder_id"),
   createdAt:   timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

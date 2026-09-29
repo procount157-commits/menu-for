@@ -7,6 +7,7 @@ import * as XLSX from "xlsx";
 import multer from "multer";
 import { readWorkbook, readText, parseTables, whatsappEntries } from "../lib/phone-import";
 import { saveToGroup, saveToNewGroup, validateGroup, validateInBackground } from "../lib/contact-save";
+import { findDuplicates, removeDuplicates } from "../lib/dedupe";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -41,6 +42,7 @@ router.get("/", async (req, res) => {
       name: contactGroupsTable.name,
       description: contactGroupsTable.description,
       segment: contactGroupsTable.segment,
+      folderId: contactGroupsTable.folderId,
       createdAt: contactGroupsTable.createdAt,
       count: count(contactsTable.id),
     })
@@ -161,6 +163,21 @@ router.post("/:id/validate", async (req, res) => {
   }
 });
 
+// ── Duplicates ────────────────────────────────────────────────────
+// Compared by the international form, so 0501234567 and 971501234567 are
+// one number. Within a list they are always removed; across lists only
+// when asked, because a deliberate VIP list is legitimate.
+router.get("/duplicates", async (req, res) => {
+  const groupIds = req.query["groupId"] ? [Number(req.query["groupId"])] : undefined;
+  res.json(await findDuplicates(req.session.userId!, groupIds));
+});
+
+router.post("/dedupe", async (req, res) => {
+  const across = req.body?.across === true;
+  const groupIds = req.body?.groupId ? [Number(req.body.groupId)] : undefined;
+  res.json(await removeDuplicates(req.session.userId!, { across, groupIds: across ? undefined : groupIds }));
+});
+
 // ── Import: a file or pasted text, saved on arrival ───────────────
 // The spreadsheet as it came. lib/phone-import.ts finds the header row on
 // every sheet, every number column (the mobile first, never the fax), the
@@ -178,6 +195,9 @@ router.post("/import", upload.single("file"), async (req, res) => {
   const mobileOnly = b.mobileOnly !== "false" && b.mobileOnly !== false;
   const allMobiles = b.allMobiles === "true" || b.allMobiles === true;
   const verify = b.verify !== "false" && b.verify !== false;
+  // A number already in another list is skipped unless the owner allows it.
+  const allowOtherLists = b.allowOtherLists === "true" || b.allowOtherLists === true;
+  const folderId = Number(b.folderId) || null;
 
   let tables;
   let fileName = "";
@@ -206,8 +226,8 @@ router.post("/import", upload.single("file"), async (req, res) => {
   let saved;
   try {
     saved = groupId
-      ? await saveToGroup(userId, groupId, wa.entries)
-      : await saveToNewGroup(userId, listName, fileName ? `من ملف: ${fileName.slice(0, 80)}` : null, wa.entries);
+      ? await saveToGroup(userId, groupId, wa.entries, { allowOtherLists })
+      : await saveToNewGroup(userId, listName, fileName ? `من ملف: ${fileName.slice(0, 80)}` : null, wa.entries, { allowOtherLists, folderId });
   } catch (err: any) {
     return res.status(400).json({ error: String(err?.message ?? err) });
   }
@@ -220,6 +240,8 @@ router.post("/import", upload.single("file"), async (req, res) => {
     total: parsed.total,
     added: saved.added,
     alreadyInList: saved.existing,
+    inOtherLists: saved.inOtherLists,
+    otherListNames: saved.otherListNames,
     duplicates: wa.duplicates,
     skippedLandline: wa.skippedLandline,
     noNumber: parsed.noNumber,
@@ -345,7 +367,7 @@ router.post("/:id/numbers", async (req, res) => {
 async function batchInsert(groupId: number, entries: { name: string; phone: string }[]) {
   for (let i = 0; i < entries.length; i += INSERT_BATCH) {
     const batch = entries.slice(i, i + INSERT_BATCH);
-    await db.insert(contactsTable).values(batch.map(({ phone, name }) => ({ groupId, phone, name: name || null, status: "active" })));
+    await db.insert(contactsTable).values(batch.map(({ phone, name }) => ({ groupId, phone, name: name || null, status: "active" }))).onConflictDoNothing();
   }
 }
 

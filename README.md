@@ -474,6 +474,26 @@ a list named after the email list, so one file feeds both channels.
 
 50,000 rows parse in about half a second; uploads go to 60 MB.
 
+**Duplicates.** A number is compared by its international form, so
+0501234567, +971 50 123 4567 and 971501234567 are one number
+(`lib/dedupe.ts`). A unique index on (list, number) makes a duplicate inside a
+list impossible, and every insert path ignores one instead of failing. An
+import skips a number already in any other list of the account unless the
+owner allows it, and says which lists had it; a new list whose every number
+was elsewhere is not left behind empty. The lists page counts duplicates —
+within a list, across lists, and numbers stored without their country code —
+and removes them on the owner's word: within lists always keeping the copy
+with a company name, across lists (a separate, confirmed step) keeping the
+copy in the oldest list and carrying a name onto it. Email contacts are
+stored once per address already.
+
+**Folders** (`routes/folders.ts`, `list_folders`, migration 028) hold number
+lists and email lists alike: made in place, renamed, removed (the lists stay),
+a list dragged onto a folder or moved from its card, and "رتّب حسب القطاع"
+putting every unfoldered list into a folder named after its sector — from the
+list's name, or from what most of the companies in it are. A file uploaded
+while a folder is open lands in it.
+
 
 ## Email marketing
 

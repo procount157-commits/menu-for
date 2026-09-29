@@ -196,7 +196,7 @@ router.post("/import-phones", async (req, res) => {
         name: nameMap.get(phone) ?? null,
         status: "active",
       })),
-    );
+    ).onConflictDoNothing();
   }
 
   req.log?.info({ userId, groupId: group!.id, requested: phones.length, imported: unique.length }, "phones imported from conversations");
@@ -240,7 +240,7 @@ router.post("/import-contacts", async (req, res) => {
       phone,
       name: nameMap.get(phone) ?? null,
     }));
-    await db.insert(contactsTable).values(batch);
+    await db.insert(contactsTable).values(batch).onConflictDoNothing();
   }
 
   res.json({ success: true, groupId: group.id, count: phones.length, listName });
@@ -487,7 +487,7 @@ router.post("/extractor/import", async (req, res) => {
       phone,
       name: nameMap.get(phone) ?? null,
     }));
-    await db.insert(contactsTable).values(batch);
+    await db.insert(contactsTable).values(batch).onConflictDoNothing();
   }
 
   res.json({ success: true, groupId: group.id, count: unique.length, listName });

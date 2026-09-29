@@ -601,7 +601,7 @@ router.post("/", async (req, res) => {
 
     const BATCH = 200;
     for (let i = 0; i < unique.length; i += BATCH) {
-      await db.insert(contactsTable).values(unique.slice(i, i + BATCH).map((phone) => ({ groupId: grp.id, phone, status: "active" })));
+      await db.insert(contactsTable).values(unique.slice(i, i + BATCH).map((phone) => ({ groupId: grp.id, phone, status: "active" }))).onConflictDoNothing();
     }
     contactGroupId = grp.id;
   }
