@@ -1,6 +1,6 @@
 import { personalize, firstName, rewriteLinks, pixelTag, htmlToText, renderEmail, signUrl } from "../email/tracking";
 import { normalizeEmail, isRoleAddress, detectColumns, cleanRows, splitBy } from "../email/importer";
-import { assessEmail, sendGapMs } from "../email/health";
+import { assessEmail, sendGapMs, warmupCap, splitAb, pickWinner } from "../email/health";
 
 let pass = 0, total = 0;
 const check = (n: string, c: boolean, d = "") => { total++; if (c) pass++; console.log(`${c ? "✅" : "❌"} ${n.padEnd(58)} ${d}`); };
@@ -62,6 +62,20 @@ check("no opens and no replies at volume is a warning", assessEmail({ ...fine, o
 const gaps = Array.from({ length: 50 }, (_, i) => sendGapMs(40, 1, () => i / 50));
 check("40 an hour means about 90 s apart, jittered", Math.min(...gaps) >= 60_000 && Math.max(...gaps) <= 120_000, `${Math.min(...gaps)}–${Math.max(...gaps)}`);
 check("the gap never drops under 20 s however high the cap", sendGapMs(100000, 1, () => 0) >= 14_000);
+
+// ── Warm-up, the subject test ────────────────────────────────────
+check("a new sender starts at 50 whatever the cap", warmupCap(300, 0) === 50);
+check("...grows about 30% a day", warmupCap(300, 3) === 110, `${warmupCap(300, 3)}`);
+check("...and never passes the owner's cap", warmupCap(300, 30) === 300);
+check("warm-up off means the cap as typed", warmupCap(300, 0, false) === 300);
+check("no test under 40 recipients", splitAb(39, 20).b === 0 && splitAb(39, 20).held === 0);
+const sp = splitAb(1000, 20);
+check("20% of 1,000 is a 200 slice split in two", sp.a === 100 && sp.b === 100 && sp.held === 800, JSON.stringify(sp));
+check("the slice is at least 20", splitAb(60, 5).a + splitAb(60, 5).b === 20);
+check("the slice never exceeds half the list", splitAb(100, 90).held === 50);
+check("more opens wins", pickWinner({ sent: 100, opened: 20, replied: 0 }, { sent: 100, opened: 31, replied: 0 }) === "B");
+check("a tie on opens goes to replies", pickWinner({ sent: 100, opened: 20, replied: 1 }, { sent: 100, opened: 20, replied: 4 }) === "B");
+check("a dead tie keeps A", pickWinner({ sent: 100, opened: 20, replied: 1 }, { sent: 100, opened: 20, replied: 1 }) === "A");
 
 console.log(`\n${pass}/${total} مرّ`);
 process.exit(pass === total ? 0 : 1);

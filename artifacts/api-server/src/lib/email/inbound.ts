@@ -10,7 +10,7 @@
 
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   db, emailSettingsTable, emailContactsTable, emailMessagesTable, emailInboundTable,
   botEmployeesTable, businessProfileTable, type EmailSettings,
@@ -26,6 +26,11 @@ import { logger } from "../logger";
 import { recordEvent, getSettings } from "./service";
 import { sendEmail, messageIdFor, isConfigured } from "./provider";
 import { newToken, htmlToText } from "./tracking";
+import { updateCard } from "../lead-card";
+import { lt, isNotNull } from "drizzle-orm";
+
+/** Intents an automatic reply may answer. A complaint or a refusal waits for a person. */
+export const AUTO_INTENTS = new Set(["interested", "question", "greeting", "unclear"]);
 
 export interface InboundMail {
   from: string;
@@ -68,7 +73,7 @@ export async function handleInbound(userId: number, mail: InboundMail): Promise<
   const refs = [mail.inReplyTo, ...(mail.references ?? "").split(/\s+/)].filter(Boolean) as string[];
   if (refs.length) {
     const [m] = await db.select({ id: emailMessagesTable.id, contactId: emailMessagesTable.contactId }).from(emailMessagesTable)
-      .where(and(eq(emailMessagesTable.userId, userId), sql`${emailMessagesTable.messageIdHdr} = any(${refs})`)).limit(1);
+      .where(and(eq(emailMessagesTable.userId, userId), inArray(emailMessagesTable.messageIdHdr, refs))).limit(1);
     if (m) matched = m;
   }
   if (bounce && !matched) {
@@ -115,9 +120,27 @@ export async function handleInbound(userId: number, mail: InboundMail): Promise<
     if (matched) await recordEvent(userId, matched.id, "unsubscribe", { meta: { via: "reply" } });
   }
 
+  // The same card the WhatsApp side keeps, when the contact has a phone: a
+  // company that writes by email and then by WhatsApp is one lead, and what
+  // it said in the email should be in front of whoever answers next.
+  if (contact?.phone) {
+    await updateCard(userId, contact.phone, text.slice(0, 2000), verdict.intent).catch(() => {});
+  }
+
   // The draft, in the background: the owner sees the reply at once and the
-  // salesman's answer a few seconds later.
-  void draftReply(userId, row!.id).catch((err) => logger.warn({ userId, err: String(err?.message ?? err) }, "تعذّرت مسودة الرد على البريد"));
+  // salesman's answer a few seconds later. With auto-reply on, and for an
+  // intent where a wrong answer costs little, it is scheduled to go out on
+  // its own after the delay a person would take — the owner can still edit
+  // or stop it until then.
+  void draftReply(userId, row!.id).then(async (d) => {
+    if (!d) return;
+    const s = await getSettings(userId);
+    if (!s?.autoReply || !AUTO_INTENTS.has(verdict.intent) || contact?.status !== "active") return;
+    const base = Math.max(2, s.autoReplyDelayMin) * 60_000;
+    const at = new Date(Date.now() + Math.round(base * (0.6 + Math.random() * 0.8)));
+    await db.update(emailInboundTable).set({ autoSendAt: at }).where(eq(emailInboundTable.id, row!.id));
+    logger.info({ userId, inboundId: row!.id, at }, "رد البريد سيُرسل تلقائياً");
+  }).catch((err) => logger.warn({ userId, err: String(err?.message ?? err) }, "تعذّرت مسودة الرد على البريد"));
 
   await notify(userId, [
     `<b>📧 ردّ على البريد</b> — ${esc(mail.fromName ?? from)} &lt;${esc(from)}&gt;`,
@@ -209,7 +232,7 @@ export async function sendReply(userId: number, inboundId: number, subject?: str
   try {
     const r = await sendEmail(s!, { to: inb.fromEmail, toName: inb.fromName, subject: subj, html, text, messageId, unsubscribeUrl: null, inReplyTo: inb.messageIdHdr });
     await db.update(emailMessagesTable).set({ status: "sent", sentAt: new Date(), providerId: r.providerId }).where(eq(emailMessagesTable.id, m!.id));
-    await db.update(emailInboundTable).set({ state: "sent", draftSubject: subj, draftReply: text }).where(eq(emailInboundTable.id, inboundId));
+    await db.update(emailInboundTable).set({ state: "sent", draftSubject: subj, draftReply: text, autoSendAt: null }).where(eq(emailInboundTable.id, inboundId));
     await recordEvent(userId, m!.id, "sent", { meta: { reply: true } });
   } catch (err: any) {
     await db.update(emailMessagesTable).set({ status: "failed", error: String(err?.message ?? err).slice(0, 400) }).where(eq(emailMessagesTable.id, m!.id));
@@ -275,10 +298,26 @@ export async function pollAllMailboxes(): Promise<void> {
   for (const s of rows) await pollMailbox(s).catch(() => {});
 }
 
+/** Drafts whose moment has come. A person who edited or sent one first has already moved it out of "drafted". */
+export async function sendDueAutoReplies(now = new Date()): Promise<number> {
+  const due = await db.select({ id: emailInboundTable.id, userId: emailInboundTable.userId }).from(emailInboundTable)
+    .where(and(eq(emailInboundTable.state, "drafted"), isNotNull(emailInboundTable.autoSendAt), lt(emailInboundTable.autoSendAt, now))).limit(20);
+  let n = 0;
+  for (const d of due) {
+    try { await sendReply(d.userId, d.id); n++; logger.info({ userId: d.userId, inboundId: d.id }, "أُرسل رد البريد تلقائياً"); }
+    catch (err: any) {
+      await db.update(emailInboundTable).set({ autoSendAt: null }).where(eq(emailInboundTable.id, d.id));
+      logger.warn({ inboundId: d.id, err: String(err?.message ?? err) }, "تعذّر الرد التلقائي — ينتظر شخصاً");
+    }
+  }
+  return n;
+}
+
 export function startInboundPolling(): void {
   setTimeout(() => {
     void pollAllMailboxes();
     setInterval(() => void pollAllMailboxes(), 2 * 60_000);
+    setInterval(() => void sendDueAutoReplies().catch(() => {}), 60_000);
   }, 50_000);
   logger.info("قارئ البريد الوارد بدأ");
 }

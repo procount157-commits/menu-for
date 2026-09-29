@@ -502,6 +502,21 @@ Settings can check the sending domain's SPF, DKIM and DMARC (`dns.ts`) and
 say which are missing; without all three the mail lands in spam or not at
 all.
 
+**Running itself** (migration 025). Auto-reply, off by default: the
+salesman's draft goes out on its own after a jittered delay, only for a
+question, interest or a greeting — a complaint or a refusal always waits for
+a person, and any scheduled send can be stopped from the inbox. Warm-up, on
+by default: a new sending address gets 50 a day, +30% a day, up to the cap
+the owner typed. Subject tests: a campaign with a second subject sends each
+to half of a slice (20% by default, at least 20 people, never under 40 on
+the list), holds the rest, and after the wait releases them under whichever
+was opened more — replies break a tie. A reply from a contact with a phone
+updates the same lead card the WhatsApp side keeps, so one company is one
+lead across both channels; the assistant and the evening meeting both see
+the email numbers; a report goes to Telegram at 20:30. Each company has a
+timeline — every send, open, click, reply and bounce, and what is still
+scheduled.
+
 
 ## Hardening
 

@@ -17,7 +17,7 @@ import { logger } from "../logger";
 import { notify, esc } from "../telegram";
 import { sendEmail, SendError, isConfigured, messageIdFor } from "./provider";
 import { newToken, renderEmail, firstName, personalize, unsubscribeUrl } from "./tracking";
-import { assessEmail, sendGapMs, type EmailVerdict } from "./health";
+import { assessEmail, sendGapMs, warmupCap, splitAb, pickWinner, type EmailVerdict } from "./health";
 
 const SITE_URL = () => (process.env["SITE_URL"] ?? "").replace(/\/+$/, "");
 const SECRET   = () => process.env["SESSION_SECRET"] ?? "wam";
@@ -95,17 +95,33 @@ export async function startCampaign(userId: number, campaignId: number): Promise
 
   let queued = 0, skipped = 0;
   const batch: Array<typeof emailMessagesTable.$inferInsert> = [];
-  for (const { c: contact } of members) {
-    if (contact.status !== "active" || contact.mxOk === false || already.has(contact.id)) { skipped++; continue; }
-    batch.push({ userId, campaignId: c.id, contactId: contact.id, toEmail: contact.email, subject: c.subject, token: newToken(), status: "queued" });
+  const eligible = members.map((m) => m.c).filter((contact) => {
+    const ok = contact.status === "active" && contact.mxOk !== false && !already.has(contact.id);
+    if (!ok) skipped++;
+    return ok;
+  });
+
+  // A subject test on a slice of the list, the rest held until it is decided.
+  // Only on a fresh start: a resumed campaign has already made its choice.
+  const testing = !!c.subjectB && c.abPct > 0 && !c.abWinner && already.size === 0;
+  const split = testing ? splitAb(eligible.length, c.abPct) : { a: eligible.length, b: 0, held: 0 };
+  const order = testing ? [...eligible].sort(() => Math.random() - 0.5) : eligible;
+  order.forEach((contact, i) => {
+    const variant = !testing ? null : i < split.a ? "A" : i < split.a + split.b ? "B" : null;
+    const held = testing && variant === null;
+    batch.push({
+      userId, campaignId: c.id, contactId: contact.id, toEmail: contact.email,
+      subject: variant === "B" ? c.subjectB! : c.subject, token: newToken(),
+      status: held ? "ab_hold" : "queued", variant,
+    });
     queued++;
-  }
+  });
   for (let i = 0; i < batch.length; i += 200) await db.insert(emailMessagesTable).values(batch.slice(i, i + 200));
 
   await db.update(emailCampaignsTable).set({ status: "sending", startedAt: c.startedAt ?? new Date(), pauseReason: null })
     .where(eq(emailCampaignsTable.id, c.id));
-  logger.info({ userId, campaignId: c.id, queued, skipped }, "حملة بريد بدأت");
-  return { queued, skipped };
+  logger.info({ userId, campaignId: c.id, queued, skipped, ab: testing ? split : null }, "حملة بريد بدأت");
+  return { queued, skipped, ab: testing ? split : null } as { queued: number; skipped: number; ab?: typeof split | null };
 }
 
 export async function pauseCampaign(userId: number, campaignId: number, reason: string | null = null) {
@@ -248,7 +264,8 @@ async function drainOne(userId: number) {
   const now = Date.now();
   if ((heldUntil.get(userId) ?? 0) > now) return;
 
-  const v = await verdictFor(userId);
+  const sig = await signals(userId);
+  const v = assessEmail(sig);
   if (v.holdMinutes > 0) {
     heldUntil.set(userId, now + v.holdMinutes * 60_000);
     await db.update(emailCampaignsTable).set({ status: "paused", pauseReason: v.reasons.join(" ") })
@@ -267,7 +284,8 @@ async function drainOne(userId: number) {
     db.select({ n: sql<number>`count(*)` }).from(emailMessagesTable).where(and(eq(emailMessagesTable.userId, userId), eq(emailMessagesTable.status, "sent"), gte(emailMessagesTable.sentAt, hour))),
     db.select({ n: sql<number>`count(*)` }).from(emailMessagesTable).where(and(eq(emailMessagesTable.userId, userId), eq(emailMessagesTable.status, "sent"), gte(emailMessagesTable.sentAt, day))),
   ]);
-  if (Number(h?.n) >= s!.hourlyCap || Number(d?.n) >= s!.dailyCap) return;
+  const dailyCap = warmupCap(s!.dailyCap, sig.senderAgeDays, s!.warmup);
+  if (Number(h?.n) >= s!.hourlyCap || Number(d?.n) >= dailyCap) return;
 
   // Next in line: campaigns that are sending, and any sequence rung.
   const sending = db.select({ id: emailCampaignsTable.id }).from(emailCampaignsTable)
@@ -332,7 +350,7 @@ async function completeFinishedCampaigns(userId: number) {
     .where(and(eq(emailCampaignsTable.userId, userId), eq(emailCampaignsTable.status, "sending")));
   for (const c of sending) {
     const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(emailMessagesTable)
-      .where(and(eq(emailMessagesTable.campaignId, c.id), eq(emailMessagesTable.status, "queued")));
+      .where(and(eq(emailMessagesTable.campaignId, c.id), inArray(emailMessagesTable.status, ["queued", "ab_hold"])));
     if (Number(n) === 0) {
       await db.update(emailCampaignsTable).set({ status: "completed", completedAt: new Date() }).where(eq(emailCampaignsTable.id, c.id));
       logger.info({ userId, campaignId: c.id }, "حملة بريد اكتملت");
@@ -385,7 +403,9 @@ export async function overview(userId: number) {
   const rate = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) : null);
   return {
     configured: isConfigured(s),
-    sender: s ? { provider: s.provider, fromName: s.fromName, fromEmail: s.fromEmail, hourlyCap: s.hourlyCap, dailyCap: s.dailyCap, tracking: s.tracking, imap: !!s.imapHost } : null,
+    sender: s ? { provider: s.provider, fromName: s.fromName, fromEmail: s.fromEmail, hourlyCap: s.hourlyCap, dailyCap: s.dailyCap,
+      dailyCapToday: warmupCap(s.dailyCap, (await signals(userId)).senderAgeDays, s.warmup), warmup: s.warmup,
+      tracking: s.tracking, imap: !!s.imapHost, autoReply: s.autoReply } : null,
     trackingBase: SITE_URL() || null,
     contacts: { total: Number(totals?.contacts ?? 0), active: Number(totals?.active ?? 0), unsubscribed: Number(totals?.unsub ?? 0), bounced: Number(totals?.bounced ?? 0), lists: Number(lists?.n ?? 0) },
     today: { sent: Number(c?.sent ?? 0), opened: Number(c?.opened ?? 0), clicked: Number(c?.clicked ?? 0), replied: Number(c?.replied ?? 0), bounced: Number(c?.bounced ?? 0), failed: Number(c?.failed ?? 0),
@@ -398,11 +418,85 @@ export async function overview(userId: number) {
   };
 }
 
+// ── Subject tests ─────────────────────────────────────────────────
+/**
+ * Decide the tests whose slice has been sent and has had time to be read,
+ * and release the held rest under the winning subject.
+ */
+export async function decideAbTests(now = new Date()): Promise<number> {
+  const open = await db.select().from(emailCampaignsTable)
+    .where(and(eq(emailCampaignsTable.status, "sending"), sql`${emailCampaignsTable.abPct} > 0`, isNull(emailCampaignsTable.abWinner)));
+  let decided = 0;
+  for (const c of open) {
+    const [st] = await db.select({
+      pending: sql<number>`count(*) filter (where ${emailMessagesTable.variant} is not null and ${emailMessagesTable.status} = 'queued')`,
+      held:    sql<number>`count(*) filter (where ${emailMessagesTable.status} = 'ab_hold')`,
+      lastAt:  sql<Date | null>`max(${emailMessagesTable.sentAt}) filter (where ${emailMessagesTable.variant} is not null)`,
+      aSent:   sql<number>`count(*) filter (where ${emailMessagesTable.variant} = 'A' and ${emailMessagesTable.sentAt} is not null)`,
+      aOpen:   sql<number>`count(*) filter (where ${emailMessagesTable.variant} = 'A' and ${emailMessagesTable.openedAt} is not null)`,
+      aReply:  sql<number>`count(*) filter (where ${emailMessagesTable.variant} = 'A' and ${emailMessagesTable.repliedAt} is not null)`,
+      bSent:   sql<number>`count(*) filter (where ${emailMessagesTable.variant} = 'B' and ${emailMessagesTable.sentAt} is not null)`,
+      bOpen:   sql<number>`count(*) filter (where ${emailMessagesTable.variant} = 'B' and ${emailMessagesTable.openedAt} is not null)`,
+      bReply:  sql<number>`count(*) filter (where ${emailMessagesTable.variant} = 'B' and ${emailMessagesTable.repliedAt} is not null)`,
+    }).from(emailMessagesTable).where(eq(emailMessagesTable.campaignId, c.id));
+    if (!st || Number(st.pending) > 0 || !st.lastAt) continue;
+    if (now.getTime() - new Date(st.lastAt).getTime() < c.abWaitHours * 3_600_000) continue;
+
+    const winner = pickWinner(
+      { sent: Number(st.aSent), opened: Number(st.aOpen), replied: Number(st.aReply) },
+      { sent: Number(st.bSent), opened: Number(st.bOpen), replied: Number(st.bReply) });
+    const subject = winner === "B" ? c.subjectB! : c.subject;
+    await db.update(emailMessagesTable).set({ status: "queued", subject, variant: winner })
+      .where(and(eq(emailMessagesTable.campaignId, c.id), eq(emailMessagesTable.status, "ab_hold")));
+    await db.update(emailCampaignsTable).set({ abWinner: winner, abDecidedAt: now }).where(eq(emailCampaignsTable.id, c.id));
+    const pctOf = (o: unknown, s: unknown) => (Number(s) ? `${Math.round((Number(o) / Number(s)) * 100)}%` : "—");
+    await notify(c.userId, [
+      `<b>📧 اختبار العنوان حُسم — ${esc(c.name)}</b>`,
+      `A: ${esc(c.subject)} — فتح ${pctOf(st.aOpen, st.aSent)}`,
+      `B: ${esc(c.subjectB ?? "")} — فتح ${pctOf(st.bOpen, st.bSent)}`,
+      `الفائز ${winner}. يُرسل الآن إلى ${Number(st.held)} الباقين.`,
+    ].join("\n")).catch(() => {});
+    logger.info({ campaignId: c.id, winner, held: Number(st.held) }, "اختبار العنوان حُسم");
+    decided++;
+  }
+  return decided;
+}
+
+// ── The evening report ────────────────────────────────────────────
+export async function dailyEmailReport(userId: number): Promise<boolean> {
+  const o = await overview(userId);
+  if (!o.today.sent && !o.today.replied && !o.queue.queued) return false;
+  const [top] = await Promise.all([
+    db.select({ name: emailCampaignsTable.name, sent: emailCampaignsTable.sentCount, open: emailCampaignsTable.openCount, reply: emailCampaignsTable.replyCount, status: emailCampaignsTable.status })
+      .from(emailCampaignsTable).where(and(eq(emailCampaignsTable.userId, userId), inArray(emailCampaignsTable.status, ["sending", "paused", "completed"])))
+      .orderBy(desc(emailCampaignsTable.startedAt)).limit(3),
+  ]);
+  return notify(userId, [
+    "<b>📧 البريد اليوم</b>",
+    `أُرسل ${o.today.sent} · فُتح ${o.today.opened} (${o.today.openRate ?? "—"}%) · نقر ${o.today.clicked} · ردّ ${o.today.replied} · ارتدّ ${o.today.bounced}`,
+    `الأسبوع: فتح ${o.week.openRate ?? "—"}% · رد ${o.week.replyRate ?? "—"}% · ارتداد ${o.week.bounceRate ?? "—"}%`,
+    `في الطابور ${o.queue.queued} · متابعات مجدولة ${o.queue.pendingRungs}`,
+    ...top.map((c) => `• ${esc(c.name)} — ${c.sent} أُرسل، ${c.open} فتح، ${c.reply} رد (${c.status})`),
+    o.health.reasons.length ? `\n⚠️ ${esc(o.health.reasons.join(" "))}` : "",
+  ].filter(Boolean).join("\n"));
+}
+
 export function startEmailWorkers(): void {
+  let lastReportDay = "";
   setTimeout(() => {
     setInterval(() => void drainQueues().catch((e) => logger.warn({ err: String(e?.message ?? e) }, "email drain failed")), 20_000);
     setInterval(() => void enqueueDueSequenceSteps().catch(() => {}), 60_000);
     setInterval(() => void startScheduled().catch(() => {}), 60_000);
+    setInterval(() => void decideAbTests().catch(() => {}), 5 * 60_000);
+    // 20:30 Gulf time, once a day, to every account that sent something.
+    setInterval(async () => {
+      const gulf = new Date(Date.now() + 4 * 3_600_000);
+      const day = gulf.toISOString().slice(0, 10);
+      if (gulf.getUTCHours() !== 20 || gulf.getUTCMinutes() < 30 || day === lastReportDay) return;
+      lastReportDay = day;
+      const users = await db.selectDistinct({ userId: emailSettingsTable.userId }).from(emailSettingsTable);
+      for (const { userId } of users) await dailyEmailReport(userId).catch(() => {});
+    }, 5 * 60_000);
   }, 40_000);
   logger.info("عامل البريد بدأ");
 }

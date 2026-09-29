@@ -115,7 +115,7 @@ function Overview({ ov }: { ov: any }) {
         <Stat label="نقر الروابط" value={pct(w.clickRate)} sub={`${w.clicked ?? 0} نقروا`} />
         <Stat label="الردود" value={pct(w.replyRate)} sub={`${w.replied ?? 0} ردّوا`} tone="text-green-400" />
         <Stat label="الارتداد" value={pct(w.bounceRate)} sub={`${w.bounced ?? 0} ارتدّت`} tone={(w.bounceRate ?? 0) >= 3 ? "text-red-400" : undefined} />
-        <Stat label="في الطابور" value={q.queued ?? 0} sub={`${q.pendingRungs ?? 0} متابعة مجدولة`} />
+        <Stat label="في الطابور" value={q.queued ?? 0} sub={`${q.pendingRungs ?? 0} متابعة · حصة اليوم ${ov.sender?.dailyCapToday ?? "—"}${ov.sender?.warmup && ov.sender?.dailyCapToday < ov.sender?.dailyCap ? " (إحماء)" : ""}`} />
       </div>
 
       <div className={cn(card, "p-4", h.level === "critical" && "border-red-500/40", h.level === "warning" && "border-yellow-500/30")}>
@@ -279,8 +279,10 @@ function Contacts() {
   const setStat = useMutation({ mutationFn: ({ id, s }: { id: number; s: string }) => api(`/api/email/contacts/${id}`, { method: "PATCH", body: JSON.stringify({ status: s }) }), onSuccess: () => qc.invalidateQueries({ queryKey: ["email-contacts"] }) });
   const delList = useMutation({ mutationFn: (id: number) => api(`/api/email/lists/${id}`, { method: "DELETE" }), onSuccess: () => { setListId(null); qc.invalidateQueries({ queryKey: ["email-lists"] }); } });
   const S: Record<string, string> = { active: "نشط", unsubscribed: "ألغى", bounced: "ارتدّ", complained: "بلّغ" };
+  const [openId, setOpenId] = useState<number | null>(null);
   return (
     <div className="grid lg:grid-cols-[16rem_1fr] gap-4">
+      {openId && <ContactDrawer id={openId} onClose={() => setOpenId(null)} />}
       <div className={cn(card, "p-3 space-y-1 h-fit")}>
         <button onClick={() => setListId(null)} className={cn("w-full text-right px-2 py-1.5 rounded text-xs", listId === null ? "bg-muted" : "hover:bg-muted/50")}>كل جهات الاتصال</button>
         {lists.map((l) => (
@@ -301,7 +303,7 @@ function Contacts() {
           <table className="w-full text-[11px]"><thead className="sticky top-0 bg-card"><tr className="text-muted-foreground"><th className="text-right p-2">البريد</th><th className="text-right p-2">الشركة</th><th className="text-right p-2">النشاط / المدينة</th><th className="text-right p-2">الحالة</th><th className="text-right p-2">آخر إرسال</th><th className="text-right p-2">فتح</th><th className="text-right p-2">ردّ</th><th></th></tr></thead>
             <tbody>{(data?.rows ?? []).map((c: any) => (
               <tr key={c.id} className="border-t border-card-border">
-                <td className="p-2 font-mono" dir="ltr">{c.email}{c.mxOk === false && <span title="النطاق لا يستقبل بريداً" className="text-red-400"> ✗</span>}</td>
+                <td className="p-2 font-mono cursor-pointer hover:text-primary" dir="ltr" onClick={() => setOpenId(c.id)}>{c.email}{c.mxOk === false && <span title="النطاق لا يستقبل بريداً" className="text-red-400"> ✗</span>}</td>
                 <td className="p-2">{c.company ?? c.name ?? ""}</td><td className="p-2 text-muted-foreground">{[c.industry, c.city].filter(Boolean).join(" · ")}</td>
                 <td className="p-2"><span className={cn("px-1.5 py-0.5 rounded", c.status === "active" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>{S[c.status] ?? c.status}</span></td>
                 <td className="p-2 text-muted-foreground">{ago(c.lastSentAt)}</td><td className="p-2 text-muted-foreground">{ago(c.lastOpenedAt)}</td><td className="p-2 text-muted-foreground">{ago(c.lastRepliedAt)}</td>
@@ -317,7 +319,7 @@ function Contacts() {
 function Campaigns() {
   const qc = useQueryClient();
   const [open, setOpen] = useState<number | null>(null);
-  const [form, setForm] = useState<{ name: string; listId: string; subject: string; html: string } | null>(null);
+  const [form, setForm] = useState<{ name: string; listId: string; subject: string; html: string; subjectB?: string; abPct?: number; abWaitHours?: number } | null>(null);
   const { data: rows = [] } = useQuery<any[]>({ queryKey: ["email-campaigns"], queryFn: () => api("/api/email/campaigns"), refetchInterval: 10_000 });
   const { data: lists = [] } = useQuery<any[]>({ queryKey: ["email-lists"], queryFn: () => api("/api/email/lists") });
   const { data: templates = [] } = useQuery<any[]>({ queryKey: ["email-templates"], queryFn: () => api("/api/email/templates") });
@@ -340,6 +342,12 @@ function Campaigns() {
             <div><label className="text-xs font-semibold block mb-1.5">من قالب</label><select className={input} defaultValue="" onChange={(e) => { const t = templates.find((x) => String(x.id) === e.target.value); if (t) setForm({ ...form, subject: t.subject, html: t.html, name: form.name || t.name }); }}><option value="">—</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
           </div>
           <div><label className="text-xs font-semibold block mb-1.5">العنوان</label><input className={input} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="{{company}} و…" /></div>
+          <div className="grid md:grid-cols-[1fr_8rem_8rem] gap-3">
+            <div><label className="text-xs font-semibold block mb-1.5">عنوان بديل للاختبار (اختياري)</label><input className={input} value={form.subjectB ?? ""} onChange={(e) => setForm({ ...form, subjectB: e.target.value })} placeholder="يُرسل لنصف شريحة الاختبار" /></div>
+            <div><label className="text-xs font-semibold block mb-1.5">شريحة الاختبار %</label><input type="number" className={input} value={form.abPct ?? 20} onChange={(e) => setForm({ ...form, abPct: Number(e.target.value) })} /></div>
+            <div><label className="text-xs font-semibold block mb-1.5">انتظار (ساعات)</label><input type="number" className={input} value={form.abWaitHours ?? 4} onChange={(e) => setForm({ ...form, abWaitHours: Number(e.target.value) })} /></div>
+          </div>
+          {form.subjectB && <p className="text-[11px] text-muted-foreground">نصف الشريحة يأخذ العنوان الأول والنصف الآخر البديل؛ بعد الانتظار يُرسل الباقي بالعنوان الذي فُتح أكثر. لا اختبار لقائمة أقل من ٤٠.</p>}
           <div><label className="text-xs font-semibold block mb-1.5">المحتوى (HTML — تُقبل {"{{name}} {{first_name}} {{company}} {{city}} {{sender}}"})</label><textarea className={ta} value={form.html} onChange={(e) => setForm({ ...form, html: e.target.value })} /></div>
           <div className="flex gap-2"><button onClick={() => create.mutate({ ...form, listId: Number(form.listId) })} disabled={create.isPending} className={primary}>احفظ كمسودة</button><button onClick={() => setForm(null)} className={ghost}>إلغاء</button><PreviewButton subject={form.subject} html={form.html} /></div>
         </div>
@@ -380,6 +388,16 @@ function CampaignDetail({ id }: { id: number }) {
         ))}
       </div>
       {total > 0 && <div className="h-2 rounded-full bg-muted overflow-hidden" dir="ltr"><div className="h-full bg-primary" style={{ width: `${Math.round(((f.sent ?? 0) / total) * 100)}%` }} /></div>}
+      {data.ab && (
+        <div className="rounded-lg border border-card-border p-3 text-xs space-y-1">
+          <p className="font-semibold">اختبار العنوان {data.ab.winner ? `— الفائز ${data.ab.winner}` : f.held ? `— ${f.held} ينتظرون الحسم` : ""}</p>
+          {(data.ab.variants ?? []).map((v: any) => (
+            <p key={v.variant} className={cn(data.ab.winner === v.variant && "text-primary")}>
+              {v.variant}: «{v.variant === "B" ? data.campaign.subjectB : data.campaign.subject}» — أُرسل {v.sent} · فتح {v.sent ? Math.round((v.opened / v.sent) * 100) : 0}% · رد {v.replied}
+            </p>
+          ))}
+        </div>
+      )}
       <div className="max-h-72 overflow-y-auto"><table className="w-full text-[11px]"><thead className="sticky top-0 bg-card text-muted-foreground"><tr><th className="text-right p-1.5">إلى</th><th className="text-right p-1.5">الشركة</th><th className="text-right p-1.5">الحالة</th><th className="text-right p-1.5">أُرسل</th><th className="text-right p-1.5"><Eye className="w-3 h-3 inline" /></th><th className="text-right p-1.5"><MousePointerClick className="w-3 h-3 inline" /></th><th className="text-right p-1.5"><Reply className="w-3 h-3 inline" /></th></tr></thead>
         <tbody>{(data.recipients ?? []).map((r: any) => <tr key={r.id} className="border-t border-card-border"><td className="p-1.5 font-mono" dir="ltr">{r.toEmail}</td><td className="p-1.5">{r.company ?? r.name ?? ""}</td><td className={cn("p-1.5", r.status === "bounced" || r.status === "failed" ? "text-red-400" : "")}>{r.status}{r.error ? ` — ${String(r.error).slice(0, 60)}` : ""}</td><td className="p-1.5 text-muted-foreground">{ago(r.sentAt)}</td><td className="p-1.5">{r.openCount || ""}</td><td className="p-1.5">{r.clickCount || ""}</td><td className="p-1.5">{r.repliedAt ? "✓" : ""}</td></tr>)}</tbody></table></div>
     </div>
@@ -496,6 +514,7 @@ function InboxTab() {
   const redraft = useMutation({ mutationFn: (id: number) => api(`/api/email/inbound/${id}/draft`, { method: "POST" }), onSuccess: (d: any) => { setDraft({ subject: d.subject, body: d.body }); inv(); }, onError: (e: Error) => toast.error(e.message) });
   const send = useMutation({ mutationFn: (id: number) => api(`/api/email/inbound/${id}/send`, { method: "POST", body: JSON.stringify(draft) }), onSuccess: () => { inv(); toast.success("أُرسل الرد"); setOpen(null); }, onError: (e: Error) => toast.error(e.message) });
   const ignore = useMutation({ mutationFn: (id: number) => api(`/api/email/inbound/${id}/ignore`, { method: "POST" }), onSuccess: inv });
+  const hold = useMutation({ mutationFn: (id: number) => api(`/api/email/inbound/${id}/hold`, { method: "POST" }), onSuccess: () => { inv(); toast.success("لن يُرسل تلقائياً — ينتظرك"); } });
   const poll = useMutation({ mutationFn: () => api("/api/email/settings/poll", { method: "POST" }), onSuccess: (d: any) => { inv(); toast.success(d.lastError ? `خطأ: ${d.lastError}` : `قُرئت ${d.handled} رسالة`); }, onError: (e: Error) => toast.error(e.message) });
   const INTENT: Record<string, string> = { interested: "مهتم", question: "سؤال", not_interested: "غير مهتم", complaint: "شكوى", opt_out: "إيقاف", greeting: "تحية", unclear: "غير واضح" };
   const cur = rows.find((r) => r.id === open);
@@ -523,6 +542,9 @@ function InboxTab() {
           <div className="flex items-center gap-2"><p className="text-xs font-semibold">ردّ هال</p><button onClick={() => redraft.mutate(cur.id)} disabled={redraft.isPending} className={ghost}>{redraft.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} {cur.draftReply ? "أعد الصياغة" : "اكتب مسودة"}</button></div>
           <input className={input} value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} />
           <textarea className={cn(input, "min-h-[12rem] leading-relaxed")} dir="auto" value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} placeholder="المسودة تظهر هنا — عدّلها ثم أرسل" />
+          {cur.autoSendAt && cur.state === "drafted" && (
+            <p className="text-[11px] text-blue-400">سيُرسل تلقائياً {new Date(cur.autoSendAt).toLocaleTimeString("ar-AE", { hour: "2-digit", minute: "2-digit" })} — عدّله وأرسله بنفسك، أو <button onClick={() => hold.mutate(cur.id)} className="underline">أوقف الإرسال التلقائي</button>.</p>
+          )}
           <div className="flex gap-2"><button onClick={() => send.mutate(cur.id)} disabled={send.isPending || !draft.body.trim() || cur.state === "sent"} className={primary}><Send className="w-3.5 h-3.5" /> أرسل الرد</button><button onClick={() => ignore.mutate(cur.id)} className={ghost}>تجاهل</button></div>
         </>}
       </div>
@@ -561,6 +583,14 @@ function SettingsTab() {
         <p className="text-[11px] text-muted-foreground">ابدأ بحصة صغيرة (٤٠ في الساعة، ٣٠٠ في اليوم) لعنوان جديد وارفعها بعد أسبوعين من ارتداد منخفض. الإرسال داخل ساعات العمل فقط.</p>
       </div>
       <div className={cn(card, "p-4 space-y-3")}>
+        <p className="text-sm font-semibold">العمل الذاتي</p>
+        <label className="text-xs flex items-start gap-2"><input type="checkbox" className="mt-0.5" checked={f.warmup !== false} onChange={(e) => setF({ ...f, warmup: e.target.checked })} />
+          <span><b>إحماء المُرسِل</b> — عنوان جديد يبدأ بـ٥٠ رسالة يومياً ويزيد ٣٠٪ يومياً حتى حصة اليوم التي كتبتها. مزوّدو البريد يحكمون على المُرسِل من أسابيعه الأولى.</span></label>
+        <label className="text-xs flex items-start gap-2"><input type="checkbox" className="mt-0.5" checked={!!f.autoReply} onChange={(e) => setF({ ...f, autoReply: e.target.checked })} />
+          <span><b>الرد التلقائي</b> — يُرسل هال مسودته وحده بعد تأخير، على الأسئلة والاهتمام والتحية فقط. الشكوى والرفض ينتظرانك دائماً، وتستطيع إيقاف أي رد قبل إرساله.</span></label>
+        {f.autoReply && <div className="w-48"><label className="text-xs font-semibold block mb-1.5">التأخير (دقائق، ± عشوائي)</label><input type="number" className={input} value={f.autoReplyDelayMin ?? 12} onChange={(e) => setF({ ...f, autoReplyDelayMin: Number(e.target.value) })} /></div>}
+      </div>
+      <div className={cn(card, "p-4 space-y-3")}>
         <p className="text-sm font-semibold">قراءة الردود (IMAP)</p>
         <div className="grid md:grid-cols-4 gap-3"><L l="IMAP host" k="imapHost" ph="imap.gmail.com" /><L l="المنفذ" k="imapPort" type="number" /><L l="المستخدم" k="imapUser" /><L l="كلمة المرور" k="imapPass" type="password" /></div>
         <p className="text-[11px] text-muted-foreground">يُقرأ صندوق الوارد كل دقيقتين؛ كل رد يُصنَّف ويُلخَّص ويكتب هال مسودة الرد. {data?.settings?.imapLastError && <span className="text-red-400">آخر خطأ: {data.settings.imapLastError}</span>}
@@ -581,6 +611,43 @@ function SettingsTab() {
           <p className="text-[11px] text-muted-foreground">بدون الثلاثة تصل رسائلك إلى «غير المرغوب» أو لا تصل. تُضاف من لوحة DNS لنطاقك.</p>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── One company, everything that happened with it ────────────────
+function ContactDrawer({ id, onClose }: { id: number; onClose: () => void }) {
+  const { data } = useQuery<any>({ queryKey: ["email-contact", id], queryFn: () => api(`/api/email/contacts/${id}`), refetchInterval: 15_000 });
+  const c = data?.contact;
+  type Item = { at: string; kind: string; text: string; cls?: string };
+  const items: Item[] = [];
+  for (const m of data?.messages ?? []) {
+    if (m.sentAt) items.push({ at: m.sentAt, kind: "أُرسلت", text: m.subject });
+    if (m.openedAt) items.push({ at: m.openedAt, kind: "فتح", text: `${m.subject}${m.openCount > 1 ? ` (${m.openCount} مرات)` : ""}`, cls: "text-blue-400" });
+    if (m.clickedAt) items.push({ at: m.clickedAt, kind: "نقر", text: m.subject, cls: "text-primary" });
+    if (m.bouncedAt) items.push({ at: m.bouncedAt, kind: "ارتدّت", text: m.error ?? m.subject, cls: "text-red-400" });
+    if (m.status === "failed") items.push({ at: m.createdAt, kind: "فشلت", text: m.error ?? "", cls: "text-red-400" });
+  }
+  for (const i of data?.inbound ?? []) items.push({ at: i.receivedAt, kind: "ردّ", text: i.summary ?? i.text?.slice(0, 160) ?? "", cls: "text-green-400" });
+  items.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  const pending = (data?.jobs ?? []).filter((j: any) => j.status === "pending");
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex justify-start" onClick={onClose}>
+      <div className="w-full max-w-md h-full bg-background border-l border-card-border overflow-y-auto p-4 space-y-4" onClick={(e) => e.stopPropagation()}>
+        {!c ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : <>
+          <div>
+            <p className="font-bold">{c.company ?? c.name ?? c.email}</p>
+            <p className="text-xs font-mono text-muted-foreground" dir="ltr">{c.email}{c.phone ? ` · +${c.phone}` : ""}</p>
+            <p className="text-[11px] text-muted-foreground mt-1">{[c.name, c.industry, c.city, c.source].filter(Boolean).join(" · ")}</p>
+          </div>
+          {pending.length > 0 && <div className="rounded-lg border border-card-border p-3 text-xs"><p className="font-semibold mb-1">المتابعات المجدولة</p>{pending.map((j: any) => <p key={j.id} className="text-muted-foreground">الخطوة {j.stepIndex + 1} — {new Date(j.dueAt).toLocaleString("ar-AE", { dateStyle: "short", timeStyle: "short" })}</p>)}</div>}
+          <div className="space-y-2">
+            {items.length === 0 ? <p className="text-xs text-muted-foreground">لم يحدث شيء بعد.</p> : items.map((it, i) => (
+              <div key={i} className="text-xs border-r-2 border-card-border pr-2"><span className={cn("font-semibold", it.cls)}>{it.kind}</span> <span className="text-muted-foreground">{ago(it.at)}</span><p className="text-muted-foreground">{it.text}</p></div>
+            ))}
+          </div>
+        </>}
+      </div>
     </div>
   );
 }

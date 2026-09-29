@@ -66,3 +66,34 @@ export function sendGapMs(hourlyCap: number, throttle = 1, rand = Math.random): 
   const jitter = 0.7 + rand() * 0.6;
   return Math.round(base * jitter * throttle);
 }
+
+/**
+ * A new sending address's allowance for today. Mailbox providers judge a
+ * sender by its first weeks, and an address that sends 300 on day one to
+ * people who never asked looks exactly like what it is. 50 on day zero,
+ * +30% a day, never above what the owner set.
+ */
+export function warmupCap(dailyCap: number, senderAgeDays: number, on = true): number {
+  if (!on) return dailyCap;
+  return Math.min(dailyCap, Math.round(50 * Math.pow(1.3, Math.max(0, senderAgeDays))));
+}
+
+/**
+ * How many of a list go to the subject test, and how they split. Below 40
+ * recipients a test measures noise, so there is none; the slice is at least
+ * 20 so each variant has ten opens' worth of chance.
+ */
+export function splitAb(n: number, pct: number): { a: number; b: number; held: number } {
+  if (pct <= 0 || n < 40) return { a: n, b: 0, held: 0 };
+  const test = Math.min(n, Math.max(20, Math.ceil(n * Math.min(50, pct) / 100)));
+  const a = Math.ceil(test / 2), b = test - a;
+  return { a, b, held: n - test };
+}
+
+/** The winning letter: opens first, then replies, then A. */
+export function pickWinner(a: { sent: number; opened: number; replied: number }, b: { sent: number; opened: number; replied: number }): "A" | "B" {
+  const r = (x: typeof a, k: "opened" | "replied") => (x.sent > 0 ? x[k] / x.sent : 0);
+  if (r(b, "opened") > r(a, "opened")) return "B";
+  if (r(b, "opened") < r(a, "opened")) return "A";
+  return r(b, "replied") > r(a, "replied") ? "B" : "A";
+}

@@ -28,6 +28,7 @@ import { skillsFor, skillsPreamble } from "./agent-skills";
 import { notify, esc } from "./telegram";
 import { say } from "./agent-comms";
 import { logger } from "./logger";
+import { overview as emailOverview } from "./email/service";
 
 export const CHAIR = "chief";
 
@@ -112,7 +113,9 @@ async function buildAgenda(userId: number): Promise<Agenda> {
       .orderBy(desc(autoReplyLogTable.createdAt)).limit(3),
   ]);
 
+  const em = await emailOverview(userId).catch(() => null);
   return {
+    ...(em && em.week.sent > 0 ? { "البريد": { "أُرسل ٧ أيام": em.week.sent, "فتح %": em.week.openRate, "رد %": em.week.replyRate, "ارتداد %": em.week.bounceRate, "ردود اليوم": em.today.replied } } : {}),
     "ردود ٢٤ ساعة": Number(replies?.replied ?? 0),
     "صمت":          Number(replies?.silent ?? 0),
     "أدّى لاهتمام":  Number(replies?.wins ?? 0),

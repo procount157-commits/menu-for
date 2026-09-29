@@ -16,6 +16,7 @@ import { getProfile } from "./knowledge";
 import { getDailySentCount, getEffectiveDailyLimit } from "./daily-limit";
 import { complete, activeProvider } from "./llm";
 import { logger } from "./logger";
+import { overview as emailOverview } from "./email/service";
 import { INTERVIEW_KIND, INTERVIEW_DONE, QUESTIONS, STOP, interviewPrompt, managerFor, harvest, applyHarvest } from "./onboarding";
 
 /** How much of a thread is replayed to the model. */
@@ -70,6 +71,7 @@ export async function buildContext(userId: number): Promise<string> {
   ]);
 
   const c = campaignStats[0], ct = contactStats[0], w = sentWeek[0], l = leadStats[0], f = followUps[0];
+  const em = await emailOverview(userId).catch(() => null);
   const pct = (n: number, d: number) => (d > 0 ? `${Math.round((n / d) * 100)}%` : "—");
   const weekSent = Number(w?.sent ?? 0);
 
@@ -86,6 +88,7 @@ export async function buildContext(userId: number): Promise<string> {
     `العملاء: ${l?.total ?? 0} — منهم ${l?.ad ?? 0} من إعلانات و${l?.hot ?? 0} مهتمون`,
     `المتابعات: ${f?.pending ?? 0} مجدولة، ${f?.sent ?? 0} أُرسلت`,
     `قاعدة المعرفة: ${kbCount[0]?.n ?? 0} عنصراً · ألغوا الاشتراك: ${optOuts[0]?.n ?? 0}`,
+    em ? `البريد (٧ أيام): أُرسل ${em.week.sent}، فتح ${em.week.openRate ?? "—"}%، رد ${em.week.replyRate ?? "—"}%، ارتداد ${em.week.bounceRate ?? "—"}% · جهات اتصال نشطة ${em.contacts.active} · في الطابور ${em.queue.queued}${em.configured ? "" : " · (المُرسِل غير مضبوط)"}` : "",
   ].filter(Boolean).join("\n");
 }
 

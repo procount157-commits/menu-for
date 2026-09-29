@@ -64,6 +64,9 @@ router.put("/settings", async (req, res) => {
     dailyCap: Math.min(5000, Math.max(10, Number(b.dailyCap) || 300)),
     tracking: b.tracking !== false,
     imapHost: b.imapHost ?? null, imapPort: Number(b.imapPort) || 993, imapUser: b.imapUser ?? null, imapPass: keep(b.imapPass, cur?.imapPass),
+    autoReply: !!b.autoReply,
+    autoReplyDelayMin: Math.min(240, Math.max(2, Number(b.autoReplyDelayMin) || 12)),
+    warmup: b.warmup !== false,
     inboundToken: cur?.inboundToken ?? randomBytes(18).toString("base64url"),
     updatedAt: new Date(),
   };
@@ -316,17 +319,22 @@ router.get("/campaigns", async (req, res) => {
   res.json(rows.map((r) => ({ ...r.c, listName: r.list })));
 });
 router.post("/campaigns", async (req, res) => {
-  const { name, listId, subject, html, scheduledAt } = req.body ?? {};
+  const { name, listId, subject, html, scheduledAt, subjectB, abPct, abWaitHours } = req.body ?? {};
   if (!name || !subject || !html) return res.status(400).json({ error: "الاسم والعنوان والمحتوى مطلوبة" });
   const [c] = await db.insert(emailCampaignsTable).values({
     userId: req.session.userId!, name: String(name).slice(0, 160), listId: Number(listId) || null, subject: String(subject).slice(0, 300), html: String(html),
     status: scheduledAt ? "scheduled" : "draft", scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
+    subjectB: subjectB ? String(subjectB).slice(0, 300) : null,
+    abPct: subjectB ? Math.min(50, Math.max(0, Number(abPct) || 20)) : 0,
+    abWaitHours: Math.min(48, Math.max(1, Number(abWaitHours) || 4)),
   }).returning();
   res.status(201).json(c);
 });
 router.patch("/campaigns/:id", async (req, res) => {
   const set: Record<string, unknown> = {};
-  for (const k of ["name", "subject", "html"] as const) if (req.body?.[k] !== undefined) set[k] = req.body[k];
+  for (const k of ["name", "subject", "html", "subjectB"] as const) if (req.body?.[k] !== undefined) set[k] = req.body[k];
+  if (req.body?.abPct !== undefined) set["abPct"] = Math.min(50, Math.max(0, Number(req.body.abPct) || 0));
+  if (req.body?.abWaitHours !== undefined) set["abWaitHours"] = Math.min(48, Math.max(1, Number(req.body.abWaitHours) || 4));
   if (req.body?.listId !== undefined) set["listId"] = Number(req.body.listId) || null;
   if (req.body?.scheduledAt !== undefined) { set["scheduledAt"] = req.body.scheduledAt ? new Date(req.body.scheduledAt) : null; set["status"] = req.body.scheduledAt ? "scheduled" : "draft"; }
   const [c] = await db.update(emailCampaignsTable).set(set).where(and(eq(emailCampaignsTable.id, Number(req.params.id)), eq(emailCampaignsTable.userId, req.session.userId!), inArray(emailCampaignsTable.status, ["draft", "scheduled", "paused"]))).returning();
@@ -352,7 +360,8 @@ router.get("/campaigns/:id", async (req, res) => {
       .leftJoin(emailContactsTable, eq(emailContactsTable.id, emailMessagesTable.contactId))
       .where(eq(emailMessagesTable.campaignId, c.id)).orderBy(desc(emailMessagesTable.sentAt)).limit(2000),
     db.select({
-      queued: sql<number>`count(*) filter (where ${emailMessagesTable.status} = 'queued')`,
+      queued: sql<number>`count(*) filter (where ${emailMessagesTable.status} in ('queued','ab_hold'))`,
+      held:   sql<number>`count(*) filter (where ${emailMessagesTable.status} = 'ab_hold')`,
       sent: sql<number>`count(*) filter (where ${emailMessagesTable.status} in ('sent','bounced'))`,
       opened: sql<number>`count(*) filter (where ${emailMessagesTable.openedAt} is not null)`,
       clicked: sql<number>`count(*) filter (where ${emailMessagesTable.clickedAt} is not null)`,
@@ -364,7 +373,16 @@ router.get("/campaigns/:id", async (req, res) => {
       .from(emailEventsTable).innerJoin(emailMessagesTable, eq(emailMessagesTable.id, emailEventsTable.messageId))
       .where(eq(emailMessagesTable.campaignId, c.id)).groupBy(sql`1`, emailEventsTable.type).orderBy(sql`1`),
   ]);
-  res.json({ campaign: c, funnel: Object.fromEntries(Object.entries(funnel ?? {}).map(([k, v]) => [k, Number(v)])), recipients: recipients.map((r) => ({ ...r.m, name: r.name, company: r.company })), timeline: byHour.map((r) => ({ hour: r.h, type: r.type, n: Number(r.n) })) });
+  const variants = c.abPct > 0 ? await db.select({
+    v: emailMessagesTable.variant,
+    sent: sql<number>`count(*) filter (where ${emailMessagesTable.sentAt} is not null)`,
+    opened: sql<number>`count(*) filter (where ${emailMessagesTable.openedAt} is not null)`,
+    replied: sql<number>`count(*) filter (where ${emailMessagesTable.repliedAt} is not null)`,
+  }).from(emailMessagesTable).where(and(eq(emailMessagesTable.campaignId, c.id), sql`${emailMessagesTable.variant} is not null`, sql`${emailMessagesTable.createdAt} <= coalesce(${c.abDecidedAt ?? null}::timestamptz, now())`))
+    .groupBy(emailMessagesTable.variant) : [];
+  res.json({ campaign: c, funnel: Object.fromEntries(Object.entries(funnel ?? {}).map(([k, v]) => [k, Number(v)])),
+    ab: c.abPct > 0 ? { winner: c.abWinner, decidedAt: c.abDecidedAt, variants: variants.map((x) => ({ variant: x.v, sent: Number(x.sent), opened: Number(x.opened), replied: Number(x.replied) })) } : null,
+    recipients: recipients.map((r) => ({ ...r.m, name: r.name, company: r.company })), timeline: byHour.map((r) => ({ hour: r.h, type: r.type, n: Number(r.n) })) });
 });
 
 // ── Sequences ─────────────────────────────────────────────────────
@@ -435,8 +453,13 @@ router.post("/inbound/:id/send", async (req, res) => {
     res.json(await sendReply(req.session.userId!, Number(req.params.id), req.body?.subject, req.body?.body));
   } catch (err: any) { if (planErrorToResponse(err, res)) return; res.status(400).json({ error: String(err?.message ?? err) }); }
 });
+/** Stop an automatic send without ignoring the reply. */
+router.post("/inbound/:id/hold", async (req, res) => {
+  await db.update(emailInboundTable).set({ autoSendAt: null }).where(and(eq(emailInboundTable.id, Number(req.params.id)), eq(emailInboundTable.userId, req.session.userId!)));
+  res.json({ ok: true });
+});
 router.post("/inbound/:id/ignore", async (req, res) => {
-  await db.update(emailInboundTable).set({ state: "ignored" }).where(and(eq(emailInboundTable.id, Number(req.params.id)), eq(emailInboundTable.userId, req.session.userId!)));
+  await db.update(emailInboundTable).set({ state: "ignored", autoSendAt: null }).where(and(eq(emailInboundTable.id, Number(req.params.id)), eq(emailInboundTable.userId, req.session.userId!)));
   res.json({ ok: true });
 });
 /** Paste a reply that arrived elsewhere, so it is analysed like the rest. */

@@ -30,6 +30,11 @@ export const emailSettingsTable = pgTable("email_settings", {
   imapLastUid:  integer("imap_last_uid").notNull().default(0),
   imapLastError: text("imap_last_error"),
   inboundToken: varchar("inbound_token", { length: 48 }),
+  /** Send the salesman's drafts on their own, for low-risk intents only. */
+  autoReply:    boolean("auto_reply").notNull().default(false),
+  autoReplyDelayMin: integer("auto_reply_delay_min").notNull().default(12),
+  /** Ramp a new sender from 50 a day whatever the daily cap says. */
+  warmup:       boolean("warmup").notNull().default(true),
   updatedAt:    timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -98,6 +103,13 @@ export const emailCampaignsTable = pgTable("email_campaigns", {
   bounceCount: integer("bounce_count").notNull().default(0),
   unsubCount:  integer("unsub_count").notNull().default(0),
   pauseReason: text("pause_reason"),
+  /** A second subject to test against the first. */
+  subjectB:    varchar("subject_b", { length: 300 }),
+  /** Share of the list that receives the test; 0 means no test. */
+  abPct:       integer("ab_pct").notNull().default(0),
+  abWaitHours: integer("ab_wait_hours").notNull().default(4),
+  abWinner:    varchar("ab_winner", { length: 1 }),
+  abDecidedAt: timestamp("ab_decided_at", { withTimezone: true }),
   createdAt:   timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -135,8 +147,9 @@ export const emailMessagesTable = pgTable("email_messages", {
   contactId:     integer("contact_id").references(() => emailContactsTable.id, { onDelete: "set null" }),
   toEmail:       varchar("to_email", { length: 254 }).notNull(),
   subject:       varchar("subject", { length: 300 }).notNull(),
-  /** queued | sent | failed | bounced */
+  /** queued | ab_hold | sent | failed | bounced */
   status:        varchar("status", { length: 20 }).notNull().default("queued"),
+  variant:       varchar("variant", { length: 1 }),
   providerId:    varchar("provider_id", { length: 200 }),
   token:         varchar("token", { length: 48 }).notNull().unique(),
   messageIdHdr:  varchar("message_id_hdr", { length: 300 }),
@@ -183,6 +196,8 @@ export const emailInboundTable = pgTable("email_inbound", {
   draftSubject: varchar("draft_subject", { length: 300 }),
   /** new | drafted | sent | ignored */
   state:        varchar("state", { length: 20 }).notNull().default("new"),
+  /** When the draft goes out on its own; null waits for a person. */
+  autoSendAt:   timestamp("auto_send_at", { withTimezone: true }),
   receivedAt:   timestamp("received_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [index("idx_email_inbound_user").on(t.userId, t.receivedAt)]);
 
