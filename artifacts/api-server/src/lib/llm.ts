@@ -251,6 +251,9 @@ async function callOpenAiCompatible(
   // 400 tokens. `reasoning.exclude` is not the same thing: it hides the
   // thinking from the response while still paying for it.
   if (url.includes("openrouter.ai")) body["reasoning"] = { enabled: false };
+  // Zhipu's GLM-4.5 does the same by default — 251 tokens of thinking for a
+  // one-word answer, measured — and takes its own switch.
+  if (url.includes("bigmodel.cn")) body["thinking"] = { type: "disabled" };
 
   const res = await fetch(url, {
     method: "POST",
