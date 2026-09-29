@@ -61,7 +61,10 @@ const OPENAI_COMPATIBLE: Record<string, { url: string; model: string }> = {
                  model: process.env["OPENROUTER_MODEL"] ?? "inclusionai/ling-3.0-flash-fin:free" },
   // Zhipu's GLM-4-Flash is free outright rather than trial credit.
   zhipu:       { url: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-                 model: process.env["ZHIPU_MODEL"] ?? "glm-4-flash" },
+                 // glm-4-flash was retired; glm-4.5-flash is the free tier now, checked
+                 // against a live key on 2026-09-29. glm-4.7-flash exists but is
+                 // usually over capacity.
+                 model: process.env["ZHIPU_MODEL"] ?? "glm-4.5-flash" },
   qwen:        { url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
                  model: process.env["QWEN_MODEL"] ?? "qwen-turbo" },
   deepseek:    { url: "https://api.deepseek.com/v1/chat/completions",
@@ -322,6 +325,7 @@ function isTransient(err: unknown): boolean {
  * of the benchmark run; the notes are why each one is where it is.
  */
 const EXTRA_MODELS: Record<string, string[]> = {
+  zhipu: ["glm-4.7-flash"],
   // 1.3s, and the only model that stated the pricing rule back — "التسعير
   // يعتمد على تفاصيل نشاطك" — instead of inventing a number.
   groq: ["qwen/qwen3.8-27b", "openai/gpt-oss-20b", "openai/gpt-oss-120b"],
