@@ -11,6 +11,8 @@ import { startBrowserReaper } from "./lib/browser-agent";
 import { startMeetings } from "./lib/meeting";
 import { seedSkillsForEveryone } from "./lib/skills";
 import { sweepQuietOutcomes } from "./lib/agent-memory";
+import { startEmailWorkers } from "./lib/email/service";
+import { startInboundPolling } from "./lib/email/inbound";
 import { runAutoMaintenance } from "./lib/diagnosis-engine";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
@@ -122,6 +124,8 @@ function startListening() {
     startCollector();
     startBrowserReaper();
     startMeetings();
+    startEmailWorkers();
+    startInboundPolling();
 
     // Auto-seed admin on startup if env vars are set
     void seedAdminIfConfigured();

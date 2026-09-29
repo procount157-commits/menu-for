@@ -4,6 +4,7 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import pinoHttp from "pino-http";
 import router from "./routes";
+import trackRouter from "./routes/track";
 import { logger } from "./lib/logger";
 
 const PgSession = connectPgSimple(session);
@@ -113,6 +114,11 @@ app.use(
   })
 );
 
+
+// Public email endpoints — the pixel, the click, the unsubscribe, the
+// inbound hook. Before the API router so /api/email/inbound/:token is not
+// caught by the session check on /api/email.
+app.use(trackRouter);
 
 app.use("/api", router);
 

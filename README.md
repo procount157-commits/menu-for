@@ -447,6 +447,62 @@ the free tier were failing, and each was a customer who got nothing.
 `WA_FULL_HISTORY=false` stops the full chat history sync per linked number,
 for when the tenant count makes memory matter.
 
+## Email marketing
+
+The same shape as the WhatsApp side, for the same reasons: contacts and
+lists, campaigns that enqueue messages, a follow-up ladder, and events read
+back from the world — opens, clicks, replies, bounces, unsubscribes — so a
+campaign is judged by what happened rather than by what was sent. Code under
+`lib/email/`; the section is `/email` in the app; migration 024.
+
+**The import is the front door.** The owner uploads the spreadsheet as it
+came. `importer.ts` works out which column is the email, the company, the
+phone, the activity and the city — by header name first, by the look of the
+values second, because half the files have no usable headers — normalises
+and de-duplicates the addresses, counts role addresses (`info@`), checks
+every domain for MX so a dead domain never costs a bounce, and reports
+exactly what it kept and why the rest was not. The import can split the
+file into sub-lists by activity or city and enrol everyone straight into a
+sequence, so a file becomes a running follow-up in one step.
+
+**Sending.** One queue per account (`service.ts`), drained every twenty
+seconds: hourly and daily caps, sending hours, a jittered gap
+(`sendGapMs`), and a deliverability verdict on top (`health.ts`): 3%
+bounces slows, 6% stops, one complaint in a thousand warns and three stop,
+a sender under a week old is throttled. Three ways out (`provider.ts`):
+SMTP through nodemailer — any mailbox — or Resend or Brevo by API. Every
+message carries our own Message-ID, `List-Unsubscribe` with one-click
+POST, a plain-text part, and the footer the bulk-sender rules require.
+
+**Tracking** (`tracking.ts`, `routes/track.ts`): a real 1×1 GIF, links
+rewritten through a signed redirect, and an unsubscribe page that confirms
+on GET and acts on POST, so a link scanner cannot unsubscribe anyone. All
+of it needs `SITE_URL`; without it the pages still send, with the mailto
+unsubscribe only. Opens are a floor, not a fact — Apple's Mail Privacy
+Protection and Gmail's image proxy fetch the pixel on the reader's behalf,
+and the event records when that is the case.
+
+**Replies** (`inbound.ts`): the sending mailbox is polled over IMAP every
+two minutes, or a provider posts to `/api/email/inbound/<token>`. A reply is
+matched to the message it answers by `In-Reply-To`, failing that by the
+address; bounces and auto-replies are recognised and filed as such; the
+rest is classified with the same intent rules as WhatsApp, summarised, and
+handed to هال, who drafts the answer from the persona, the skills and the
+knowledge base. The draft waits in the inbox tab for a person; sending it
+threads it properly. An `opt_out` reply unsubscribes. The owner is told on
+Telegram.
+
+**The AML outreach for بروكاونت** (`seed.ts`) is installed with the first
+saved settings: a three-step sequence — the obligation and one question,
+what compliance actually involves, a graceful last message — and templates
+in Arabic and English. Fees, addresses and names are bracketed
+placeholders; nothing in it states a penalty amount or a deadline.
+
+Settings can check the sending domain's SPF, DKIM and DMARC (`dns.ts`) and
+say which are missing; without all three the mail lands in spam or not at
+all.
+
+
 ## Hardening
 
 CORS is an allow-list (`CORS_ORIGINS`, plus localhost dev ports) — it used

@@ -30,6 +30,7 @@ import DirectLoginPage from "@/pages/DirectLoginPage";
 import WaPublicSetup from "@/pages/WaPublicSetup";
 import LandingPage from "@/pages/LandingPage";
 import Settings from "@/pages/Settings";
+import EmailMarketing from "./pages/EmailMarketing";
 import Diagnostics from "@/pages/Diagnostics";
 import NotFound from "@/pages/not-found";
 
@@ -181,6 +182,7 @@ function AuthenticatedRoutes() {
           <Route path="/inbox"          component={WaInbox} />
           <Route path="/extractor"      component={WaExtractor} />
           <Route path="/wa-link"        component={WaLinkGenerator} />
+          <Route path="/email/:tab?"    component={EmailMarketing} />
           <Route path="/settings"       component={Settings} />
           <Route path="/diagnostics"    component={Diagnostics} />
           <Route path="/admin"          component={AdminPage} />
