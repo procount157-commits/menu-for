@@ -48,6 +48,11 @@ export const autoReplyLogTable = pgTable("auto_reply_log", {
   skipped:    varchar("skipped", { length: 60 }),    // why nothing was sent
   agentRole:  varchar("agent_role", { length: 30 }),  // which employee answered
   outcome:    varchar("outcome", { length: 20 }),     // what the customer did next
+  qualityScore: integer("quality_score"),              // the pre-send check, 100 = clean
+  qualityNotes: text("quality_notes"),
+  rewritten:  boolean("rewritten").notNull().default(false),
+  ownerRating: integer("owner_rating"),                // +1 / -1 from the review page
+  ownerNote:  text("owner_note"),
   createdAt:  timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [index("idx_auto_reply_user").on(t.userId, t.createdAt)]);
 

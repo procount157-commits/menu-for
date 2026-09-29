@@ -35,6 +35,7 @@ import { complete } from "./llm";
 import { say } from "./agent-comms";
 import { getDailySentCount, getEffectiveDailyLimit } from "./daily-limit";
 import { logger } from "./logger";
+import { getCard, cardText } from "./lead-card";
 
 export const FOLLOWUP_ROLE = "followup";
 
@@ -144,6 +145,7 @@ async function managerVerdict(
     .where(and(eq(waThreadMessagesTable.userId, userId), eq(waThreadMessagesTable.phone, e.phone)))
     .orderBy(desc(waThreadMessagesTable.createdAt)).limit(6);
 
+  const card = await getCard(userId, e.phone).catch(() => null);
   const facts = [
     `المرحلة: ${STEP_LABELS[e.step] ?? `رقم ${e.step + 1}`} (المتابعة رقم ${e.step + 1} من ٧).`,
     `فتح رسائلنا: ${e.opens} مرة.`,
@@ -152,6 +154,10 @@ async function managerVerdict(
     e.segment ? `تصنيف ريم: ${SEGMENT_AR[e.segment]}.` : "",
     e.quietHours !== null ? `آخر تواصل قبل ${e.quietHours} ساعة.` : "لم يحدث أي تواصل ثنائي بعد.",
     `رأي فهد عن حالة الرقم: ${opsView}`,
+    // What the team knows about this lead and where the sale stands. A
+    // follow-up that ignores a stated objection or re-asks a known fact is
+    // the reason a seventh message gets a block instead of a reply.
+    card ? `\n${cardText(card)}` : "",
     history.length ? `\nآخر ما دار:\n${history.reverse().map((h) => `${h.fromMe ? "نحن" : "العميل"}: ${(h.text ?? "").slice(0, 150)}`).join("\n")}` : "",
   ].filter(Boolean).join("\n");
 

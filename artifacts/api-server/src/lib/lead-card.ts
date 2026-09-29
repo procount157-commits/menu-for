@@ -96,7 +96,13 @@ const OBJECTIONS: Array<[RegExp, string]> = [
   [W("من انتم|مين انتم|ما اعرفكم|منين (جبتوا|جبت) رقمي"), "لا يعرفنا"],
 ];
 
-const AGREED = W("موافق(ين)?|اتفقنا|نبدا|خلاص ابدا|ارسل (لي )?العقد|تمام ابدا|يلا نبدا|ابشر نبدا|let s start|deal|علي بركه الله");
+// Agreement comes in two strengths. «موافق» and «أرسل العقد» are a yes
+// wherever they appear. «نبدأ» is a yes only as a statement — «كيف نبدأ؟» and
+// «متى نبدأ» are an interested customer asking a question, and reading them
+// as agreement closed the sale before the offer had been made.
+const AGREED_STRONG = W("موافق(ين)?|اتفقنا|ارسل (لي )?العقد|علي بركه الله|deal");
+const AGREED_SOFT   = W("نبدا|خلاص ابدا|تمام ابدا|يلا نبدا|ابشر نبدا|let s start");
+const ASKING        = W("كيف|متي|وش|شو|شلون|هل|ايش|ليش|كم|how|when|what");
 
 const LICENCE_MAINLAND = W("مين ?لاند|مينلاند|mainland|رخصه (محليه|اقتصاديه|رييسيه)|دايره (الاقتصاد|التنميه)");
 const LICENCE_FREEZONE = W("فري ?زون|فريزون|free ?zone|منطقه حره");
@@ -138,7 +144,7 @@ export function extractFacts(text: string): LeadFacts {
 
   for (const [re, name] of PAINS) if (re.test(n)) { f.pain = name; break; }
   for (const [re, name] of OBJECTIONS) if (re.test(n)) { f.objection = name; break; }
-  if (AGREED.test(n)) f.agreed = true;
+  if (AGREED_STRONG.test(n) || (AGREED_SOFT.test(n) && !/[؟?]/.test(text ?? "") && !ASKING.test(n))) f.agreed = true;
 
   return f;
 }

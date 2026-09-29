@@ -22,6 +22,10 @@ check("a deferral", extractFacts("خلني أشوف بعدين").objection === "
 check("'send me details' is an objection, not a fact", extractFacts("ارسل لي التفاصيل").objection === "يطلب التفاصيل");
 check("an agreement", extractFacts("تمام موافق، نبدأ من الأحد").agreed === true);
 check("'على بركة الله' is an agreement", extractFacts("على بركة الله").agreed === true);
+check("'كيف نبدأ؟' is a question, not an agreement", !extractFacts("مهتم، كيف نبدأ؟").agreed);
+check("'متى نبدأ' without a mark is still a question", !extractFacts("طيب متى نبدأ").agreed);
+check("'يلا نبدأ' as a statement is an agreement", extractFacts("تمام يلا نبدأ").agreed === true);
+check("'موافق' is a yes even inside a question", extractFacts("موافق، متى ترسلون العقد؟").agreed === true);
 check("a bare greeting says nothing", Object.keys(extractFacts("السلام عليكم")).length === 0);
 check("'عليكم' does not read as anything", !extractFacts("وعليكم السلام ورحمة الله").activity);
 check("unregistered for tax", extractFacts("لا مو مسجلين في الضريبة").taxStatus === "غير مسجل في الضريبة");

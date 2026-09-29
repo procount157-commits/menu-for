@@ -7,7 +7,7 @@ import QrModal from "./QrModal";
 import {
   LayoutDashboard, QrCode, Users, Megaphone, Bot,
   Wifi, WifiOff, Loader2, LogOut, Shield, User, TrendingUp, Download, BarChart3,
-  MessageCircle, MessagesSquare, MessageSquare, BookOpen, RefreshCw, Sparkles, Settings2, Activity, Clock, Brain, Users2, Radar, LayoutGrid, Globe, Mail } from "lucide-react";
+  MessageCircle, MessagesSquare, MessageSquare, BookOpen, RefreshCw, Sparkles, Settings2, Activity, Clock, Brain, Users2, Radar, LayoutGrid, Globe, Mail, Target } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -20,6 +20,7 @@ const NAV = [
   { href: "/extractor",     label: "مستخرج الأرقام",    icon: Download },
   { href: "/campaigns",     label: "الحملات",            icon: Megaphone },
   { href: "/board",         label: "لوحة الفريق",        icon: LayoutGrid, badge: "جديد" },
+  { href: "/arena",         label: "ميدان التدريب",      icon: Target, badge: "جديد" },
   { href: "/ops",           label: "غرفة العمليات",      icon: Radar },
   { href: "/meetings",      label: "اجتماعات الفريق",    icon: Users2, badge: "جديد" },
   { href: "/browser",       label: "مكتب التصفّح",       icon: Globe },

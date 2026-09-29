@@ -13,9 +13,34 @@ import { requireAuth } from "../lib/auth";
 import { remember, forget } from "../lib/agent-memory";
 import { runRoutine, ROUTINE_TEMPLATES } from "../lib/agent-routines";
 import { seedSkills, resetSkill, LIBRARY } from "../lib/skills";
+import { simulate, rate, recentForReview } from "../lib/arena";
 
 const router = Router();
 router.use(requireAuth);
+
+// ── The training arena ───────────────────────────────────────────
+router.post("/arena/simulate", async (req, res) => {
+  const role = clean(req.body?.role, 30) || "sales";
+  const turns = Array.isArray(req.body?.turns) ? req.body.turns.map((t: any) => ({ role: t?.role === "assistant" ? "assistant" : "user", content: String(t?.content ?? "").slice(0, 2_000) })) : [];
+  try { res.json(await simulate(req.session.userId!, role, turns)); }
+  catch (err: any) { res.status(400).json({ error: String(err?.message ?? err) }); }
+});
+
+router.post("/arena/rate", async (req, res) => {
+  const userId = req.session.userId!;
+  const role = clean(req.body?.role, 30);
+  if (!role || !(await ownsRole(userId, role))) return res.status(400).json({ error: "الموظف غير معروف" });
+  const rating = Number(req.body?.rating) > 0 ? 1 : -1;
+  res.json(await rate(userId, {
+    role, rating, customer: clean(req.body?.customer, 1_000), reply: clean(req.body?.reply, 2_000),
+    correction: req.body?.correction ? clean(req.body.correction, 1_000) : null,
+    logId: Number(req.body?.logId) || null,
+  }));
+});
+
+router.get("/replies", async (req, res) => {
+  res.json(await recentForReview(req.session.userId!, Math.min(200, Number(req.query["limit"]) || 60)));
+});
 
 const ROUTABLE = ["interested", "question", "greeting", "unclear", "complaint", "not_interested"];
 const clean = (v: unknown, max: number) => String(v ?? "").trim().slice(0, max);

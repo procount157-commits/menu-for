@@ -9,11 +9,11 @@ import { and, eq, desc, isNotNull, ne, sql } from "drizzle-orm";
 import {
   db, knowledgeBaseTable, businessProfileTable, autoReplyLogTable,
   waThreadMessagesTable, contactMemoryTable,
-  type KnowledgeEntry, type BusinessProfile, type MemoryFact,
-} from "@workspace/db";
+  type KnowledgeEntry, type BusinessProfile, type MemoryFact, type LeadCard } from "@workspace/db";
 import { normalizeArabic, type Intent } from "./intent";
 import { complete, resolveProvider } from "./llm";
 import { logger } from "./logger";
+import { checkReply, needsRewrite, rewritePrompt } from "./reply-check";
 
 // Words too common to tell entries apart; matching on them makes everything
 // look equally relevant.
@@ -302,6 +302,10 @@ export interface AnswerResult {
   reason?:  string;      // why nothing was produced
   /** A model was configured and failed — the same call may succeed in a minute. */
   retryable?: boolean;
+  /** What the pre-send check found, and whether the draft was rewritten. */
+  quality?: { score: number; issues: string[]; rewritten: boolean; firstDraft?: string };
+  /** For the training arena: what went into the reply. */
+  debug?: { promptChars: number; kbTitles: string[] };
 }
 
 /**
@@ -363,10 +367,16 @@ export async function answerFromKnowledge(
   job?: string[],
   finalCheck?: string,
   leadCard?: string,
+  opts: {
+    /** The card behind `leadCard`, for the pre-send check. */
+    card?: LeadCard | null;
+    /** A conversation to answer instead of the stored one — the training arena. */
+    history?: Array<{ role: "user" | "assistant"; content: string }>;
+  } = {},
 ): Promise<AnswerResult> {
   const [profile, history, memory] = await Promise.all([
     getProfile(userId),
-    phone ? conversationHistory(userId, phone) : Promise.resolve([]),
+    opts.history ? Promise.resolve(opts.history) : phone ? conversationHistory(userId, phone) : Promise.resolve([]),
     phone ? contactFacts(userId, phone)        : Promise.resolve([] as MemoryFact[]),
   ]);
 
@@ -414,11 +424,42 @@ export async function answerFromKnowledge(
       : [...history, { role: "user" as const, content: question }];
 
     const customerTurns = turns.filter((t) => t.role === "user").length;
+    const system = buildSystemPrompt(profile, found, memory, persona, job, finalCheck, customerTurns, leadCard);
     const out = await complete([
-      { role: "system", content: buildSystemPrompt(profile, found, memory, persona, job, finalCheck, customerTurns, leadCard) },
+      { role: "system", content: system },
       ...turns,
     ]);
-    if (out?.text) return { reply: out.text, provider: out.provider, kbIds };
+    if (out?.text) {
+      // The check before it leaves. The rules are the ones the writing skill
+      // states; this is where they are enforced rather than hoped for. One
+      // rewrite at most, and only kept if it is actually better.
+      const previous = [...turns].reverse().find((t) => t.role === "assistant")?.content ?? null;
+      const ctx = {
+        customer: question, previous, stage: opts.card?.stage,
+        known: opts.card ? { licence: opts.card.licence, activity: opts.card.activity, size: opts.card.size, staff: opts.card.staff } : undefined,
+        facts: [found.map((f) => `${f.entry.title}\n${f.entry.content}`).join("\n"), profile?.description ?? ""].join("\n"),
+      };
+      let reply = out.text.trim();
+      let q = checkReply(reply, ctx);
+      let rewritten = false;
+      const firstDraft = reply;
+      if (needsRewrite(q)) {
+        const fixed = await complete([
+          { role: "system", content: "أنت محرر رسائل واتساب لفريق مبيعات. تُصلح ما يُطلب منك فقط وتعيد الرسالة المصحّحة وحدها." },
+          { role: "user", content: rewritePrompt(reply, q, ctx) },
+        ], 20_000);
+        const candidate = fixed?.text?.trim().replace(/^["«“]+|["»”]+$/g, "").trim();
+        if (candidate) {
+          const q2 = checkReply(candidate, ctx);
+          if (q2.score > q.score) { reply = candidate; q = q2; rewritten = true; }
+        }
+      }
+      return {
+        reply, provider: out.provider, kbIds,
+        quality: { score: q.score, issues: q.issues.map((i) => i.note), rewritten, firstDraft: rewritten ? firstDraft : undefined },
+        debug: { promptChars: system.length, kbTitles: found.map((f) => f.entry.title) },
+      };
+    }
     logger.info({ userId }, "model unavailable — answering from the knowledge base directly");
     modelFailed = true;
   }
@@ -473,6 +514,7 @@ export async function logAutoReply(row: {
   userId: number; phone: string; incoming: string; reply?: string | null;
   provider?: string; kbIds?: number[]; intent?: string; skipped?: string;
   agentRole?: string | null;
+  quality?: AnswerResult["quality"];
 }) {
   await db.insert(autoReplyLogTable).values({
     userId: row.userId, phone: row.phone,
@@ -483,6 +525,9 @@ export async function logAutoReply(row: {
     intent: row.intent ?? null,
     skipped: row.skipped?.slice(0, 60) ?? null,
     agentRole: row.agentRole ?? null,
+    qualityScore: row.quality?.score ?? null,
+    qualityNotes: row.quality?.issues.length ? row.quality.issues.join(" · ").slice(0, 1_000) : null,
+    rewritten: !!row.quality?.rewritten,
   }).catch(() => {});
 }
 

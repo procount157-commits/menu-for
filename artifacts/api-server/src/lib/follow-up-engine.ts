@@ -26,7 +26,7 @@ import { skillsFor, skillsPreamble, finalCheckPreamble } from "./agent-skills";
 import { inboxPreamble } from "./agent-comms";
 import { thinkTime } from "./reply-timing";
 import { sendMessage, getStatus, registerInboundHook, registerOnConnectHook, registerHumanReplyHook, markRead } from "./whatsapp";
-import { updateCard, cardPreamble, isHumanHeld, takeover, lastCustomerLine } from "./lead-card";
+import { updateCard, cardPreamble, isHumanHeld, takeover, lastCustomerLine, getCard } from "./lead-card";
 import { notify, esc } from "./telegram";
 import { say } from "./agent-comms";
 import { assertCanSend } from "./plans";
@@ -416,6 +416,7 @@ async function autoReplyIfAppropriate(
     routing ? agentJob(routing) : undefined,
     finalCheck,
     card || undefined,
+    { card: await getCard(userId, phone).catch(() => null) },
   );
   if (!answer.reply) {
     if (answer.retryable && attempt < REPLY_RETRIES) {
@@ -475,7 +476,7 @@ async function autoReplyIfAppropriate(
     await new Promise((r) => setTimeout(r, wait.ms - noticeMs));
 
     await sendMessage(userId, phone, answer.reply);
-    await logAutoReply({ userId, phone, incoming: text, reply: answer.reply, provider: answer.provider, kbIds: answer.kbIds, intent, agentRole: routing?.agent.role });
+    await logAutoReply({ userId, phone, incoming: text, reply: answer.reply, provider: answer.provider, kbIds: answer.kbIds, intent, agentRole: routing?.agent.role, quality: answer.quality });
     logger.info({ userId, phone, provider: answer.provider, kb: answer.kbIds }, "auto-reply sent");
   } catch (err: any) {
     await logAutoReply({ userId, phone, incoming: text, intent, skipped: `فشل الإرسال: ${String(err?.message).slice(0, 40)}`, agentRole: routing?.agent.role });
