@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, contactGroupsTable, contactsTable } from "@workspace/db";
 import { eq, count, and, inArray, ne } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
+import { assertCanAddContacts, planErrorToResponse } from "../lib/plans";
 import * as XLSX from "xlsx";
 import { checkNumbers } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
@@ -235,6 +236,12 @@ router.post("/:id/numbers", async (req, res) => {
     .from(contactGroupsTable)
     .where(and(eq(contactGroupsTable.id, groupId), eq(contactGroupsTable.userId, userId)));
   if (!group) return res.status(404).json({ error: "Group not found" });
+
+  // The plan's contact ceiling, checked on what is about to be added rather
+  // than after it is in.
+  const adding = Array.isArray(contactsInput) ? contactsInput.length
+    : String(numbers ?? "").split(/[\n,\r;]+/).filter((x) => x.trim()).length;
+  try { await assertCanAddContacts(userId, adding); } catch (err) { if (planErrorToResponse(err, res)) return; throw err; }
 
   type Entry = { name: string; phone: string };
   let rawEntries: Entry[] = [];

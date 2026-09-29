@@ -29,6 +29,7 @@ import { sendMessage, getStatus, registerInboundHook, registerOnConnectHook, reg
 import { updateCard, cardPreamble, isHumanHeld, takeover, lastCustomerLine } from "./lead-card";
 import { notify, esc } from "./telegram";
 import { say } from "./agent-comms";
+import { assertCanSend } from "./plans";
 import { provisionOnConnect } from "./provision";
 
 // How often the worker looks for due jobs.
@@ -309,10 +310,17 @@ async function isFirstContact(userId: number, phone: string): Promise<boolean> {
 // talk to each other until someone notices.
 const AUTO_REPLY_MAX_PER_HOUR = 8;
 
+// A quarter of model calls were failing on the free tier, and each failure
+// was a customer who got nothing. The call is retried on a widening delay,
+// three times, and the customer is only given up on after the third.
+const REPLY_RETRIES = 3;
+const REPLY_RETRY_MS = 75_000;
+
 async function autoReplyIfAppropriate(
   userId: number, phone: string, text: string, intent: Intent,
   /** The inbound message's key, for the read receipt. */
   key?: { remoteJid?: string | null; id?: string | null; fromMe?: boolean | null; participant?: string | null },
+  attempt = 1,
 ) {
   // Other companies answer campaigns with their own bots. Replying to those
   // spends the daily allowance on nobody, produces bot-to-bot threads that
@@ -410,7 +418,17 @@ async function autoReplyIfAppropriate(
     card || undefined,
   );
   if (!answer.reply) {
-    await logAutoReply({ userId, phone, incoming: text, intent, skipped: answer.reason ?? "لا رد", agentRole: routing?.agent.role });
+    if (answer.retryable && attempt < REPLY_RETRIES) {
+      const delay = REPLY_RETRY_MS * attempt;
+      logger.warn({ userId, phone, attempt, delayMs: delay }, "النموذج تعذّر — سيُعاد الرد على العميل بعد قليل");
+      setTimeout(() => {
+        autoReplyIfAppropriate(userId, phone, text, intent, key, attempt + 1)
+          .catch((err) => logger.warn({ userId, phone, err: String(err?.message ?? err) }, "فشلت إعادة محاولة الرد"));
+      }, delay).unref();
+      return;
+    }
+    await logAutoReply({ userId, phone, incoming: text, intent,
+      skipped: attempt > 1 ? `تعذّر النموذج ${attempt} مرات` : (answer.reason ?? "لا رد"), agentRole: routing?.agent.role });
     return;
   }
 
@@ -613,6 +631,7 @@ export async function runDueFollowUps(now = new Date()): Promise<{ sent: number;
 
   const fresh = due.filter((j) => !stale.includes(j));
   const perUser = new Map<number, number>();
+  const planOkByUser = new Map<number, boolean>();
   // Cached per tick: the allowance is shared with campaigns, so it has to be
   // read rather than assumed, but re-reading it per job would be wasteful.
   const remainingByUser = new Map<number, number>();
@@ -621,6 +640,11 @@ export async function runDueFollowUps(now = new Date()): Promise<{ sent: number;
     const used = perUser.get(job.userId) ?? 0;
     if (used >= MAX_PER_TICK_PER_USER) continue;   // next tick
     if (!getStatus(job.userId).connected) continue; // stays pending
+    // A lapsed subscription sends nothing. Stays pending for the renewal.
+    if (!planOkByUser.has(job.userId)) {
+      planOkByUser.set(job.userId, await assertCanSend(job.userId).then(() => true).catch(() => false));
+    }
+    if (!planOkByUser.get(job.userId)) continue;
 
     // Follow-ups come off the same number as campaigns and count toward the
     // same warm-up ramp and daily ceiling. Without this a sequence enrolled

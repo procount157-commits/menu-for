@@ -392,6 +392,70 @@ Findings are written as a sentence plus an action rather than as metrics. A
 dashboard of numbers is something you have to remember to read.
 
 
+## The lead card, and who holds the thread
+
+Every customer has a card, written by rules from their own messages
+(`lib/lead-card.ts`): licence type, activity, size, staff, tax status, who
+keeps their books, what worries them, the objection they just raised, and
+whether they agreed. From it the stage of the sale is computed — open,
+discovery, diagnosis, value, offer, objection, close — and both are put in
+front of the employee on every reply with the one goal of that message.
+Before this the model inferred all of it from the transcript, and asked for
+a licence type it had been given twice, which is the most reliable way to
+sound like a machine.
+
+Every reply gets an outcome from what the customer did next — `win`,
+`qualified` (their reply taught the card a fact), `engaged`, `loss`, and
+`quiet` after a day of silence, set by an hourly sweep. 103 replies had no
+outcome at all before; the coach and the meeting need them.
+
+A person replying from the phone or from the inbox silences the bot and the
+follow-up ladder for that thread for 24 hours (`lead_cards.human_until`).
+The inbox has the switch; `POST /api/lead-cards/:phone/takeover` and
+`/release` are behind it. The owner is told on Telegram once when a lead
+reaches the offer stage and once when it agrees.
+
+## The onboarding interview
+
+Nobody fills a knowledge base by hand. On the knowledge page or in the
+assistant, «مقابلة التأهيل» has شمّة ask the owner ten questions, one per
+message — who you are, who buys, what you sell, why you, what you say about
+price, the five questions everyone asks, what must never be said, hours,
+the next step, day-one knowledge — and at the end she writes the business
+profile and the first entries herself, in labelled lines the code parses
+(`lib/onboarding.ts`). The thread is `assistant_threads.kind = interview`.
+
+## Plans, invitations, and a new number
+
+`PLAN_LIMITS` applies (`lib/plans.ts`): contacts and campaigns per plan, an
+expired paid plan falls back to the free limits and stops sending, admins
+are never limited. Accounts that existed before this were moved to `pro`
+(migration 023) so nothing the owner relies on stopped.
+
+Registration is by invitation: a coupon code from the admin page, which
+also carries the plan and the days sold. `OPEN_REGISTRATION=true` opens it.
+
+A number linked for under 48 hours (`WARMUP_MIN_HOURS`) cannot start a
+campaign — two days of ordinary conversation first. For its first two
+weeks, once more than 60% of the day's sends (`STRANGER_SHARE_CAP`) have
+gone to people with no prior thread, a campaign pauses until tomorrow.
+
+A customer reply the model could not write is retried three times on a
+widening delay before the customer is given up on; a quarter of calls to
+the free tier were failing, and each was a customer who got nothing.
+
+`WA_FULL_HISTORY=false` stops the full chat history sync per linked number,
+for when the tenant count makes memory matter.
+
+## Hardening
+
+CORS is an allow-list (`CORS_ORIGINS`, plus localhost dev ports) — it used
+to reflect any origin with credentials. The session cookie is `secure`
+when the request came over TLS (nginx forwards the proto) and plain over
+`http://localhost`. Login, registration and bootstrap get twenty attempts
+per quarter-hour per address. JSON bodies are capped at 25 MB.
+
+
 ## Deploying to a VPS
 
 The whole stack runs from one compose file: Postgres, the API, and nginx

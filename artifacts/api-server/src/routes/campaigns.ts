@@ -2,8 +2,10 @@ import { Router } from "express";
 import { db, campaignsTable, contactGroupsTable, contactsTable, messageLogs, unsubscribedPhonesTable, waSessionEventsTable, campaignButtonResponsesTable } from "@workspace/db";
 import { assessDeliveryHealth, assessAccountHealth, MATURITY_MINUTES, MIN_SAMPLE as DELIVERY_MIN_SAMPLE } from "../lib/delivery-health";
 import { computeGap, diurnalFactor } from "../lib/pacing";
+import { assertCanSend, assertCanCreateCampaign, assertCanAddContacts, planErrorToResponse } from "../lib/plans";
+import { strangerShare24h } from "../lib/delivery-health";
 import { isWithinSendingHours, hourInSendingTz, msLeftInSendingWindow, SENDING_TZ, SENDING_HOUR_START, SENDING_HOUR_END } from "../lib/sending-hours";
-import { getEffectiveDailyLimit, getDailySentCount, DAILY_LIMIT_MAX } from "../lib/daily-limit";
+import { getEffectiveDailyLimit, getDailySentCount, DAILY_LIMIT_MAX, numberAgeDays } from "../lib/daily-limit";
 import { getControls } from "../lib/ops-agent";
 import { objectExists, objectNameFromUrl } from "../lib/storage";
 import * as XLSX from "xlsx";
@@ -579,6 +581,13 @@ router.post("/", async (req, res) => {
 
   if (!name || !message) return res.status(400).json({ error: "اسم الحملة ونص الرسالة مطلوبان" });
 
+  try {
+    await assertCanCreateCampaign(userId);
+    if (inlineNumbers && !contactGroupId) {
+      await assertCanAddContacts(userId, String(inlineNumbers).split(/[\n,\r]+/).filter((p: string) => p.trim()).length);
+    }
+  } catch (err) { if (planErrorToResponse(err, res)) return; throw err; }
+
   if (inlineNumbers && !contactGroupId) {
     const rawPhones: string[] = String(inlineNumbers)
       .split(/[\n,\r]+/)
@@ -689,6 +698,22 @@ router.post("/:id/start", async (req, res) => {
 
   const waStatus = getStatus(userId);
   if (!waStatus.connected) return res.status(400).json({ error: "يجب ربط واتساب أولاً — اذهب إلى صفحة ربط الواتساب" });
+
+  try { await assertCanSend(userId); } catch (err) { if (planErrorToResponse(err, res)) return; throw err; }
+
+  // ── A number that has not talked to anyone yet does not campaign ──
+  // The first thing WhatsApp sees of a new number is what it does in its
+  // first two days. Two days of ordinary conversation — replies, contacts
+  // — before the first bulk send is the cheapest warm-up there is, and the
+  // one most people skip.
+  const ageDays = await numberAgeDays(userId);
+  const minHours = Number(process.env["WARMUP_MIN_HOURS"] ?? 48);
+  if (ageDays * 24 < minHours) {
+    return res.status(400).json({
+      error: `الرقم مرتبط منذ أقل من ${minHours} ساعة. استخدمه في محادثات عادية أولاً — الرد على من يراسلك، مراسلة من تعرفهم — ثم ابدأ الحملة. هذا أرخص إحماء ممكن.`,
+      numberAgeDays: ageDays,
+    });
+  }
 
   // ── Daily warm-up limit check (before starting) ──────────────────
   const [dailyCount, effectiveLimitNow] = await Promise.all([
@@ -1281,6 +1306,13 @@ const LONG_BREAK_EVERY = 40;
 
 async function runCampaign(userId: number, campaign: any, contacts: any[], info: CampaignInfo, key: string) {
   let sentThisRun = 0; // counts messages sent in THIS run (respects messageLimit)
+  // A young number writing mostly to strangers is what a spammer looks like
+  // from the outside. For its first two weeks, once more than 60% of the
+  // day's sends have gone to people with no prior thread, the campaign
+  // waits for tomorrow. Known contacts are already ordered first, so this
+  // stops the tail, not the head.
+  const youngNumber = (await numberAgeDays(userId).catch(() => 30)) < 14;
+  const STRANGER_CAP = Number(process.env["STRANGER_SHARE_CAP"] ?? 0.6);
   // Per-contact WA failure counter — prevents infinite loop when a single contact
   // keeps triggering WA_DISCONNECTED. After 3 consecutive WA failures on the same
   // phone, we mark it failed and move on rather than retrying forever.
@@ -1301,6 +1333,20 @@ async function runCampaign(userId: number, campaign: any, contacts: any[], info:
       activeCampaigns.delete(key);
       await db.update(campaignsTable).set({ status: "paused" }).where(eq(campaignsTable.id, campaign.id));
       break;
+    }
+
+    // ── Stranger cap for a young number ───────────────────────────
+    if (youngNumber && sentThisRun > 0 && sentThisRun % 10 === 0) {
+      const s = await strangerShare24h(userId).catch(() => null);
+      if (s && s.sent >= 30 && s.share !== null && s.share > STRANGER_CAP) {
+        const reason = `الرقم عمره أقل من أسبوعين و${Math.round(s.share * 100)}% من رسائل اليوم ذهبت إلى أرقام لا محادثة سابقة معها — أوقفنا الحملة حتى الغد لحماية الرقم.`;
+        logger.warn({ campaignId: campaign.id, share: s.share }, "young number: stranger share cap reached — pausing");
+        info.running = false;
+        activeCampaigns.delete(key);
+        await withDbRetry(() => db.update(campaignsTable).set({ status: "paused", autoPauseReason: reason })
+          .where(eq(campaignsTable.id, campaign.id))).catch(() => {});
+        break;
+      }
     }
 
     // ── Mid-campaign daily rate limit check ───────────────────────

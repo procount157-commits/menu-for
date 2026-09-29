@@ -6,15 +6,32 @@ import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 import { logger } from "../lib/logger";
+import { checkCoupon, redeemCoupon, CouponError } from "../lib/coupons";
 
 const router = Router();
 
 // Register
+// Registration is by invitation. This is sold to a known handful of
+// companies, each handed a code by the owner; an open form would let anyone
+// on the internet link a WhatsApp number to this server and get it banned
+// on the same IP as the paying tenants. OPEN_REGISTRATION=true opens it.
 router.post("/register", async (req, res) => {
-  const { phone, password, displayName } = req.body;
+  const { phone, password, displayName, code } = req.body;
 
   if (!phone || !password) {
     return res.status(400).json({ error: "رقم الهاتف وكلمة المرور مطلوبان" });
+  }
+
+  const open = process.env["OPEN_REGISTRATION"] === "true";
+  if (!open) {
+    if (!code || typeof code !== "string") {
+      return res.status(403).json({ error: "التسجيل بدعوة — أدخل كود الدعوة الذي وصلك", inviteRequired: true });
+    }
+    try { await checkCoupon(code); }
+    catch (err) {
+      if (err instanceof CouponError) return res.status(err.status).json({ error: err.message, inviteRequired: true });
+      throw err;
+    }
   }
 
   const cleanPhone = String(phone).replace(/[\s\-\+\(\)]/g, "").replace(/^00/, "");
@@ -45,7 +62,14 @@ router.post("/register", async (req, res) => {
   req.session.userId = user.id;
   req.session.isAdmin = user.isAdmin;
 
-  logger.info({ userId: user.id, phone: cleanPhone }, "New user registered");
+  // The invitation is also the plan: a code carries the days and the tier
+  // the owner sold, so a new account starts on what was agreed.
+  if (!open && typeof code === "string") {
+    await redeemCoupon(user.id, code).catch((err) =>
+      logger.warn({ userId: user.id, err: String(err?.message ?? err) }, "invite code could not be redeemed after sign-up"));
+  }
+
+  logger.info({ userId: user.id, phone: cleanPhone, invited: !open }, "New user registered");
 
   res.status(201).json({
     id: user.id,

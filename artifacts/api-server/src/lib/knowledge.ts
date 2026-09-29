@@ -300,6 +300,8 @@ export interface AnswerResult {
   provider: string;
   kbIds:    number[];
   reason?:  string;      // why nothing was produced
+  /** A model was configured and failed — the same call may succeed in a minute. */
+  retryable?: boolean;
 }
 
 /**
@@ -402,6 +404,7 @@ export async function answerFromKnowledge(
   // environment, so a key stored from the UI was invisible to it and every
   // answer silently fell back to the verbatim entry.
   const provider = provider0;
+  let modelFailed = false;
   if (provider) {
     // The history already ends with this message when it came in over
     // WhatsApp, so it is not appended twice.
@@ -417,6 +420,7 @@ export async function answerFromKnowledge(
     ]);
     if (out?.text) return { reply: out.text, provider: out.provider, kbIds };
     logger.info({ userId }, "model unavailable — answering from the knowledge base directly");
+    modelFailed = true;
   }
 
   // No model, or it failed: send the best entry verbatim. Only when the match
@@ -429,14 +433,14 @@ export async function answerFromKnowledge(
   // with it, on the one combination the guard above was written to allow.
   const best = found[0];
   if (!best) {
-    return { reply: null, provider: "none", kbIds, reason: "لا توجد معلومة مطابقة وتعذّر الوصول للنموذج" };
+    return { reply: null, provider: "none", kbIds, reason: "لا توجد معلومة مطابقة وتعذّر الوصول للنموذج", retryable: modelFailed };
   }
   if (best.score < 0.35 || best.hits.length < 1) {
-    return { reply: null, provider: "none", kbIds, reason: "تطابق ضعيف" };
+    return { reply: null, provider: "none", kbIds, reason: "تطابق ضعيف", retryable: modelFailed };
   }
   const unsendable = notCustomerFacing(best.entry);
   if (unsendable) {
-    return { reply: null, provider: "none", kbIds, reason: unsendable };
+    return { reply: null, provider: "none", kbIds, reason: unsendable, retryable: modelFailed };
   }
   return { reply: best.entry.content.trim(), provider: "kb", kbIds };
 }

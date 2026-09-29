@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [code, setCode] = useState("");
   const [displayName, setDisplayName] = useState("");
   const { register } = useAuth();
 
@@ -28,7 +29,7 @@ export default function LoginPage() {
         navigate("/dashboard");
       } else {
         if (password.length < 6) { toast.error("كلمة المرور يجب أن تكون 6 أحرف على الأقل"); setLoading(false); return; }
-        await register(phone.trim(), password, displayName.trim() || undefined);
+        await register(phone.trim(), password, displayName.trim() || undefined, code.trim() || undefined);
         navigate("/dashboard");
         toast.success("تم إنشاء حسابك بنجاح!");
       }
@@ -74,11 +75,19 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === "register" && (
-              <div>
-                <label className="block text-sm text-muted-foreground mb-1.5">الاسم (اختياري)</label>
-                <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="مثال: أحمد محمد" className={inputCls} />
-              </div>
+              <>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1.5">كود الدعوة *</label>
+                  <input type="text" value={code} onChange={(e) => setCode(e.target.value)}
+                    placeholder="الكود الذي وصلك من الإدارة" className={inputCls} dir="ltr" autoComplete="off" />
+                  <p className="text-xs text-muted-foreground mt-1">التسجيل بدعوة. الكود يحدد خطتك ومدتها.</p>
+                </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1.5">الاسم (اختياري)</label>
+                  <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="مثال: أحمد محمد" className={inputCls} />
+                </div>
+              </>
             )}
 
             <div>

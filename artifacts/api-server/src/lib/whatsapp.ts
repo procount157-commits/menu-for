@@ -1342,7 +1342,11 @@ class WhatsAppInstance {
       countryCode:                "AE",
       printQRInTerminal:          false,
       logger:                     this.log as any,
-      syncFullHistory:            true,
+      // The whole chat history per linked number — 963 threads and 1,897
+      // messages for one account here. It feeds the contact extractor and
+      // it is what the memory of ten tenants would go on. Off with
+      // WA_FULL_HISTORY=false when the number of tenants makes it matter.
+      syncFullHistory:            process.env["WA_FULL_HISTORY"] !== "false",
       markOnlineOnConnect:        false,
       generateHighQualityLinkPreview: false,
       connectTimeoutMs:           60_000,           // 60s — enough patience, avoids hanging too long
