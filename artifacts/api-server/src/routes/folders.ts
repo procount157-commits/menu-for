@@ -11,7 +11,7 @@ import { Router } from "express";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, listFoldersTable, contactGroupsTable, contactsTable, emailListsTable, emailListMembersTable, emailContactsTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
-import { classifySector } from "../lib/email/sector";
+import { folderForSector, listSector } from "../lib/folders";
 
 const router = Router();
 router.use(requireAuth);
@@ -81,36 +81,23 @@ router.post("/auto", async (req, res) => {
 
   const decided: Array<{ id: number; name: string; sector: string | null }> = [];
   for (const l of lists) {
-    let sector = classifySector({ company: l.name });
-    if (!sector) {
-      // What most of the companies in it are.
-      const names = kind === "email"
-        ? (await db.select({ company: emailContactsTable.company, sector: emailContactsTable.sector }).from(emailListMembersTable)
-            .innerJoin(emailContactsTable, eq(emailContactsTable.id, emailListMembersTable.contactId)).where(eq(emailListMembersTable.listId, l.id)).limit(300))
-            .map((r) => r.sector ?? classifySector({ company: r.company }))
-        : (await db.select({ name: contactsTable.name }).from(contactsTable).where(eq(contactsTable.groupId, l.id)).limit(300))
-            .map((r) => classifySector({ company: r.name }));
-      const tally = new Map<string, number>();
-      for (const s of names) if (s) tally.set(s, (tally.get(s) ?? 0) + 1);
-      const top = [...tally].sort((a, b) => b[1] - a[1])[0];
-      // A majority, and of enough companies to mean it.
-      if (top && top[1] >= 5 && top[1] >= names.length * 0.4) sector = top[0];
-    }
-    decided.push({ id: l.id, name: l.name, sector });
+    // What most of the companies in it are, when the list's name says nothing.
+    const names = kind === "email"
+      ? (await db.select({ company: emailContactsTable.company }).from(emailListMembersTable)
+          .innerJoin(emailContactsTable, eq(emailContactsTable.id, emailListMembersTable.contactId)).where(eq(emailListMembersTable.listId, l.id)).limit(300)).map((r) => r.company)
+      : (await db.select({ name: contactsTable.name }).from(contactsTable).where(eq(contactsTable.groupId, l.id)).limit(300)).map((r) => r.name);
+    decided.push({ id: l.id, name: l.name, sector: listSector(l.name, null, names) });
   }
 
-  const existing = await db.select().from(listFoldersTable).where(and(eq(listFoldersTable.userId, userId), eq(listFoldersTable.kind, kind)));
-  const folderFor = new Map(existing.map((f) => [f.name, f.id]));
   const moved: Array<{ list: string; folder: string }> = [];
+  const t = listTable(kind);
   for (const d of decided) {
-    if (!d.sector) continue;
-    if (!folderFor.has(d.sector)) {
-      const [f] = await db.insert(listFoldersTable).values({ userId, kind, name: d.sector }).returning();
-      folderFor.set(d.sector, f!.id);
-    }
-    const t = listTable(kind);
-    await db.update(t).set({ folderId: folderFor.get(d.sector)! }).where(eq(t.id, d.id));
-    moved.push({ list: d.name, folder: d.sector });
+    // The owner's folder for that sector when there is one — «عقارات الامارات»
+    // is the real estate folder — and a new one only when there is not.
+    const f = await folderForSector(userId, kind, d.sector);
+    if (!f) continue;
+    await db.update(t).set({ folderId: f.id }).where(eq(t.id, d.id));
+    moved.push({ list: d.name, folder: f.name });
   }
   res.json({ checked: lists.length, moved, unsorted: decided.filter((d) => !d.sector).map((d) => d.name) });
 });

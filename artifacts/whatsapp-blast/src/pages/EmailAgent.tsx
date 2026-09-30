@@ -101,9 +101,31 @@ export function AudienceTab({ onWrite }: { onWrite: (f: Filter) => void }) {
   const target = () => (all ? { filter } : { ids: [...sel] });
   const bulk = useMutation({
     mutationFn: (b: any) => api("/api/email/contacts/bulk", { method: "POST", body: JSON.stringify({ ...target(), ...b }) }),
-    onSuccess: (d: any) => { inv(); toast.success(d.enrolled !== undefined ? `سُجّل ${d.enrolled} في المتابعة` : `تم — ${d.done ?? ""}`); setSel(new Set()); setAll(false); },
+    onSuccess: (d: any) => {
+      inv(); setSel(new Set()); setAll(false);
+      if (d.deleted !== undefined) toast.success(`حُذف ${d.deleted.toLocaleString("ar-SA")}${d.keptUnsubscribed ? ` — وبقي ${d.keptUnsubscribed} ممن ألغوا الاشتراك (خارج القوائم) حتى لا يُراسَلوا ثانية` : ""}`);
+      else toast.success(d.enrolled !== undefined ? `سُجّل ${d.enrolled} في المتابعة` : `تم — ${d.done ?? ""}`);
+    },
     onError: (e: Error) => toast.error(e.message),
   });
+  // Deleting many: the count typed back, so a slip of the mouse cannot empty the account.
+  const wipe = (count: number, body: any, what: string) => {
+    if (!count) return;
+    const typed = prompt(`سيُحذف ${count.toLocaleString("ar-SA")} ${what} نهائياً مع متابعاتهم المجدولة.\nللتأكيد اكتب العدد: ${count}`);
+    if (typed?.trim() === String(count) || typed?.trim() === count.toLocaleString("ar-SA")) bulk.mutate({ action: "delete", ...body });
+    else if (typed !== null) toast.error("العدد غير مطابق — لم يُحذف شيء");
+  };
+  const delList = useMutation({
+    mutationFn: ({ id, contacts }: { id: number; contacts: boolean }) => api(`/api/email/lists/${id}${contacts ? "?contacts=1" : ""}`, { method: "DELETE" }),
+    onSuccess: (d: any) => { inv(); setF((x) => ({ ...x, listIds: undefined })); toast.success(d.deleted ? `حُذفت القائمة و${d.deleted.toLocaleString("ar-SA")} جهة اتصال` : "حُذفت القائمة"); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const askDelList = (l: any) => {
+    const a = prompt(`حذف قائمة «${l.name}» (${l.count}):\n1 — القائمة فقط (العناوين تبقى في الجمهور)\n2 — القائمة وعناوينها (غير الموجودة في قوائم أخرى)\nاكتب 1 أو 2`);
+    if (a?.trim() === "1" || a?.trim() === "١") delList.mutate({ id: l.id, contacts: false });
+    else if (a?.trim() === "2" || a?.trim() === "٢") delList.mutate({ id: l.id, contacts: true });
+  };
+  const filtered = !!(f.sectors?.length || f.cities?.length || f.engagement?.length || f.hasPhone || f.listIds?.length || q);
   const classify = useMutation({
     mutationFn: () => api("/api/email/contacts/classify", { method: "POST", body: JSON.stringify({}) }),
     onSuccess: (d: any) => { inv(); toast.success(`صُنّف ${d.updated} من ${d.checked}: ${Object.entries(d.bySector).map(([k, v]) => `${k} ${v}`).join("، ") || "لا جديد"}`); },
@@ -136,7 +158,7 @@ export function AudienceTab({ onWrite }: { onWrite: (f: Filter) => void }) {
         {lists.length > 0 && (
           <div className={cn(card, "p-3 space-y-2")}>
             <p className="text-xs font-semibold">القوائم والمجلدات</p>
-            <FolderSidebar kind="email" value={folder} onChange={setFolder} total={lists.length} onChanged={inv} compact />
+            <FolderSidebar kind="email" value={folder} onChange={setFolder} total={lists.length} onChanged={inv} compact lists={lists} />
             <div className="border-t border-card-border pt-2 space-y-0.5 max-h-72 overflow-y-auto">
               {inFolder(lists, folder).map((l) => {
                 const on = !!f.listIds?.includes(l.id);
@@ -144,7 +166,8 @@ export function AudienceTab({ onWrite }: { onWrite: (f: Filter) => void }) {
                   <div key={l.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/list-id", String(l.id))}
                     className={cn("group flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs cursor-grab", on ? "bg-primary/15 text-primary" : "hover:bg-muted/50")}>
                     <button onClick={() => setF({ ...f, listIds: on ? f.listIds!.filter((x) => x !== l.id) : [...(f.listIds ?? []), l.id] })} className="flex-1 text-right truncate">{l.name} <span className="text-muted-foreground">({l.count})</span></button>
-                    <span className="hidden group-hover:block"><MoveToFolder kind="email" listId={l.id} folderId={l.folderId} onMoved={inv} /></span>
+                    <span className="hidden group-hover:flex items-center gap-1"><MoveToFolder kind="email" listId={l.id} folderId={l.folderId} onMoved={inv} />
+                      <button title="حذف القائمة" onClick={() => askDelList(l)}><Trash2 className="w-3 h-3 text-red-400" /></button></span>
                   </div>
                 );
               })}
@@ -173,6 +196,13 @@ export function AudienceTab({ onWrite }: { onWrite: (f: Filter) => void }) {
         <div className="p-3 border-b border-card-border flex gap-2 flex-wrap items-center">
           <input className={cn(input, "flex-1 min-w-[10rem]")} placeholder="بحث بالبريد أو الشركة" value={q} onChange={(e) => setQ(e.target.value)} />
           <span className="text-xs text-muted-foreground">{(data?.total ?? 0).toLocaleString("ar-SA")}</span>
+          {(data?.total ?? 0) > 0 && (
+            <button onClick={() => wipe(data.total, { filter }, filtered ? "جهة اتصال (كل من في هذا الفلتر)" : "جهة اتصال — كل بيانات البريد")}
+              disabled={bulk.isPending} title={filtered ? "حذف كل من يطابق الفلتر الحالي" : "مسح كل جهات اتصال البريد"}
+              className={cn(ghost, "text-red-400 border-red-500/30")}>
+              {bulk.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />} {filtered ? "حذف نتيجة الفلتر" : "مسح كل البيانات"}
+            </button>
+          )}
         </div>
         {(sel.size > 0 || all) && (
           <div className="p-2.5 border-b border-card-border bg-primary/5 flex flex-wrap gap-1.5 items-center text-xs">
@@ -184,7 +214,7 @@ export function AudienceTab({ onWrite }: { onWrite: (f: Filter) => void }) {
             <select className={cn(input, "w-36 text-xs py-1.5")} value="" onChange={(e) => e.target.value && bulk.mutate({ action: "setSector", sector: e.target.value === "__none" ? "" : e.target.value })}><option value="">غيّر القطاع…</option>{(sectorList?.sectors ?? []).map((s: string) => <option key={s} value={s}>{s}</option>)}<option value="__none">غير مصنف</option></select>
             <select className={cn(input, "w-40 text-xs py-1.5")} value="" onChange={(e) => e.target.value && bulk.mutate({ action: "enrol", sequenceId: Number(e.target.value) })}><option value="">سجّل في متابعة…</option>{seqs.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
             <button onClick={() => bulk.mutate({ action: "unsubscribe" })} className={ghost}>أوقف</button>
-            <button onClick={() => confirm(`حذف ${n} جهة اتصال؟`) && bulk.mutate({ action: "delete" })} className={cn(ghost, "text-red-400")}><Trash2 className="w-3 h-3" /></button>
+            <button onClick={() => n > 50 ? wipe(n, target(), "جهة اتصال") : confirm(`حذف ${n} جهة اتصال؟`) && bulk.mutate({ action: "delete" })} className={cn(ghost, "text-red-400")}><Trash2 className="w-3 h-3" /> حذف</button>
           </div>
         )}
         <div className="overflow-x-auto max-h-[38rem] overflow-y-auto">

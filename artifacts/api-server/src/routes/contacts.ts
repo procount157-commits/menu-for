@@ -8,12 +8,12 @@ import multer from "multer";
 import { readWorkbook, readText, parseTables, whatsappEntries } from "../lib/phone-import";
 import { saveToGroup, saveToNewGroup, validateGroup, validateInBackground } from "../lib/contact-save";
 import { findDuplicates, removeDuplicates } from "../lib/dedupe";
+import { folderForSector, listSector } from "../lib/folders";
 import { logger } from "../lib/logger";
 
 const router = Router();
 router.use(requireAuth);
 
-const CHUNK_SIZE = 1000;
 const INSERT_BATCH = 200;
 
 const COUNTRY_CODES = [971, 966, 974, 965, 973, 968, 967, 962, 963, 964, 961, 249, 212, 213, 216, 20];
@@ -221,13 +221,35 @@ router.post("/import", upload.single("file"), async (req, res) => {
   try { await assertCanAddContacts(userId, wa.entries.length); }
   catch (err) { if (planErrorToResponse(err, res)) return; throw err; }
 
-  const groupId = Number(b.groupId) || null;
+  let groupId = Number(b.groupId) || null;
   const listName = String(b.name ?? "").trim() || (fileName ? fileName.replace(/\.[a-z0-9]+$/i, "") : `أرقام ${new Date().toISOString().slice(0, 10)}`);
+  const description = fileName ? `من ملف: ${fileName.slice(0, 80)}` : null;
+
+  // The same file uploaded again tops up the list it made before, rather than
+  // making a second list beside it. A list from the old split ("… - 1") is
+  // that list; it gets its plain name back.
+  let reused: string | null = null;
+  if (!groupId && fileName) {
+    const mine = await db.select().from(contactGroupsTable).where(eq(contactGroupsTable.userId, userId));
+    const same = mine.find((g) => g.description === description) ?? mine.find((g) => g.name === listName || g.name === `${listName} - 1`);
+    if (same) {
+      groupId = same.id; reused = same.name;
+      if (same.name === `${listName} - 1`) await db.update(contactGroupsTable).set({ name: listName }).where(eq(contactGroupsTable.id, same.id));
+    }
+  }
+
+  // A new list goes into its sector's folder — the owner's own folder when
+  // one reads as that sector — unless a folder was chosen.
+  let folder: { id: number; name: string } | null = null;
+  if (!groupId && !folderId) {
+    folder = await folderForSector(userId, "wa", listSector(listName, fileName, parsed.rows.slice(0, 300).map((r) => r.company))).catch(() => null);
+  }
+
   let saved;
   try {
     saved = groupId
       ? await saveToGroup(userId, groupId, wa.entries, { allowOtherLists })
-      : await saveToNewGroup(userId, listName, fileName ? `من ملف: ${fileName.slice(0, 80)}` : null, wa.entries, { allowOtherLists, folderId });
+      : await saveToNewGroup(userId, listName, description, wa.entries, { allowOtherLists, folderId: folderId ?? folder?.id ?? null });
   } catch (err: any) {
     return res.status(400).json({ error: String(err?.message ?? err) });
   }
@@ -241,6 +263,8 @@ router.post("/import", upload.single("file"), async (req, res) => {
     added: saved.added,
     alreadyInList: saved.existing,
     inOtherLists: saved.inOtherLists,
+    addedTo: reused,
+    folder: folder?.name ?? null,
     otherListNames: saved.otherListNames,
     duplicates: wa.duplicates,
     skippedLandline: wa.skippedLandline,
@@ -315,52 +339,15 @@ router.post("/:id/numbers", async (req, res) => {
 
   const globalDuplicates = rawEntries.length - invalid - skippedLandline - validEntries.length;
 
-  if (validEntries.length <= CHUNK_SIZE) {
-    const existing = await db.select({ phone: contactsTable.phone }).from(contactsTable).where(eq(contactsTable.groupId, groupId));
-    const existingSet = new Set(existing.map((e) => e.phone));
-    const toInsert = validEntries.filter((e) => !existingSet.has(e.phone));
-    const groupDups = validEntries.length - toInsert.length;
-    if (toInsert.length > 0) await batchInsert(groupId, toInsert);
-
-    return res.json({
-      added: toInsert.length,
-      duplicates: globalDuplicates + groupDups,
-      invalid, skippedLandline,
-      total: rawEntries.length,
-      autoSplit: false,
-      groups: [{ id: groupId, name: group.name, count: toInsert.length }],
-    });
-  }
-
-  const chunks: Entry[][] = [];
-  for (let i = 0; i < validEntries.length; i += CHUNK_SIZE) chunks.push(validEntries.slice(i, i + CHUNK_SIZE));
-
-  const createdGroups: { id: number; name: string; count: number }[] = [];
-  const baseName = group.name.replace(/ - \d+$/, "");
-
-  for (let ci = 0; ci < chunks.length; ci++) {
-    const groupName = `${baseName} - ${ci + 1}`;
-    let targetGroupId: number;
-
-    if (ci === 0) {
-      await db.update(contactGroupsTable).set({ name: groupName }).where(eq(contactGroupsTable.id, groupId));
-      targetGroupId = groupId;
-    } else {
-      const [newGroup] = await db.insert(contactGroupsTable).values({ userId, name: groupName, description: group.description }).returning();
-      targetGroupId = newGroup.id;
-    }
-
-    await batchInsert(targetGroupId, chunks[ci]);
-    createdGroups.push({ id: targetGroupId, name: groupName, count: chunks[ci].length });
-  }
-
+  // One list, however many: the numbers stay together.
+  const saved = await saveToGroup(userId, groupId, validEntries.map((e) => ({ phone: e.phone, name: e.name || null })), { allowOtherLists: true });
   return res.json({
-    added: validEntries.length,
-    duplicates: globalDuplicates,
+    added: saved.added,
+    duplicates: globalDuplicates + saved.existing,
     invalid, skippedLandline,
     total: rawEntries.length,
-    autoSplit: true,
-    groups: createdGroups,
+    autoSplit: false,
+    groups: saved.groups,
   });
 });
 

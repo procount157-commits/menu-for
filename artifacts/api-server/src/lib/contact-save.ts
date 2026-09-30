@@ -1,9 +1,9 @@
 // ── Saving WhatsApp numbers, and checking them ────────────────────
 // Shared by the number lists and the email import, so a number saved from
-// either door lands the same way: de-duplicated against the list, under the
-// company's name, split into lists of a thousand when the file is larger
-// (the size a campaign and the list page handle comfortably), and checked
-// against WhatsApp in the background when the number is linked.
+// either door lands the same way: de-duplicated against the list and the
+// account's other lists, under the company's name, in one list however large
+// the file, and checked against WhatsApp in the background when the number
+// is linked.
 
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { db, contactGroupsTable, contactsTable } from "@workspace/db";
@@ -11,7 +11,6 @@ import { checkNumbers, getStatus } from "./whatsapp";
 import { canonical, inOtherLists } from "./dedupe";
 import { logger } from "./logger";
 
-export const LIST_SIZE = 1000;
 const INSERT_BATCH = 500;
 
 export interface SaveResult {
@@ -68,33 +67,11 @@ export async function saveToGroup(
   const named = entries.filter((e) => e.name && have.get(canonical(e.phone)) && !have.get(canonical(e.phone))!.name);
   for (const e of named) await db.update(contactsTable).set({ name: e.name }).where(eq(contactsTable.id, have.get(canonical(e.phone))!.id));
 
-  const room = Math.max(0, LIST_SIZE - existing.length);
-  if (fresh.length <= room) {
-    await insertAll(groupId, fresh);
-    return { added: fresh.length, existing: entries.length - fresh.length - skippedOther, ...extra, autoSplit: false, groups: [{ id: groupId, name: group.name, count: existing.length + fresh.length }] };
-  }
-
-  // Fill this list, then sister lists of LIST_SIZE each. An empty list that
-  // overflows becomes "- 1" of its series, as the lists always have.
-  const groups: SaveResult["groups"] = [];
-  const base = group.name.replace(/ - \d+$/, "");
-  const firstName = existing.length === 0 ? `${base} - 1` : group.name;
-  if (firstName !== group.name) await db.update(contactGroupsTable).set({ name: firstName }).where(eq(contactGroupsTable.id, groupId));
-  if (room > 0) {
-    await insertAll(groupId, fresh.slice(0, room));
-    groups.push({ id: groupId, name: firstName, count: existing.length + room });
-  }
-  let rest = fresh.slice(room);
-  let n = 2;
-  while (rest.length) {
-    const chunk = rest.slice(0, LIST_SIZE);
-    rest = rest.slice(LIST_SIZE);
-    const [g] = await db.insert(contactGroupsTable).values({ userId, name: `${base} - ${n}`, description: group.description, segment: group.segment }).returning();
-    await insertAll(g!.id, chunk);
-    groups.push({ id: g!.id, name: g!.name, count: chunk.length });
-    n++;
-  }
-  return { added: fresh.length, existing: entries.length - fresh.length - skippedOther, ...extra, autoSplit: true, groups };
+  // One list, whatever its size: the owner keeps a file as one list, and a
+  // list split into "- 1", "- 2" … scattered it across the page and out of
+  // its folder.
+  await insertAll(groupId, fresh);
+  return { added: fresh.length, existing: entries.length - fresh.length - skippedOther, ...extra, autoSplit: false, groups: [{ id: groupId, name: group.name, count: existing.length + fresh.length }] };
 }
 
 /** A new list, named after the file, and the numbers in it. */

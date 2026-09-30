@@ -1,13 +1,15 @@
 // Saving imported WhatsApp numbers into lists, against the real tables for
-// user 1: a new list named after the file, a large file split into lists of
-// a thousand, a second import into the same list adding nothing twice, and a
-// name filled in where the list had the number without one.
+// user 1: a new list named after the file, a large file kept whole in one
+// list, a second import into the same list adding nothing twice, a name
+// filled in where the list had the number without one, and a list placed in
+// the owner's folder for its sector.
 
 import * as XLSX from "xlsx";
 import { eq, inArray, like } from "drizzle-orm";
-import { db, contactGroupsTable, contactsTable } from "@workspace/db";
+import { db, contactGroupsTable, contactsTable, listFoldersTable } from "@workspace/db";
 import { readWorkbook, parseTables, whatsappEntries } from "../phone-import";
-import { saveToNewGroup, saveToGroup, LIST_SIZE } from "../contact-save";
+import { saveToNewGroup, saveToGroup } from "../contact-save";
+import { folderForSector, listSector } from "../folders";
 
 const USER = 1;
 let pass = 0, total = 0;
@@ -16,6 +18,7 @@ const check = (n: string, c: boolean, d = "") => { total++; if (c) pass++; conso
 async function clean() {
   const gs = await db.select({ id: contactGroupsTable.id }).from(contactGroupsTable).where(like(contactGroupsTable.name, "اختبار-استيراد%"));
   if (gs.length) await db.delete(contactGroupsTable).where(inArray(contactGroupsTable.id, gs.map((g) => g.id)));
+  await db.delete(listFoldersTable).where(like(listFoldersTable.name, "اختبار-مجلد%"));
 }
 await clean();
 
@@ -43,21 +46,29 @@ const [filled] = await db.select().from(contactsTable).where(eq(contactsTable.ph
 check("...but fills a name the list was missing", filled?.name === "مؤسسة الرياض");
 
 // ── A large file ─────────────────────────────────────────────────
-const n = LIST_SIZE * 2 + 500;
+const n = 2500;
 const big = Array.from({ length: n }, (_, i) => ({ phone: `9715${String(10_000_000 + i).slice(-8)}`, name: `شركة ${i}` }));
 const r3 = await saveToNewGroup(USER, "اختبار-استيراد كبير", null, big);
-check(`${n} numbers go into three lists`, r3.autoSplit && r3.groups.length === 3 && r3.added === n, r3.groups.map((g) => g.count).join("/"));
-check("the lists are numbered from 1", r3.groups[0]!.name.endsWith(" - 1") && r3.groups[2]!.name.endsWith(" - 3"), r3.groups.map((g) => g.name).join(" | "));
-const counts = await Promise.all(r3.groups.map(async (g) => (await db.select().from(contactsTable).where(eq(contactsTable.groupId, g.id))).length));
-check("no list holds more than a thousand", counts.every((c) => c <= LIST_SIZE) && counts.reduce((a, b) => a + b, 0) === n, counts.join("/"));
+check(`${n} numbers stay in one list`, !r3.autoSplit && r3.groups.length === 1 && r3.added === n, r3.groups.map((g) => g.count).join("/"));
+check("...under the file's own name, no number after it", r3.groups[0]!.name === "اختبار-استيراد كبير", r3.groups[0]!.name);
+const inIt = await db.select().from(contactsTable).where(eq(contactsTable.groupId, r3.groups[0]!.id));
+check("every number is in that list", inIt.length === n, `${inIt.length}`);
 
-// Topping up a partly full list fills it and spills into a sister list.
-// The same numbers are in the large lists above; this is about splitting,
-// so the cross-list rule is waived (it has its own test in dedupe.test.ts).
+// Topping a list up adds only the new numbers, into the same list.
 const partial = await saveToNewGroup(USER, "اختبار-استيراد جزئي", null, big.slice(0, 900), { allowOtherLists: true });
 const r4 = await saveToGroup(USER, partial.groups[0]!.id, big.slice(0, 1200), { allowOtherLists: true });
 check("topping up adds only the new ones", r4.added === 300 && r4.existing === 900, `${r4.added}/${r4.existing}`);
-check("...filling the list to a thousand and spilling the rest", r4.groups[0]!.count === LIST_SIZE && r4.groups[1]!.count === 200, r4.groups.map((g) => g.count).join("/"));
+check("...into the same list, past a thousand", r4.groups.length === 1 && r4.groups[0]!.count === 1200, r4.groups.map((g) => g.count).join("/"));
+
+// ── Its folder ───────────────────────────────────────────────────
+check("a real estate file reads as real estate", listSector("UAE-real-estate", "UAE-real-estate.csv") === "عقارات");
+check("...and from its companies when the name says nothing", listSector("data 1", null, Array.from({ length: 10 }, (_, i) => `Al Noor Real Estate ${i} LLC`)) === "عقارات");
+const [mine] = await db.insert(listFoldersTable).values({ userId: USER, kind: "wa", name: "اختبار-مجلد عقارات الامارات" }).returning();
+const f = await folderForSector(USER, "wa", "عقارات");
+check("the owner's own real estate folder is used", f?.id === mine!.id, f?.name ?? "");
+const before = (await db.select().from(listFoldersTable).where(eq(listFoldersTable.userId, USER))).length;
+await folderForSector(USER, "wa", "عقارات");
+check("...and no second folder is made beside it", (await db.select().from(listFoldersTable).where(eq(listFoldersTable.userId, USER))).length === before);
 
 await clean();
 console.log(`\n${pass}/${total} مرّ`);

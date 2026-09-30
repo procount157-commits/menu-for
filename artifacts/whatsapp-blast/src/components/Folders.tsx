@@ -31,8 +31,10 @@ export function inFolder<T extends { folderId?: number | null }>(lists: T[], sel
   return lists.filter((l) => l.folderId === sel);
 }
 
-export function FolderSidebar({ kind, value, onChange, total, onChanged, compact }: {
+export function FolderSidebar({ kind, value, onChange, total, onChanged, compact, lists }: {
   kind: FolderKind; value: FolderSel; onChange: (s: FolderSel) => void; total: number; onChanged: () => void; compact?: boolean;
+  /** The page's own lists: the counts are taken from them, so they match what the page shows. */
+  lists?: Array<{ folderId?: number | null }>;
 }) {
   const qc = useQueryClient();
   const { data } = useFolders(kind);
@@ -44,6 +46,7 @@ export function FolderSidebar({ kind, value, onChange, total, onChanged, compact
   const create = useMutation({ mutationFn: () => api("/api/folders", { method: "POST", body: JSON.stringify({ kind, name }) }), onSuccess: (f: any) => { setAdding(false); setName(""); refresh(); onChange(f.id); }, onError: (e: Error) => toast.error(e.message) });
   const rename = useMutation({ mutationFn: ({ id, n }: { id: number; n: string }) => api(`/api/folders/${id}`, { method: "PATCH", body: JSON.stringify({ name: n }) }), onSuccess: refresh });
   const remove = useMutation({ mutationFn: (id: number) => api(`/api/folders/${id}`, { method: "DELETE" }), onSuccess: () => { onChange("all"); refresh(); } });
+  // Auto-sort: into the owner's folder for each sector («عقارات الامارات» is real estate), a new folder only when there is none.
   const auto = useMutation({
     mutationFn: () => api("/api/folders/auto", { method: "POST", body: JSON.stringify({ kind }) }),
     onSuccess: (d: any) => { refresh(); toast.success(d.moved.length ? `رُتّبت ${d.moved.length} قائمة: ${d.moved.map((m: any) => `${m.list} ← ${m.folder}`).join("، ").slice(0, 200)}` : "لا قوائم جديدة يمكن معرفة قطاعها"); },
@@ -63,6 +66,8 @@ export function FolderSidebar({ kind, value, onChange, total, onChanged, compact
     on ? "bg-primary/15 text-primary" : "hover:bg-muted/50 text-foreground", dragOver && "ring-2 ring-primary/60 bg-primary/10");
 
   const folders: any[] = data?.folders ?? [];
+  const countIn = (id: number) => lists ? lists.filter((l) => l.folderId === id).length : folders.find((f) => f.id === id)?.lists ?? 0;
+  const unfoldered = lists ? lists.filter((l) => !l.folderId || !folders.some((f) => f.id === l.folderId)).length : data?.unfoldered ?? 0;
   return (
     <div className={cn("space-y-1", compact && "text-xs")}>
       <button onClick={() => onChange("all")} className={item(value === "all", false)}><Inbox className="w-4 h-4 shrink-0" /><span className="flex-1">كل القوائم</span><span className="text-xs text-muted-foreground">{total}</span></button>
@@ -72,15 +77,15 @@ export function FolderSidebar({ kind, value, onChange, total, onChanged, compact
             {value === f.id ? <FolderOpen className="w-4 h-4 shrink-0" /> : <Folder className="w-4 h-4 shrink-0" />}
             <span className="truncate">{f.name}</span>
           </button>
-          <span className="text-xs text-muted-foreground group-hover:hidden">{f.lists}</span>
+          <span className="text-xs text-muted-foreground group-hover:hidden">{countIn(f.id)}</span>
           <span className="hidden group-hover:flex items-center gap-1">
             <button title="إعادة تسمية" onClick={() => { const n = prompt("اسم المجلد", f.name); if (n?.trim()) rename.mutate({ id: f.id, n: n.trim() }); }}><Pencil className="w-3 h-3 text-muted-foreground" /></button>
             <button title="حذف المجلد (القوائم تبقى)" onClick={() => confirm(`حذف مجلد «${f.name}»؟ القوائم تبقى خارج المجلدات.`) && remove.mutate(f.id)}><Trash2 className="w-3 h-3 text-red-400" /></button>
           </span>
         </div>
       ))}
-      {(data?.unfoldered ?? 0) > 0 && folders.length > 0 && (
-        <button {...dropProps("none", null)} onClick={() => onChange("none")} className={item(value === "none", over === "none")}><Folder className="w-4 h-4 shrink-0 opacity-50" /><span className="flex-1">بلا مجلد</span><span className="text-xs text-muted-foreground">{data.unfoldered}</span></button>
+      {unfoldered > 0 && folders.length > 0 && (
+        <button {...dropProps("none", null)} onClick={() => onChange("none")} className={item(value === "none", over === "none")}><Folder className="w-4 h-4 shrink-0 opacity-50" /><span className="flex-1">بلا مجلد</span><span className="text-xs text-muted-foreground">{unfoldered}</span></button>
       )}
       {adding ? (
         <form onSubmit={(e) => { e.preventDefault(); if (name.trim()) create.mutate(); }} className="flex gap-1 px-1">

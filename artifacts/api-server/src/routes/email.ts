@@ -22,6 +22,8 @@ import { cleanRows, detectColumns, checkMx, splitBy, type ImportRow } from "../l
 import { draftReply, sendReply, pollMailbox } from "../lib/email/inbound";
 import { readWorkbook, parseTables, whatsappEntries } from "../lib/phone-import";
 import { saveToNewGroup, validateInBackground } from "../lib/contact-save";
+import { folderForSector, listSector } from "../lib/folders";
+import { deleteContacts, deleteList } from "../lib/email/delete";
 import { classifySector, SECTORS, UNCLASSIFIED } from "../lib/email/sector";
 import { cleanFilter, facets, resolve as resolveSegment, count as countSegment, describe as describeSegment, conditions as segmentConditions } from "../lib/email/segments";
 import { ensureEmailAgent, memory as agentMemory, teach, rememberKnowledge, writeCampaign, EMAIL_ROLE } from "../lib/email/agent";
@@ -226,10 +228,7 @@ router.post("/contacts/bulk", async (req, res) => {
       if (status !== "active") for (const id of ids) await cancelSequencesFor(userId, id, "أوقفه صاحب العمل");
       return res.json({ done: ids.length });
     }
-    case "delete": {
-      for (let i = 0; i < ids.length; i += 1000) await db.delete(emailContactsTable).where(inArray(emailContactsTable.id, ids.slice(i, i + 1000)));
-      return res.json({ done: ids.length });
-    }
+    case "delete": return res.json(await deleteContacts(userId, ids));
   }
   res.status(400).json({ error: "إجراء غير معروف" });
 });
@@ -380,9 +379,11 @@ router.post("/lists", async (req, res) => {
   const [l] = await db.insert(emailListsTable).values({ userId: req.session.userId!, name: String(req.body?.name ?? "قائمة").slice(0, 160), description: req.body?.description ?? null, folderId: Number(req.body?.folderId) || null }).returning();
   res.status(201).json(l);
 });
+/** A list goes; with `?contacts=1` its addresses go too (those in no other list). */
 router.delete("/lists/:id", async (req, res) => {
-  await db.delete(emailListsTable).where(and(eq(emailListsTable.id, Number(req.params.id)), eq(emailListsTable.userId, req.session.userId!)));
-  res.json({ ok: true });
+  const r = await deleteList(req.session.userId!, Number(req.params.id), req.query["contacts"] === "1");
+  if (!r) return res.status(404).json({ error: "القائمة غير موجودة" });
+  res.json(r);
 });
 
 /**
@@ -497,7 +498,8 @@ router.post("/contacts/import", upload.single("file"), async (req, res) => {
     if (wa.entries.length) {
       try {
         await assertCanAddContacts(userId, wa.entries.length);
-        const saved = await saveToNewGroup(userId, `${listName} — واتساب`, `أرقام واتساب من ملف البريد${fileName ? `: ${fileName.slice(0, 80)}` : ""}`, wa.entries);
+        const waFolder = await folderForSector(userId, "wa", sectorOverride ?? listSector(listName, fileName, parsed.rows.slice(0, 300).map((r) => r.company))).catch(() => null);
+        const saved = await saveToNewGroup(userId, `${listName} — واتساب`, `أرقام واتساب من ملف البريد${fileName ? `: ${fileName.slice(0, 80)}` : ""}`, wa.entries, { folderId: waFolder?.id ?? null });
         const verifying = validateInBackground(userId, saved.groups.map((g) => g.id));
         whatsapp = { added: saved.added, alreadyInList: saved.existing + saved.inOtherLists, duplicates: wa.duplicates, skippedLandline: wa.skippedLandline, groups: saved.groups, verifying };
       } catch (err: any) {

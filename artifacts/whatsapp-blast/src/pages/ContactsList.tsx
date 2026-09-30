@@ -59,8 +59,9 @@ export default function ContactsList() {
       const r = await fetch("/api/contacts/import", { method: "POST", body: fd, credentials: "include" });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error ?? "تعذّر الاستيراد");
-      toast.success(`حُفظ ${d.added.toLocaleString("ar-SA")} رقم واتساب${d.named ? " بأسماء الشركات" : ""}${d.autoSplit ? ` في ${d.groups.length} قوائم` : ""}${d.inOtherLists ? ` · تُرك ${d.inOtherLists} موجود في قوائم أخرى` : ""}${d.verifying ? " — يجري التحقق على واتساب" : ""}`);
+      toast.success(`حُفظ ${d.added.toLocaleString("ar-SA")} رقم واتساب${d.named ? " بأسماء الشركات" : ""}${d.addedTo ? ` في قائمتها السابقة «${d.addedTo}»` : ""}${d.folder ? ` · في مجلد «${d.folder}»` : ""}${d.inOtherLists ? ` · تُرك ${d.inOtherLists} موجود في قوائم أخرى` : ""}${d.verifying ? " — يجري التحقق على واتساب" : ""}`);
       queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
+      queryClient.invalidateQueries({ queryKey: ["folders", "wa"] });
       if (d.groups?.[0]?.id) navigate(`/contacts/${d.groups[0].id}`);
       else if (d.inOtherLists) toast.info(`كل أرقام الملف موجودة مسبقاً في: ${(d.otherListNames ?? []).join("، ")}`);
     } catch (e: any) {
@@ -87,6 +88,7 @@ export default function ContactsList() {
       onSuccess: () => {
         toast.success("تم حذف القائمة");
         queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: ["folders", "wa"] });
       },
       onError: () => toast.error("حدث خطأ أثناء الحذف"),
     },
@@ -304,7 +306,7 @@ export default function ContactsList() {
 
       <div className="grid md:grid-cols-[14rem_1fr] gap-4 items-start">
       <div className="bg-card border border-card-border rounded-xl p-2 md:sticky md:top-4">
-        <FolderSidebar kind="wa" value={folder} onChange={setFolder} total={groups?.length ?? 0} onChanged={refreshLists} />
+        <FolderSidebar kind="wa" value={folder} onChange={setFolder} total={groups?.length ?? 0} onChanged={refreshLists} lists={groups as any[] ?? []} />
       </div>
       <div>
       {isLoading ? (

@@ -464,8 +464,10 @@ being the column of distinct names when there is no header, and the number
 is saved under it.
 
 `POST /api/contacts/import` takes the file (or pasted text) and saves on
-arrival — into a given list, or a new one named after the file — split into
-lists of a thousand past that (`lib/contact-save.ts`), and, when WhatsApp is
+arrival — into a given list, or a new one named after the file — and keeps a
+file in one list however large it is (`lib/contact-save.ts`). The same file
+uploaded again tops up the list it made before instead of making a second
+one beside it. When WhatsApp is
 linked, checks every number against WhatsApp in the background and parks the
 unregistered ones as `invalid`. The lists page has a one-step upload; the
 list page uploads into itself. The email import reads the file the same way
@@ -490,9 +492,20 @@ stored once per address already.
 **Folders** (`routes/folders.ts`, `list_folders`, migration 028) hold number
 lists and email lists alike: made in place, renamed, removed (the lists stay),
 a list dragged onto a folder or moved from its card, and "رتّب حسب القطاع"
-putting every unfoldered list into a folder named after its sector — from the
-list's name, or from what most of the companies in it are. A file uploaded
-while a folder is open lands in it.
+putting every unfoldered list into the folder for its sector — from the
+list's name, or from what most of the companies in it are (`lib/folders.ts`).
+The owner's own folder wins: one they called «عقارات الامارات» is the real
+estate folder, and a folder is made only when no folder reads as that sector.
+A file uploaded while a folder is open lands in it; otherwise a new list goes
+straight into its sector's folder. The folder counts are taken from the lists
+the page shows, so they always agree with it.
+
+**Clearing email data** (`lib/email/delete.ts`). The audience can be cleared
+in one step: the ticked rows, everyone the current filter selects, a list on
+its own or with its addresses (those in no other list), or all of it. A bulk
+delete asks for the count to be typed back. Queued follow-ups go with a
+contact. Anyone who unsubscribed, bounced or complained is kept and taken out
+of every list, so a later upload with that address never writes to it again.
 
 
 ## Email marketing
