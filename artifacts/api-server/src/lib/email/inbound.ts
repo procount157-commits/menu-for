@@ -251,10 +251,13 @@ export async function sendReply(userId: number, inboundId: number, subject?: str
 
 // ── IMAP ──────────────────────────────────────────────────────────
 export async function pollMailbox(s: EmailSettings): Promise<number> {
-  if (!s.imapHost || !s.imapUser || !s.imapPass) return 0;
+  // The replies arrive in the mailbox that sends, almost always: an empty
+  // IMAP username or password means the sender's own.
+  const user = s.imapUser?.trim() || s.smtpUser, pass = s.imapPass || s.smtpPass;
+  if (!s.imapHost || !user || !pass) return 0;
   const client = new ImapFlow({
     host: s.imapHost, port: s.imapPort ?? 993, secure: (s.imapPort ?? 993) === 993,
-    auth: { user: s.imapUser, pass: s.imapPass }, logger: false,
+    auth: { user, pass }, logger: false,
   });
   let handled = 0;
   try {
@@ -302,7 +305,7 @@ export async function pollMailbox(s: EmailSettings): Promise<number> {
 }
 
 export async function pollAllMailboxes(): Promise<void> {
-  const rows = await db.select().from(emailSettingsTable).where(sql`${emailSettingsTable.imapHost} is not null and ${emailSettingsTable.imapUser} is not null`);
+  const rows = await db.select().from(emailSettingsTable).where(sql`${emailSettingsTable.imapHost} is not null and coalesce(nullif(${emailSettingsTable.imapUser}, ''), ${emailSettingsTable.smtpUser}) is not null`);
   for (const s of rows) await pollMailbox(s).catch(() => {});
 }
 

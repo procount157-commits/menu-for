@@ -500,7 +500,7 @@ function SettingsTab() {
       </div>
       <div className={cn(card, "p-4 space-y-3")}>
         <p className="text-sm font-semibold">قراءة الردود (IMAP)</p>
-        <div className="grid md:grid-cols-4 gap-3"><L l="IMAP host" k="imapHost" ph="imap.gmail.com" /><L l="المنفذ" k="imapPort" type="number" /><L l="المستخدم" k="imapUser" /><L l="كلمة المرور" k="imapPass" type="password" /></div>
+        <div className="grid md:grid-cols-4 gap-3"><L l="IMAP host" k="imapHost" ph="imap.gmail.com" /><L l="المنفذ" k="imapPort" type="number" /><L l="المستخدم" k="imapUser" ph="فارغ = نفس مستخدم الإرسال" /><L l="كلمة المرور" k="imapPass" type="password" ph="فارغ = نفس كلمة مرور الإرسال" /></div>
         <p className="text-[11px] text-muted-foreground">يُقرأ صندوق الوارد كل دقيقتين؛ كل رد يُصنَّف ويُلخَّص ويكتب هال مسودة الرد. {data?.settings?.imapLastError && <span className="text-red-400">آخر خطأ: {data.settings.imapLastError}</span>}
           {data?.settings?.inboundToken && <> · أو وجّه webhook المزوّد إلى <code dir="ltr">{data.trackingBase ?? ""}/api/email/inbound/{data.settings.inboundToken}</code> (والارتدادات إلى <code dir="ltr">/api/email/events/{data.settings.inboundToken}</code>).</>}</p>
       </div>
