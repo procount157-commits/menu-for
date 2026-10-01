@@ -8,6 +8,7 @@
 //                           and works each with a new angle
 //   ليلى   email_replies    reads the replies, rates them hot, warm or cold, answers
 //   ماجد   email_guard      checks every message before it goes, and the sending's health
+//   طارق   email_creator    builds a whole campaign on request: a service, an audience, a language
 //
 // They are ordinary employees: on the team page with a persona, tasks, a
 // memory the owner writes instructions into, and skills. What binds them is
@@ -20,7 +21,7 @@ import { memoryPreamble } from "../agent-memory";
 import { skillsFor, skillsPreamble } from "../agent-skills";
 import { logger } from "../logger";
 
-export const EMAIL_TEAM = ["email", "email_strategist", "email_followup", "email_replies", "email_guard"] as const;
+export const EMAIL_TEAM = ["email", "email_strategist", "email_followup", "email_replies", "email_guard", "email_creator"] as const;
 export type EmailRole = typeof EMAIL_TEAM[number];
 
 /** The doctrine every email agent works by, before its own job. */
@@ -114,6 +115,19 @@ export const EMAIL_TEAM_DEFS: Def[] = [
       "أوقف الإرسال إن تجاوز الارتداد ٣٪ أو وصل بلاغ إزعاج، وأبلغ صاحب العمل.",
     ],
   },
+  {
+    role: "email_creator", name: "طارق", title: "منشئ حملات البريد", avatar: "🧩", priority: 995,
+    persona: [
+      "منشئ حملات بريد B2B لبروكاونت للمحاسبة. حين يُطلب منه خدمة وجمهور يبني الحملة كاملة: عنوانان بزاويتين مختلفتين للاختبار، رسالة أولى قوية، متابعة لمن فتح ولم يرد بزاوية ألم جديدة، ومتابعة أقصر لمن لم يفتح.",
+      "يكتب الإنجليزية المهنية الاستشارية والعربية الخليجية المبسطة بنفس الجودة، ويختار اللغة التي طُلبت.",
+      "يبني كل حملة على مشكلة حقيقية يعيشها قطاع المستلم، ومعلومة صحيحة من معرفة الشركة، ثم الخدمة، ثم دعوة واحدة واضحة: الرد على الرسالة، أو الاتصال أو واتساب على 054 232 8336، أو زيارة www.pro-count.ae.",
+      "يستلهم أسلوب قوالب مكتبة الشركة ولا ينسخها حرفياً، ويكتب باسم شركة المستلم وباسم بروكاونت.",
+    ].join(" "),
+    tasks: [
+      "ابنِ الحملة كاملة للخدمة والجمهور المطلوبين: عنوانان، رسالة أولى، متابعتان.",
+      "ضع في الدعوة رقم الهاتف 054 232 8336 أو الموقع www.pro-count.ae، واجعل اسم شركة المستلم في العنوان أو السطر الأول.",
+    ],
+  },
 ];
 
 /**
@@ -178,7 +192,7 @@ export async function recentActivity(userId: number, limit = 60) {
 }
 
 // ── ماجد's check ──────────────────────────────────────────────────
-const HYPE = /(الأفضل|الافضل|الأقوى|الاقوى|الأرخص|الارخص|الرائد|حلول متكاملة|خبرات عالمية|\bbest\b|no\.?\s?1\b|cheapest|\bleading\b|world[- ]class|guarantee|مضمون|نضمن|ضمان|100\s?%|١٠٠\s?٪)/i;
+const HYPE = /(الأفضل|الافضل|الأقوى|الاقوى|الأرخص|الارخص|الرائد|حلول متكاملة|خبرات عالمية|\bbest\b(?!\s+(?:regards|wishes))|no\.?\s?1\b|cheapest|\bleading\b|world[- ]class|guarantee|مضمون|نضمن|ضمان|100\s?%|١٠٠\s?٪)/i;
 const URGENCY = /(آخر فرصة|اخر فرصة|عرض ينتهي اليوم|سارع|لا تفوّت|خلال ٢٤ ساعة فقط|act now|last chance|limited time|urgent)/i;
 const OFFICIAL = /(إشعار رسمي|اشعار رسمي|إنذار|انذار|official notice|final notice|من الهيئة الاتحادية)/i;
 /** Numbers that look like money, percentages, deadlines or counts. */

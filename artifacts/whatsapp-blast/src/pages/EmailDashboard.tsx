@@ -33,7 +33,7 @@ const SERIES = [
   { key: "clicked", label: "نقروا", color: "#d95926" },
   { key: "replied", label: "ردّوا", color: "#199e70" },
 ] as const;
-const ROLE_AR: Record<string, string> = { email: "نورة", email_strategist: "سلمى", email_followup: "يوسف", email_replies: "ليلى", email_guard: "ماجد" };
+const ROLE_AR: Record<string, string> = { email: "نورة", email_strategist: "سلمى", email_followup: "يوسف", email_replies: "ليلى", email_guard: "ماجد", email_creator: "طارق" };
 const TEMP: Record<string, { label: string; cls: string }> = {
   hot: { label: "حار", cls: "bg-red-500/15 text-red-400 border-red-500/30" },
   warm: { label: "دافئ", cls: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30" },
@@ -134,7 +134,7 @@ export function DashboardTab({ goMissions }: { goMissions: () => void }) {
           <Bot className="w-4 h-4 text-primary" /><p className="font-semibold text-sm">فريق البريد</p>
           <Link href="/employees" className="mr-auto text-[11px] text-primary hover:underline">الشخصية والمهام والمهارات ← فريق البوتات</Link>
         </div>
-        <div className="grid md:grid-cols-5 divide-y md:divide-y-0 md:divide-x md:divide-x-reverse divide-card-border">
+        <div className="grid md:grid-cols-3 xl:grid-cols-6 divide-y md:divide-y-0 md:divide-x md:divide-x-reverse divide-card-border">
           {d.team.map((t: any) => <AgentCard key={t.role} t={t} />)}
         </div>
       </div>
@@ -361,7 +361,7 @@ function CampaignsTable({ rows }: { rows: any[] }) {
 }
 
 function ActivityFeed({ rows }: { rows: any[] }) {
-  const AV: Record<string, string> = { email: "📧", email_strategist: "🎯", email_followup: "🔁", email_replies: "💬", email_guard: "🛡️" };
+  const AV: Record<string, string> = { email: "📧", email_strategist: "🎯", email_followup: "🔁", email_replies: "💬", email_guard: "🛡️", email_creator: "🧩" };
   return (
     <div className={cn(card, "lg:sticky lg:top-4")}>
       <div className="p-3.5 border-b border-card-border"><p className="font-semibold text-sm flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-primary" /> ما فعله الفريق</p></div>

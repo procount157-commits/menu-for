@@ -398,9 +398,17 @@ function Templates() {
   const inv = () => qc.invalidateQueries({ queryKey: ["email-templates"] });
   const save = useMutation({ mutationFn: (t: any) => t.id ? api(`/api/email/templates/${t.id}`, { method: "PATCH", body: JSON.stringify(t) }) : api("/api/email/templates", { method: "POST", body: JSON.stringify(t) }), onSuccess: () => { setEdit(null); inv(); }, onError: (e: Error) => toast.error(e.message) });
   const del = useMutation({ mutationFn: (id: number) => api(`/api/email/templates/${id}`, { method: "DELETE" }), onSuccess: inv });
+  const [cat, setCat] = useState("");
+  const cats = [...new Set(rows.map((t) => t.category).filter(Boolean))] as string[];
+  const shown = (cat ? rows.filter((t) => t.category === cat) : rows).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
   return (
     <div className="space-y-4">
-      <div className="flex justify-end"><button onClick={() => setEdit({ name: "", subject: "", html: "", category: "" })} className={primary}><Plus className="w-3.5 h-3.5" /> قالب</button></div>
+      <div className="flex gap-2 flex-wrap items-center">
+        <div className="flex gap-1 flex-wrap flex-1">
+          {["", ...cats].map((c) => <button key={c} onClick={() => setCat(c)} className={cn("px-2.5 py-1 rounded-full border text-[11px]", cat === c ? "border-primary bg-primary/15 text-primary" : "border-card-border text-muted-foreground")}>{c || "الكل"} ({c ? rows.filter((t) => t.category === c).length : rows.length})</button>)}
+        </div>
+        <button onClick={() => setEdit({ name: "", subject: "", html: "", category: "" })} className={primary}><Plus className="w-3.5 h-3.5" /> قالب</button>
+      </div>
       {edit && <div className={cn(card, "p-4 space-y-2")}>
         <div className="grid md:grid-cols-2 gap-2"><input className={input} placeholder="الاسم" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /><input className={input} placeholder="التصنيف" value={edit.category ?? ""} onChange={(e) => setEdit({ ...edit, category: e.target.value })} /></div>
         <input className={input} placeholder="العنوان" value={edit.subject} onChange={(e) => setEdit({ ...edit, subject: e.target.value })} />
@@ -409,7 +417,7 @@ function Templates() {
       </div>}
       <div className={cn(card, "divide-y divide-card-border")}>
         {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground text-center">لا قوالب — «القوالب الجاهزة» في تبويب المتابعة تثبّت قوالب AML.</p>}
-        {rows.map((t) => <div key={t.id} className="p-3.5 flex items-center gap-3"><button onClick={() => setEdit({ ...t })} className="font-semibold text-sm hover:text-primary">{t.name}</button><span className="text-[11px] text-muted-foreground truncate flex-1">{t.subject}</span>{t.category && <span className="text-[10px] px-2 py-0.5 rounded bg-muted">{t.category}</span>}<button onClick={() => del.mutate(t.id)} className={ghost}><Trash2 className="w-3 h-3" /></button></div>)}
+        {shown.map((t) => <div key={t.id} className="p-3.5 flex items-center gap-3"><button onClick={() => setEdit({ ...t })} className="font-semibold text-sm hover:text-primary">{t.name}</button><span className="text-[11px] text-muted-foreground truncate flex-1">{t.subject}</span>{t.category && <span className="text-[10px] px-2 py-0.5 rounded bg-muted">{t.category}</span>}<button onClick={() => del.mutate(t.id)} className={ghost}><Trash2 className="w-3 h-3" /></button></div>)}
       </div>
     </div>
   );

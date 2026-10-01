@@ -28,6 +28,8 @@ check("a clean message passes", guardCheck(["{{company}}، هل إقراركم �
 check("a number from the knowledge passes", guardCheck(["الغرامة AED 500 شهرياً"], KNOW).length === 0);
 check("an invented fine is stopped", guardCheck(["الغرامة قد تصل إلى 250,000 درهم"], KNOW).some((i) => i.includes("250")), guardCheck(["الغرامة قد تصل إلى 250,000 درهم"], KNOW).join("|"));
 check("hype is stopped", guardCheck(["نحن الأفضل في الإمارات"], KNOW).some((i) => i.includes("مبالغة")));
+check("\"Best regards\" is a sign-off, not a claim", guardCheck(["Thank you.<br>Best regards,<br>The team"], KNOW).length === 0);
+check("...but \"the best firm\" is a claim", guardCheck(["We are the best firm in Dubai"], KNOW).length > 0);
 check("a guarantee is stopped", guardCheck(["We guarantee zero penalties"], KNOW).length > 0);
 check("fake urgency is stopped", guardCheck(["آخر فرصة للتسجيل"], KNOW).some((i) => i.includes("استعجال")));
 check("posing as an official notice is stopped", guardCheck(["إشعار رسمي بخصوص شركتكم"], KNOW).length > 0);

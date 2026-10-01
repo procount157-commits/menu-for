@@ -25,6 +25,7 @@ import { saveToNewGroup, validateInBackground } from "../lib/contact-save";
 import { folderForSector, listSector } from "../lib/folders";
 import { deleteContacts, deleteList } from "../lib/email/delete";
 import { dashboard as emailDashboard } from "../lib/email/dashboard";
+import { createWithCreator, SERVICES as CREATOR_SERVICES } from "../lib/email/creator";
 import { getAutopilot, saveAutopilot, runAutopilot } from "../lib/email/autopilot";
 import { teamStatus, activity as teamActivity } from "../lib/email/team";
 import { addDoc, extractText, learn as learnDoc, ask as askKnowledge, library as knowledgeLibrary } from "../lib/email/knowledge-docs";
@@ -998,6 +999,17 @@ router.put("/autopilot", async (req, res) => {
   if (row.enabled !== before.enabled) await teamActivity(userId, "email_strategist", "autopilot", row.enabled ? `شغّل صاحب العمل الطيار الآلي (${row.mode === "auto" ? "إرسال تلقائي بعد مراجعة ماجد" : "كل حملة تنتظر موافقته"}).` : "أوقف صاحب العمل الطيار الآلي.");
   res.json(row);
 });
+// ── طارق builds a campaign on request ──
+router.get("/creator/services", (_req, res) => res.json(Object.entries(CREATOR_SERVICES).map(([key, v]) => ({ key, label: v.label, category: v.category }))));
+router.post("/creator", async (req, res) => {
+  const b = req.body ?? {};
+  const ids = (v: unknown) => (Array.isArray(v) ? v.map(Number).filter((n) => n > 0) : []);
+  try {
+    res.json(await createWithCreator(req.session.userId!, { service: String(b.service ?? ""), language: ["ar", "en", "both"].includes(b.language) ? b.language : "ar",
+      listIds: ids(b.listIds), folderIds: ids(b.folderIds), sectors: Array.isArray(b.sectors) ? b.sectors.map(String).slice(0, 10) : [], take: Number(b.take) || undefined, notes: typeof b.notes === "string" ? b.notes.slice(0, 2000) : "" }));
+  } catch (err: any) { res.status(400).json({ error: String(err?.message ?? err) }); }
+});
+
 /** A round now, rather than at the next quarter hour. */
 router.post("/autopilot/run", async (req, res) => {
   try { res.json(await runAutopilot(req.session.userId!, { force: true })); }

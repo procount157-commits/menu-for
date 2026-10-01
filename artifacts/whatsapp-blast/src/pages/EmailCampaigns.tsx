@@ -79,6 +79,8 @@ export function Campaigns({ initialListId, onUsedInitial }: { initialListId?: nu
         ))}
       </div>
 
+      {!form && <CreatorPanel />}
+
       {form ? <Builder form={form} setForm={setForm} onDone={() => { setForm(null); inv(); }} /> : (
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex gap-1 flex-wrap">
@@ -397,6 +399,61 @@ function CampaignDetail({ id }: { id: number }) {
       <div className="max-h-72 overflow-y-auto rounded-lg border border-card-border"><table className="w-full text-[11px]"><thead className="sticky top-0 bg-card text-muted-foreground"><tr><th className="text-right p-1.5">إلى</th><th className="text-right p-1.5">الشركة</th><th className="text-right p-1.5">الحالة</th><th className="text-right p-1.5">أُرسل</th><th className="text-center p-1.5"><Eye className="w-3 h-3 inline" /></th><th className="text-center p-1.5"><MousePointerClick className="w-3 h-3 inline" /></th><th className="text-center p-1.5"><Reply className="w-3 h-3 inline" /></th></tr></thead>
         <tbody>{recipients.map((r) => <tr key={r.id} className="border-t border-card-border"><td className="p-1.5 font-mono" dir="ltr">{r.toEmail}</td><td className="p-1.5">{r.company ?? r.name ?? ""}</td><td className={cn("p-1.5", r.status === "bounced" || r.status === "failed" ? "text-red-400" : "")}>{SAR[r.status] ?? r.status}{r.error ? ` — ${String(r.error).slice(0, 60)}` : ""}</td><td className="p-1.5 text-muted-foreground">{ago(r.sentAt)}</td><td className="p-1.5 text-center text-blue-400">{r.openCount || ""}</td><td className="p-1.5 text-center">{r.clickCount || ""}</td><td className="p-1.5 text-center text-green-400">{r.repliedAt ? "✓" : ""}</td></tr>)}</tbody></table>
         {!recipients.length && <p className="p-4 text-center text-xs text-muted-foreground">لا مستلمين بعد — تظهر الرسائل هنا عند بدء الحملة.</p>}
+      </div>
+    </div>
+  );
+}
+
+// ── طارق builds a campaign on request ────────────────────────────
+function CreatorPanel() {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const { data: services = [] } = useQuery<any[]>({ queryKey: ["email-creator-services"], queryFn: () => api("/api/email/creator/services"), enabled: open });
+  const { data: lists = [] } = useEmailLists();
+  const { data: folderData } = useFolders("email");
+  const { data: sectorList } = useQuery<any>({ queryKey: ["email-sectors"], queryFn: () => api("/api/email/sectors"), enabled: open });
+  const folders: any[] = folderData?.folders ?? [];
+  const [f, setF] = useState<{ service: string; language: string; kind: "sector" | "list" | "folder"; ids: Array<number | string>; take: number; notes: string }>({ service: "", language: "en", kind: "sector", ids: [], take: 150, notes: "" });
+  const toggle = (id: number | string) => setF({ ...f, ids: f.ids.includes(id) ? f.ids.filter((x) => x !== id) : [...f.ids, id] });
+  const create = useMutation({
+    mutationFn: () => api("/api/email/creator", { method: "POST", body: JSON.stringify({ service: f.service, language: f.language, take: f.take, notes: f.notes,
+      ...(f.kind === "list" ? { listIds: f.ids } : f.kind === "folder" ? { folderIds: f.ids } : { sectors: f.ids }) }) }),
+    onSuccess: (d: any) => { qc.invalidateQueries({ queryKey: ["email-missions"] }); qc.invalidateQueries({ queryKey: ["email-dashboard"] }); setOpen(false);
+      toast.success(`طارق يكتب الحملة الآن لـ ${n(d.audience)} شركة — ستجدها في «المهام» تنتظر موافقتك خلال دقيقة.`); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const choices: Array<{ id: number | string; name: string }> = f.kind === "list" ? lists.filter((l: any) => !l.stage).map((l) => ({ id: l.id, name: `${l.name} (${n(l.sendable)})` }))
+    : f.kind === "folder" ? folders.map((x) => ({ id: x.id, name: x.name })) : (sectorList?.sectors ?? []).map((x: string) => ({ id: x, name: x }));
+  if (!open) return (
+    <button onClick={() => setOpen(true)} className={cn(card, "w-full p-3.5 flex items-center gap-3 text-right hover:border-primary/50 transition-colors")}>
+      <span className="text-2xl">🧩</span>
+      <div className="flex-1"><p className="text-sm font-semibold">طارق — منشئ الحملات</p><p className="text-[11px] text-muted-foreground">اختر الخدمة والجمهور واللغة، ويبني حملة كاملة: عنوانين للاختبار، رسالة أولى، ومتابعتين — بأسلوب قوالب بروكاونت، وتنتظر موافقتك.</p></div>
+      <span className={primary}><Sparkles className="w-3.5 h-3.5" /> أنشئ حملة</span>
+    </button>
+  );
+  return (
+    <div className={cn(card, "p-4 space-y-3 border-primary/40")}>
+      <div className="flex items-center gap-2"><span className="text-xl">🧩</span><p className="font-semibold text-sm">طارق ينشئ حملة</p><button onClick={() => setOpen(false)} className="mr-auto text-muted-foreground"><X className="w-4 h-4" /></button></div>
+      <div className="grid md:grid-cols-3 gap-3">
+        <label className="text-[11px] text-muted-foreground">الخدمة<select className={cn(input, "mt-1")} value={f.service} onChange={(e) => setF({ ...f, service: e.target.value })}><option value="">اختر…</option>{services.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}</select></label>
+        <label className="text-[11px] text-muted-foreground">اللغة<select className={cn(input, "mt-1")} value={f.language} onChange={(e) => setF({ ...f, language: e.target.value })}><option value="en">English</option><option value="ar">العربية</option><option value="both">الاثنتان</option></select></label>
+        <label className="text-[11px] text-muted-foreground">حجم الموجة<input type="number" className={cn(input, "mt-1")} value={f.take} onChange={(e) => setF({ ...f, take: Math.max(10, Number(e.target.value) || 10) })} /></label>
+      </div>
+      <div>
+        <div className="flex gap-1 mb-2">
+          {([["sector", "قطاع", Users], ["list", "قائمة", List], ["folder", "مجلد", Folder]] as const).map(([k, l, Icon]) => (
+            <button key={k} onClick={() => setF({ ...f, kind: k, ids: [] })} className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border", f.kind === k ? "border-primary bg-primary/10 text-primary" : "border-card-border text-muted-foreground")}><Icon className="w-3.5 h-3.5" /> {l}</button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+          {!choices.length && <p className="text-[11px] text-muted-foreground">{f.kind === "sector" ? "…" : "لا شيء هنا بعد."}</p>}
+          {choices.map((c) => <button key={String(c.id)} onClick={() => toggle(c.id)} className={cn("px-2.5 py-1 rounded-full border text-[11px]", f.ids.includes(c.id) ? "border-primary bg-primary/15 text-primary" : "border-card-border text-muted-foreground hover:text-foreground")}>{c.name}</button>)}
+        </div>
+      </div>
+      <textarea className={cn(input, "min-h-[4rem] text-xs")} placeholder="تعليمات إضافية لطارق (اختياري) — مثلاً: ركّز على الوكالات في دبي، واذكر استشارة مجانية لمدة ٢٠ دقيقة" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
+      <div className="flex gap-2 items-center">
+        <button onClick={() => create.mutate()} disabled={!f.service || !f.ids.length || create.isPending} className={primary}>{create.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} ابنِ الحملة</button>
+        <p className="text-[10px] text-muted-foreground">لا يُرسل شيء — تجدها في «المهام» لتراجعها وتوافق.</p>
       </div>
     </div>
   );
