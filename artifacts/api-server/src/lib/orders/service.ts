@@ -5,7 +5,7 @@
 // the order is `pending` and the kitchen does not see it as real.
 
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
-import { db, ordersTable, branchesTable, orgsTable, type Order, type Org, type Branch } from "@workspace/db";
+import { db, ordersTable, branchesTable, orgsTable, notificationsTable, type Order, type Org, type Branch } from "@workspace/db";
 import { priceCart, formatMoney, waMeLink, formatClock, formatDayLabel, localDate, type CartLineInput, type PublicOrderView } from "@workspace/menu-shared";
 import { priceableItems } from "../menu/service";
 import { freshCode, todayFor } from "../queue/engine";
@@ -126,6 +126,12 @@ const STATUS_NOTIFY: Partial<Record<string, TemplateKey>> = {
 
 export async function notifyOrder(o: Order, key: TemplateKey) {
   if (!o.phone) return;
+  // An undo (ready → preparing → ready) must not tell the customer twice.
+  const [already] = await db.select({ id: notificationsTable.id }).from(notificationsTable).where(and(
+    eq(notificationsTable.refType, "order"), eq(notificationsTable.refId, o.id), eq(notificationsTable.kind, key),
+    inArray(notificationsTable.status, ["queued", "sent"]),
+  )).limit(1);
+  if (already) return;
   const c = await ctxOf(o);
   if (!c) return;
   const lang = c.org.defaultLang === "en" ? "en" : "ar";

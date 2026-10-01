@@ -35,7 +35,10 @@ router.get("/tenancy/me", requireAuth, async (req, res) => {
       : await signedInUser(req).then((u) => u && { id: u.id, name: u.displayName, phone: u.phone, isAdmin: u.isAdmin });
     const branches = await db.select().from(branchesTable).where(eq(branchesTable.orgId, t.org.id)).orderBy(asc(branchesTable.sort), asc(branchesTable.id));
     const plan = await menuPlan(t.org.ownerUserId);
+    const { settingsFor } = await import("../lib/booking/service");
+    const bk = await settingsFor(t.branch.id);
     res.json({
+      booking: { enabled: bk.enabled && plan.features.booking },
       role: t.role,
       person,
       impersonating: !!req.session.impersonatorId,

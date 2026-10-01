@@ -120,7 +120,10 @@ router.get("/reports/overview", requireAuth, withTenant(MANAGERS, async (req, re
   const tz = t.org.timezone;
   const today = localDate(tz);
   const since = zonedToUtc(tz, addDays(today, -(days - 1)), "04:00");
-  const branchIds = t.role === "owner" ? (await db.select({ id: branchesTable.id }).from(branchesTable).where(eq(branchesTable.orgId, t.org.id))).map((b) => b.id) : t.branchIds;
+  let branchIds = t.role === "owner" ? (await db.select({ id: branchesTable.id }).from(branchesTable).where(eq(branchesTable.orgId, t.org.id))).map((b) => b.id) : t.branchIds;
+  // ?branch= narrows every figure, top items included, to one branch.
+  const only = Number(req.query.branch);
+  if (only && branchIds.includes(only)) branchIds = [only];
   const ids = sql.join(branchIds.map((i) => sql`${i}`), sql`, `);
 
   const queueDays = await db.execute<any>(sql`

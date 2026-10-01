@@ -63,6 +63,10 @@ check("…and the receipt is queued as a reply", notes.length === 1 && notes[0]!
 await setOrderStatus(shop.org.id, [shop.branch.id], o.id, "ready");
 notes = await db.select().from(notificationsTable).where(and(eq(notificationsTable.refType, "order"), eq(notificationsTable.refId, o.id)));
 check("«جاهز» tells the customer", notes.some((n) => n.kind === "order_ready"));
+await setOrderStatus(shop.org.id, [shop.branch.id], o.id, "preparing");
+await setOrderStatus(shop.org.id, [shop.branch.id], o.id, "ready");
+notes = await db.select().from(notificationsTable).where(and(eq(notificationsTable.refType, "order"), eq(notificationsTable.refId, o.id), eq(notificationsTable.kind, "order_ready")));
+check("an undo (ready → preparing → ready) tells the customer once", notes.length === 1, notes.length);
 err = "";
 try { await setOrderStatus(shop.org.id + 999, [shop.branch.id], o.id, "completed"); } catch (e) { err = (e as Error).message; }
 check("another org cannot touch the order", err.includes("غير موجود"));
@@ -99,6 +103,16 @@ check("…and confirms the booking on WhatsApp", notes.some((n) => n.kind === "b
 const ticket = await checkIn((await db.select().from((await import("@workspace/db")).bookingsTable).where(eq((await import("@workspace/db")).bookingsTable.id, bk.id)))[0]!, null);
 check("a booked guest checks in at the front of the queue", !!ticket && ticket.priority === 5 && ticket.source === "booking");
 check("…with nobody ahead", (await ticketView(ticket!))!.ahead === 0);
+// A booked guest is let in even when the public queue is closed or full —
+// staff joins bypass both — and gets a ticket along with "arrived".
+const { queuesTable, bookingsTable: bt } = await import("@workspace/db");
+const at2 = zonedToUtc(tz, day, "12:00").toISOString();
+const bk2 = await createBooking(shop.org, branch, { startsAt: at2, customerName: "هـ", partySize: 2 });
+await db.update(queuesTable).set({ isOpen: false, maxWaiting: 0 }).where(eq(queuesTable.branchId, branch.id));
+const t2 = await checkIn(bk2, null);
+const [bk2After] = await db.select().from(bt).where(eq(bt.id, bk2.id));
+check("a booked guest checks in even when the queue is closed and full", !!t2 && bk2After!.status === "arrived", { ticket: t2?.displayCode, status: bk2After!.status });
+await db.update(queuesTable).set({ isOpen: true, maxWaiting: 150 }).where(eq(queuesTable.branchId, branch.id));
 const cancelled = await setBookingStatus(bk, "cancelled", { byCustomer: false });
 check("staff can cancel", cancelled.status === "cancelled");
 

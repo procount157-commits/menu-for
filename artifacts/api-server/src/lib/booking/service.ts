@@ -208,14 +208,15 @@ export async function checkIn(b: Booking, staffId: number | null) {
   const [q] = await db.select().from(queuesTable)
     .where(and(eq(queuesTable.branchId, b.branchId), eq(queuesTable.isActive, true)))
     .orderBy(asc(queuesTable.sort), asc(queuesTable.id)).limit(1);
-  await setBookingStatus(b, "arrived");
-  if (!q) return null;
-  const ctx = await queueCtx(q.id);
-  if (!ctx) return null;
-  return join(ctx, {
+  // The ticket first: a queue that refuses the join must not leave the
+  // booking marked arrived with no place in line.
+  const ctx = q ? await queueCtx(q.id) : null;
+  const ticket = ctx ? await join(ctx, {
     name: b.customerName, partySize: b.partySize, phone: b.phone, source: "booking", priority: 5,
     bookingId: b.id, staffId, note: `حجز ${b.code}`, consented: !!b.phone,
-  });
+  }) : null;
+  await setBookingStatus(b, "arrived");
+  return ticket;
 }
 
 export async function listBookings(orgId: number, branchIds: number[], from: Date, to: Date) {
