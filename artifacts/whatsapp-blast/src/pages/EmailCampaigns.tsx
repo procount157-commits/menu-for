@@ -6,7 +6,7 @@
 // test, now, or at a set time). A test copy can go to the owner first.
 // Below the builder, every campaign as a card with its progress and rates.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { api, input } from "@/components/AgentPanel";
 import { useFolders } from "@/components/Folders";
 import { useEmailLists } from "./EmailLists";
+import { EmailEditor } from "@/components/EmailEditor";
 
 const card = "bg-card border border-card-border rounded-xl";
 const ghost = "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs border border-card-border hover:border-primary/50 transition-colors disabled:opacity-40";
@@ -36,7 +37,6 @@ const STATUS: Record<string, { label: string; cls: string }> = {
   paused: { label: "متوقفة", cls: "border-yellow-500/40 text-yellow-400" },
   completed: { label: "اكتملت", cls: "border-green-500/40 text-green-400" },
 };
-const FIELDS: Array<[string, string]> = [["{{company}}", "الشركة"], ["{{first_name|فريقنا العزيز}}", "الاسم الأول"], ["{{name}}", "الاسم"], ["{{city}}", "المدينة"], ["{{sender}}", "المرسِل"]];
 
 type Target = { kind: "list" | "folder" | "segment"; id: number } | null;
 type Form = {
@@ -164,7 +164,6 @@ function Builder({ form, setForm, onDone }: { form: Form; setForm: (f: Form | nu
   const [busy, setBusy] = useState<"save" | "test" | "write" | null>(null);
   const [goal, setGoal] = useState("");
   const [writing, setWriting] = useState(false);
-  const editorRef = useRef<HTMLTextAreaElement>(null);
   const set = (p: Partial<Form>) => setForm({ ...form, ...p });
   const editing = !!form.id;
 
@@ -176,28 +175,6 @@ function Builder({ form, setForm, onDone }: { form: Form; setForm: (f: Form | nu
   const chosen = form.target ? (form.target.kind === "list" ? lists.find((l) => l.id === form.target!.id)?.name : form.target.kind === "folder" ? folders.find((f) => f.id === form.target!.id)?.name : segs.find((s) => s.id === form.target!.id)?.name) : null;
   const reach = form.target ? (form.target.kind === "list" ? lists.find((l) => l.id === form.target!.id)?.sendable : form.target.kind === "folder" ? folderSendable(form.target.id) : segs.find((s) => s.id === form.target!.id)?.sendable) ?? 0 : 0;
   const audienceFilter = () => !form.target ? {} : form.target.kind === "list" ? { listIds: [form.target.id] } : form.target.kind === "folder" ? { folderIds: [form.target.id] } : (segs.find((s) => s.id === form.target!.id)?.filter ?? {});
-
-  // The email as it will arrive, redrawn a moment after typing stops.
-  const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
-  useEffect(() => {
-    if (!form.html.trim()) { setPreview(null); return undefined; }
-    const t = setTimeout(() => { api("/api/email/preview", { method: "POST", body: JSON.stringify({ subject: form.subject, html: form.html }) }).then(setPreview).catch(() => {}); }, 600);
-    return () => clearTimeout(t);
-  }, [form.subject, form.html]);
-
-  // A field goes in where the cursor was, and the cursor stays after it —
-  // put back once React has drawn the new text, not before.
-  const caret = useRef<number | null>(null);
-  useLayoutEffect(() => {
-    const el = editorRef.current;
-    if (el && caret.current !== null) { el.focus(); el.selectionStart = el.selectionEnd = caret.current; caret.current = null; }
-  }, [form.html]);
-  const insert = (field: string) => {
-    const el = editorRef.current;
-    const a = el?.selectionStart ?? form.html.length, b = el?.selectionEnd ?? a;
-    caret.current = a + field.length;
-    set({ html: form.html.slice(0, a) + field + form.html.slice(b) });
-  };
 
   const write = async () => {
     if (!form.target) { toast.error("اختر الجمهور أولاً — نورة تكتب لمن ستصله الرسالة"); return; }
@@ -315,23 +292,10 @@ function Builder({ form, setForm, onDone }: { form: Form; setForm: (f: Form | nu
             </div>
           </div>
         )}
-        <div className="grid lg:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <div><label className="text-[11px] font-semibold block mb-1">العنوان</label><input className={input} value={form.subject} onChange={(e) => set({ subject: e.target.value })} placeholder="{{company}} — هل أنتم جاهزون لتفتيش AML القادم؟" /></div>
-            <div className="flex items-center gap-1 flex-wrap">
-              <span className="text-[10px] text-muted-foreground ml-1">أدرج:</span>
-              {FIELDS.map(([f, label]) => <button key={f} onClick={() => insert(f)} className="text-[10px] px-2 py-0.5 rounded-md border border-card-border hover:border-primary/50 hover:text-primary">{label}</button>)}
-            </div>
-            <textarea ref={editorRef} className={cn(input, "min-h-[18rem] font-mono text-xs leading-relaxed")} value={form.html} onChange={(e) => set({ html: e.target.value })} placeholder="<p>{{first_name|فريقنا العزيز}}،</p>&#10;<p>…</p>" />
-            <p className="text-[10px] text-muted-foreground">HTML بسيط: ‎&lt;p&gt; للفقرات و‎&lt;a href&gt; للروابط. التوقيع ورابط إلغاء الاشتراك يُضافان تلقائياً.</p>
-          </div>
-          <div className="rounded-lg border border-card-border overflow-hidden bg-white flex flex-col min-h-[22rem]">
-            <div className="px-3 py-2 border-b bg-gray-50 text-black text-xs" dir="rtl">
-              <p className="text-[10px] text-gray-500">كما تصل — بأسماء مثال</p>
-              <p className="font-semibold truncate">{preview?.subject || form.subject || "العنوان"}</p>
-            </div>
-            {preview ? <iframe title="معاينة" srcDoc={preview.html} className="w-full flex-1 min-h-[19rem]" /> : <div className="flex-1 flex items-center justify-center text-xs text-gray-400"><Inbox className="w-5 h-5 ml-2" /> المعاينة تظهر هنا</div>}
-          </div>
+        <div className="space-y-2">
+          <div><label className="text-[11px] font-semibold block mb-1">العنوان / Subject</label><input className={input} value={form.subject} onChange={(e) => set({ subject: e.target.value })} placeholder="{{company|Your company}} — is your AML framework inspection-ready?" /></div>
+          <EmailEditor value={form.html} subject={form.subject} onChange={(html) => set({ html })} minHeight={340} />
+          <p className="text-[10px] text-muted-foreground">التوقيع ورابط إلغاء الاشتراك وتصميم الشركة تُضاف تلقائياً. الزر يفتح واتساب برسالة جاهزة.</p>
         </div>
       </div>
 

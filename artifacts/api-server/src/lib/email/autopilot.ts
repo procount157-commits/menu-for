@@ -66,10 +66,16 @@ export async function saveAutopilot(userId: number, b: any): Promise<EmailAutopi
   return row!;
 }
 
-/** The lists the team works: those picked, and every list in the picked folders — never a stage list. */
+/**
+ * The lists the team works: those picked, and every list in the picked
+ * folders — or, when nothing is picked, every list the account has. Never a
+ * stage list.
+ */
 export async function targetLists(userId: number, cfg: EmailAutopilot) {
   const listIds = cfg.listIds as number[], folderIds = cfg.folderIds as number[];
-  if (!listIds.length && !folderIds.length) return [];
+  if (!listIds.length && !folderIds.length) {
+    return db.select().from(emailListsTable).where(and(eq(emailListsTable.userId, userId), sql`${emailListsTable.parentListId} is null`));
+  }
   return db.select().from(emailListsTable).where(and(
     eq(emailListsTable.userId, userId), sql`${emailListsTable.parentListId} is null`,
     sql`(${listIds.length ? inArray(emailListsTable.id, listIds) : sql`false`} or ${folderIds.length ? inArray(emailListsTable.folderId, folderIds) : sql`false`})`,
@@ -175,7 +181,11 @@ export async function runAutopilot(userId: number, opts: { force?: boolean } = {
   }
 
   const lists = await targetLists(userId, cfg);
-  if (!lists.length) return { ...done, ran: true, why: "لم تُختر قوائم يعمل عليها الفريق" };
+  if (!lists.length) return { ...done, ran: true, why: "لا توجد قوائم بريد بعد — ارفع ملف Excel من «القوائم»" };
+  const [{ n: sendable }] = (await db.execute<{ n: number }>(sql`
+    SELECT count(DISTINCT c.id)::int AS n FROM email_list_members lm JOIN email_contacts c ON c.id = lm.contact_id
+    WHERE lm.list_id IN (${sql.join(lists.map((l) => sql`${l.id}`), sql`, `)}) AND c.status = 'active' AND coalesce(c.mx_ok, true)`)).rows as any;
+  if (!Number(sendable)) return { ...done, ran: true, why: "القوائم فارغة — لا عناوين يمكن مراسلتها. ارفع ملف Excel من «القوائم»" };
   const followup = await onDuty(userId, "email_followup");
   const strategist = await onDuty(userId, "email_strategist");
   const requireApproval = cfg.mode !== "auto";

@@ -603,6 +603,27 @@ shows:
 Opens and clicks need `SITE_URL`, a public address for the pixel and the
 links; replies are measured without it.
 
+**How an email looks** (`lib/email/layout.ts`, migration 031). Every message
+goes out in the firm's branded layout unless the owner chooses plain:
+- a header in its colour with its logo and tagline;
+- the message in a white card;
+- a footer with the firm's name, address, website, phone and unsubscribe.
+
+It is built from tables and inline styles, so it holds in Gmail, Outlook and
+on phones. Direction is read from the words (right to left for Arabic), and
+the hidden inbox-preview line skips the greeting. The message stays simple
+HTML with two marks: `<p class="cta"><a>` becomes a button, `<div
+class="note">` a highlighted box. Writers can add a `[button]` / `[زر]` line,
+which becomes a WhatsApp button with the request already written.
+
+`components/EmailEditor.tsx` replaces raw HTML everywhere a message is
+written (missions waiting for approval, the campaign builder, templates,
+sequences). It is a visual editor (bold, headings, lists, links, button, box,
+merge fields) with the email beside it as it will arrive, on desktop or
+phone; HTML stays on its own tab. Templates show as a gallery of real
+thumbnails (`/templates/:id/render`), and the brand is set under «هوية
+الرسائل» in the email settings.
+
 **Clearing email data** (`lib/email/delete.ts`). The audience can be cleared
 in one step: the ticked rows, everyone the current filter selects, a list on
 its own or with its addresses (those in no other list), or all of it. A bulk

@@ -18,6 +18,7 @@ import { logger } from "../logger";
 import { notify, esc } from "../telegram";
 import { sendEmail, SendError, isConfigured, messageIdFor } from "./provider";
 import { newToken, renderEmail, firstName, personalize, unsubscribeUrl } from "./tracking";
+import { brandOf } from "./layout";
 import { assessEmail, sendGapMs, warmupCap, splitAb, pickWinner, type EmailVerdict } from "./health";
 
 const SITE_URL = () => (process.env["SITE_URL"] ?? "").replace(/\/+$/, "");
@@ -350,7 +351,7 @@ async function drainOne(userId: number) {
   const base = SITE_URL();
   const rendered = renderEmail(html + (s!.signature ? `<div style="margin-top:20px">${s!.signature}</div>` : ""), vars,
     { base, token: m.token, secret: SECRET(), pixel: !!s!.tracking, links: !!s!.tracking },
-    { base, token: m.token, fromName: s!.fromName ?? s!.fromEmail!, fromEmail: s!.fromEmail! });
+    { base, token: m.token, fromName: s!.fromName ?? s!.fromEmail!, fromEmail: s!.fromEmail! }, brandOf(s));
   const subject = personalize(m.subject, vars);
   const messageId = messageIdFor(m.token, s!.fromEmail!);
 

@@ -5,6 +5,7 @@
 // the store is the source of truth and an unknown token is simply ignored.
 
 import { createHmac, randomBytes } from "node:crypto";
+import { wrapBranded, styleBody, directionOf, preheaderOf, type Brand } from "./layout";
 
 export function newToken(): string { return randomBytes(18).toString("base64url"); }
 
@@ -85,9 +86,18 @@ export function htmlToText(html: string): string {
     .trim();
 }
 
-/** The whole outgoing body: personalised, tracked, footed. */
-export function renderEmail(html: string, vars: Record<string, string | null | undefined>, track: TrackOptions, footer: Parameters<typeof unsubscribeFooter>[0]): { html: string; text: string } {
+/** The whole outgoing body: personalised, tracked, footed — in the firm's branded layout unless it chose plain. */
+export function renderEmail(html: string, vars: Record<string, string | null | undefined>, track: TrackOptions, footer: Parameters<typeof unsubscribeFooter>[0], brand?: Brand): { html: string; text: string } {
   const body = rewriteLinks(personalize(html, vars), track);
+  if (brand && brand.layout === "branded" && brand.name) {
+    const dir = directionOf(body);
+    const url = footer.base ? `${footer.base}/t/e/${footer.token}/u` : `mailto:${footer.fromEmail}?subject=unsubscribe`;
+    const lines = dir === "rtl"
+      ? `أُرسلت هذه الرسالة من ${esc(footer.fromName)} إلى شركتكم. إن لم ترغبوا في رسائل أخرى: <a href="${url}" style="color:#64748b">إلغاء الاشتراك</a>.`
+      : `You received this email from ${esc(/[\u0600-\u06FF]/.test(footer.fromName) ? brand.name : footer.fromName)} as a business contact. Prefer not to hear from us? <a href="${url}" style="color:#64748b">Unsubscribe</a>.`;
+    const full = wrapBranded(styleBody(body, brand, dir), brand, lines, preheaderOf(personalize(html, vars)), dir).replace("</body>", `${pixelTag(track)}</body>`);
+    return { html: full, text: htmlToText(personalize(html, vars)) + `\n\n—\n${brand.name}${brand.phone ? ` · ${brand.phone}` : ""}${brand.website ? ` · ${brand.website}` : ""}\n${unsubscribeUrl(footer.base, footer.token) ?? ""}`.trimEnd() };
+  }
   const full = `<!doctype html><html dir="rtl" lang="ar"><body style="margin:0;padding:0;background:#ffffff"><div style="max-width:640px;margin:0 auto;padding:24px 16px;font:15px/1.8 Arial,Helvetica,sans-serif;color:#111827">${body}${unsubscribeFooter(footer)}</div>${pixelTag(track)}</body></html>`;
   return { html: full, text: htmlToText(personalize(html, vars)) + `\n\n—\n${footer.fromName}\n${unsubscribeUrl(footer.base, footer.token) ?? ""}`.trimEnd() };
 }

@@ -26,6 +26,23 @@ export const SIGNATURE = [
 ].join("");
 
 const p = (...xs: string[]) => xs.map((x) => `<p>${x}</p>`).join("\n");
+/** A button that opens WhatsApp with the request already written. */
+export const cta = (label: string, ask = label) => `<p class="cta"><a href="${CONTACT.whatsapp}?text=${encodeURIComponent(`Hello Pro Count, I would like to ${ask.charAt(0).toLowerCase()}${ask.slice(1)}.`)}">${label}</a></p>`;
+const ctaAr = (label: string, ask: string) => `<p class="cta"><a href="${CONTACT.whatsapp}?text=${encodeURIComponent(`مرحباً بروكاونت، أرغب في ${ask}.`)}">${label}</a></p>`;
+// The call to action for each service, from the firm's CTA library.
+const CTA_BY_CATEGORY: Record<string, string> = {
+  "About us": "Book a free consultation",
+  "Outsourced Accounting": "Discuss your accounting workload",
+  "Financial Reporting": "Book a free consultation",
+  "Construction & Engineering": "Discuss your accounting workload",
+  "Restaurants": "Book a free consultation",
+  "Corporate Tax": "Review your Corporate Tax position",
+  "VAT": "Book a VAT review",
+  "E-Invoicing": "Assess your eInvoicing readiness",
+  "AML Compliance": "Request an AML compliance assessment",
+  "Real Estate AML": "Review your AML readiness",
+  "Gold & Jewellery": "Assess your DPMS compliance",
+};
 const ul = (...xs: string[]) => `<ul>${xs.map((x) => `<li>${x}</li>`).join("")}</ul>`;
 const HI = "Hello {{first_name|team}},";
 const BYE = "Best regards,<br>The Pro Count team";
@@ -160,6 +177,13 @@ export const TEMPLATES: LibraryTemplate[] = [
     html: [p(HI), p("Thank you for asking. Our fees depend on the scope, so rather than quote a figure that may not fit, we would like to understand a few things first:"), ul("Your industry and number of branches", "Approximate monthly transaction volume", "VAT and Corporate Tax status", "The reports you need, and the state of your current records", "Whether AML obligations apply to your activity"), p(`With that, we can assess the workload and provide a suitable quotation. You can reply here, or call/WhatsApp ${CONTACT.phone} for a quick conversation.`), p(BYE)].join("\n") },
 ];
 
+const NO_BUTTON = /^(04|05|50) ·/;
+for (const t of TEMPLATES) {
+  const label = CTA_BY_CATEGORY[t.category];
+  if (!label || NO_BUTTON.test(t.name)) continue;
+  t.html = t.html.replace(`<p>${BYE}</p>`, `${cta(label)}\n<p>${BYE}</p>`);
+}
+
 // ── The real estate campaign ──────────────────────────────────────
 export interface CampaignPack { name: string; language: "en" | "ar"; subjects: [string, string]; html: string; followups: Array<{ audience: "warm" | "cold" | "all"; afterHours: number; subject: string; html: string }> }
 
@@ -174,13 +198,14 @@ export const REAL_ESTATE_CAMPAIGN_EN: CampaignPack = {
     ul("A business-wide risk assessment", "Customer due diligence — including who the beneficial owner really is", "Source of funds, where the risk calls for it", "Monitoring and reporting suspicious activity", "Staff training and records that show the framework actually runs"),
     p("Pro Count supports real estate agencies across the UAE with AML policies, KYC/CDD, risk assessment, training, goAML reporting support and inspection readiness — designed to help reduce compliance gaps, tailored to how your agency works."),
     p(`Would {{company|your agency}} like a short AML readiness review? ${CALL[0]!.toUpperCase() + CALL.slice(1)} and we will set a time that suits you.`),
+    cta("Book an AML readiness review", "book an AML readiness review for our agency"),
     p(BYE),
   ].join("\n"),
   followups: [
     { audience: "warm", afterHours: 72, subject: "{{company|Your agency}}: who is really behind each deal?",
-      html: [p(HI), p("Following up on my note about AML readiness — one point that catches many agencies out: the beneficial owner is not always the person signing."), p("Under the current law, it is the natural person who owns or effectively controls — or on whose behalf a transaction is made. For property deals involving companies or third parties, the CDD file needs to show that."), p("If you would like, we can review a sample of your customer files and tell you honestly where the gaps are. A 20-minute call is enough to start."), p(BYE)].join("\n") },
+      html: [p(HI), p("Following up on my note about AML readiness — one point that catches many agencies out: the beneficial owner is not always the person signing."), p("Under the current law, it is the natural person who owns or effectively controls — or on whose behalf a transaction is made. For property deals involving companies or third parties, the CDD file needs to show that."), p("If you would like, we can review a sample of your customer files and tell you honestly where the gaps are. A 20-minute call is enough to start."), cta("Review our customer files", "have our customer due diligence files reviewed"), p(BYE)].join("\n") },
     { audience: "cold", afterHours: 96, subject: "A 4-question AML check for {{company|your agency}}",
-      html: [p(HI), p("A quick self-check for real estate agencies:"), ul("Do you have a current business-wide AML risk assessment?", "Do your customer files identify the beneficial owner?", "Is there a process to report suspicious activity through goAML?", "Is staff AML training recorded?"), p(`If any answer is "not sure", Pro Count can help. ${CALL[0]!.toUpperCase() + CALL.slice(1)}.`), p(BYE)].join("\n") },
+      html: [p(HI), p("A quick self-check for real estate agencies:"), ul("Do you have a current business-wide AML risk assessment?", "Do your customer files identify the beneficial owner?", "Is there a process to report suspicious activity through goAML?", "Is staff AML training recorded?"), p(`If any answer is "not sure", Pro Count can help. ${CALL[0]!.toUpperCase() + CALL.slice(1)}.`), cta("Review your AML readiness"), p(BYE)].join("\n") },
     { audience: "all", afterHours: 168, subject: "Closing the loop on AML support for {{company|your agency}}",
       html: [p(HI), p("I have written a couple of times about AML readiness for {{company|your agency}} and will not keep filling your inbox."), p("If an inspection, a new compliance officer, or a question about KYC comes up, we are one email or call away."), p(BYE)].join("\n") },
   ],
@@ -201,13 +226,14 @@ export const REAL_ESTATE_CAMPAIGN_AR: CampaignPack = {
     ul("تقييم مخاطر شامل للنشاط", "العناية الواجبة بالعملاء، ومعرفة المستفيد الحقيقي من كل صفقة", "التحقق من مصدر الأموال حين تستدعي المخاطر ذلك", "مراقبة النشاط المشبوه والإبلاغ عنه", "تدريب الفريق وسجلات تثبت أن الإطار يعمل فعلاً"),
     p("بروكاونت للمحاسبة تدعم الوكالات العقارية في الإمارات بسياسات AML، والعناية الواجبة ومعرفة العميل، وتقييم المخاطر، والتدريب، ودعم التقارير عبر goAML، والجاهزية للتفتيش — خدمة مصممة للمساعدة على سد فجوات الامتثال، بحسب طريقة عمل وكالتكم."),
     p(`هل ترغبون بمراجعة قصيرة لجاهزية {{company|وكالتكم}} لـ AML؟ ${CALL_AR} ونحدد الوقت المناسب لكم.`),
+    ctaAr("احجزوا مراجعة جاهزية AML", "حجز مراجعة جاهزية AML لوكالتنا"),
     p(BYE_AR),
   ].join("\n"),
   followups: [
     { audience: "warm", afterHours: 72, subject: "{{company|شركتكم}}: من يقف فعلاً خلف كل صفقة؟",
-      html: [p(HI_AR), p("متابعة لرسالتي عن جاهزية AML — نقطة يقع فيها كثيرون: المستفيد الحقيقي ليس دائماً من يوقّع العقد."), p("بحسب القانون الحالي، هو الشخص الطبيعي الذي يملك أو يسيطر فعلياً، أو تتم المعاملة نيابة عنه. وفي الصفقات التي تشارك فيها شركات أو أطراف ثالثة، يجب أن يُظهر ملف العميل ذلك."), p("يمكننا مراجعة عيّنة من ملفات عملائكم وإخباركم بصراحة أين الفجوات. مكالمة قصيرة تكفي للبداية."), p(BYE_AR)].join("\n") },
+      html: [p(HI_AR), p("متابعة لرسالتي عن جاهزية AML — نقطة يقع فيها كثيرون: المستفيد الحقيقي ليس دائماً من يوقّع العقد."), p("بحسب القانون الحالي، هو الشخص الطبيعي الذي يملك أو يسيطر فعلياً، أو تتم المعاملة نيابة عنه. وفي الصفقات التي تشارك فيها شركات أو أطراف ثالثة، يجب أن يُظهر ملف العميل ذلك."), p("يمكننا مراجعة عيّنة من ملفات عملائكم وإخباركم بصراحة أين الفجوات. مكالمة قصيرة تكفي للبداية."), ctaAr("راجعوا ملفات عملائنا", "مراجعة ملفات العناية الواجبة لعملائنا"), p(BYE_AR)].join("\n") },
     { audience: "cold", afterHours: 96, subject: "فحص سريع من ٤ أسئلة لامتثال {{company|وكالتكم}}",
-      html: [p(HI_AR), p("فحص ذاتي سريع للوكالات العقارية:"), ul("هل لديكم تقييم مخاطر AML حديث لنشاطكم؟", "هل تُظهر ملفات العملاء المستفيد الحقيقي؟", "هل توجد آلية للإبلاغ عن النشاط المشبوه عبر goAML؟", "هل تدريب الفريق على AML موثّق؟"), p(`إن كانت أي إجابة «لست متأكداً»، يمكننا المساعدة — ${CALL_AR}.`), p(BYE_AR)].join("\n") },
+      html: [p(HI_AR), p("فحص ذاتي سريع للوكالات العقارية:"), ul("هل لديكم تقييم مخاطر AML حديث لنشاطكم؟", "هل تُظهر ملفات العملاء المستفيد الحقيقي؟", "هل توجد آلية للإبلاغ عن النشاط المشبوه عبر goAML؟", "هل تدريب الفريق على AML موثّق؟"), p(`إن كانت أي إجابة «لست متأكداً»، يمكننا المساعدة — ${CALL_AR}.`), ctaAr("راجعوا جاهزيتنا لـ AML", "مراجعة جاهزية وكالتنا لـ AML"), p(BYE_AR)].join("\n") },
     { audience: "all", afterHours: 168, subject: "رسالة أخيرة بخصوص دعم AML لـ {{company|وكالتكم}}",
       html: [p(HI_AR), p("راسلتكم مرتين بخصوص جاهزية AML، ولن أملأ بريدكم أكثر من ذلك."), p("إن جاء تفتيش، أو احتجتم مسؤول امتثال، أو ظهر سؤال عن معرفة العميل — نحن على بُعد رسالة أو مكالمة."), p(BYE_AR)].join("\n") },
   ],

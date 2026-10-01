@@ -24,6 +24,7 @@ import {
 import { cn } from "@/lib/utils";
 import { api, input } from "@/components/AgentPanel";
 import { FolderSidebar, MoveToFolder, inFolder, type FolderSel } from "@/components/Folders";
+import { EmailEditor } from "@/components/EmailEditor";
 
 const card = "bg-card border border-card-border rounded-xl";
 const ghost = "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs border border-card-border hover:border-primary/50 transition-colors disabled:opacity-40";
@@ -261,14 +262,14 @@ function DraftEditor({ draft, onChange }: { draft: any; onChange: (d: any) => vo
       </div>
       <div>
         <div className="flex items-center justify-between mb-1.5"><p className="text-xs font-semibold">الرسالة</p><button onClick={() => showPreview(draft.subjects[0], draft.html)} className="text-[11px] text-primary flex items-center gap-1"><Eye className="w-3 h-3" /> معاينة</button></div>
-        <textarea className={cn(input, "min-h-[11rem] font-mono text-[11px] leading-relaxed")} value={draft.html} onChange={(e) => onChange({ ...draft, html: e.target.value })} />
+        <EmailEditor value={draft.html} subject={draft.subjects[0]} onChange={(html) => onChange({ ...draft, html })} minHeight={260} />
       </div>
       {draft.followups?.map((fu: any, i: number) => (
         <div key={i} className="rounded-lg border border-card-border p-3 space-y-1.5">
           <div className="flex items-center gap-2 text-xs"><span className="font-semibold">{fu.audience === "warm" ? "متابعة لمن فتح ولم يرد" : "متابعة لمن لم يفتح"}</span>
             <button onClick={() => showPreview(fu.subject, fu.html)} className="text-[11px] text-primary mr-auto flex items-center gap-1"><Eye className="w-3 h-3" /> معاينة</button></div>
           <input className={input} value={fu.subject} onChange={(e) => { const f = [...draft.followups]; f[i] = { ...fu, subject: e.target.value }; onChange({ ...draft, followups: f }); }} />
-          <textarea className={cn(input, "min-h-[6rem] font-mono text-[11px]")} value={fu.html} onChange={(e) => { const f = [...draft.followups]; f[i] = { ...fu, html: e.target.value }; onChange({ ...draft, followups: f }); }} />
+          <EmailEditor value={fu.html} subject={fu.subject} compact minHeight={180} onChange={(html) => { const f = [...draft.followups]; f[i] = { ...fu, html }; onChange({ ...draft, followups: f }); }} />
         </div>
       ))}
       {draft.why && <p className="text-[11px] text-muted-foreground"><Brain className="w-3 h-3 inline ml-1" />لماذا: {draft.why}</p>}
@@ -492,12 +493,13 @@ export function MissionsTab() {
             <div className="flex gap-1 mt-3">
               {STAGES.map((s, i) => <div key={s.k} className="flex-1"><div className={cn("h-1.5 rounded-full", i < si ? "bg-primary" : i === si ? (m.status === "active" ? "bg-primary animate-pulse" : "bg-yellow-400") : "bg-muted")} /><p className={cn("text-[10px] mt-1", i === si ? "text-foreground" : "text-muted-foreground")}>{s.l}</p></div>)}
             </div>
-            {m.status !== "active" && <p className="text-[11px] text-yellow-400 mt-2"><AlertTriangle className="w-3 h-3 inline ml-1" />موقوفة</p>}
+            {m.status !== "active" && <p className="text-[11px] text-yellow-400 mt-2"><AlertTriangle className="w-3 h-3 inline ml-1" />موقوفة{m.log?.[0]?.kind === "error" ? ` — ${m.log[0].text}` : ""}</p>}
             {live?.total && <p className="text-xs mt-2">أُرسل {live.total.sent} · فتح <b className="text-blue-400">{live.total.openRate}%</b> · نقر {live.total.clicked} · رد <b className="text-green-400">{live.total.replyRate}%</b> ({live.total.replied}) · ارتدّ {live.total.bounced}</p>}
 
             {m.stage === "awaiting_approval" && d && (
               <div className="mt-3 border-t border-card-border pt-3 space-y-3">
-                <p className="text-xs font-semibold text-yellow-400">نورة كتبت وتنتظر موافقتك — عدّل ما تشاء:</p>
+                <p className="text-xs font-semibold text-yellow-400">{m.agentRole === "email_creator" ? "طارق" : m.agentRole === "email_followup" ? "يوسف" : "نورة"} كتب{m.agentRole && m.agentRole !== "email" ? "" : "ت"} وتنتظر موافقتك — عدّل ما تشاء:</p>
+                <MissionAudience m={m} onSaved={() => qc.invalidateQueries({ queryKey: ["email-missions"] })} />
                 <DraftEditor draft={d} onChange={(nd) => setEdits({ ...edits, [m.id]: nd })} />
                 <div className="flex gap-2 flex-wrap">
                   <button onClick={() => act.mutate({ id: m.id, a: "approve", body: { draft: d } })} disabled={act.isPending} className={primary}><CheckCircle2 className="w-3 h-3" /> وافقت — أرسلي</button>
@@ -556,6 +558,47 @@ export function ContactDrawer({ id, onClose }: { id: number; onClose: () => void
           </div>
         </>}
       </div>
+    </div>
+  );
+}
+
+/** Who a waiting mission goes to — a list, a folder or the filter it was written for — and how many that is. */
+function MissionAudience({ m, onSaved }: { m: any; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState<Filter>(m.filter ?? {});
+  const { data: lists = [] } = useQuery<any[]>({ queryKey: ["email-lists"], queryFn: () => api("/api/email/lists"), enabled: open });
+  const { data: fd } = useQuery<any>({ queryKey: ["folders", "email"], queryFn: () => api("/api/folders?kind=email"), enabled: open });
+  const folders: any[] = fd?.folders ?? [];
+  const save = useMutation({
+    mutationFn: () => api(`/api/email/missions/${m.id}/audience`, { method: "POST", body: JSON.stringify({ filter: { ...f, maxTouches: m.filter?.maxTouches, take: m.filter?.take } }) }),
+    onSuccess: () => { setOpen(false); onSaved(); toast.success("تغيّر الجمهور"); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const empty = !m.audienceCount;
+  return (
+    <div className={cn("rounded-lg border p-3 text-xs", empty ? "border-red-500/40 bg-red-500/5" : "border-card-border")}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-semibold">الجمهور:</span>
+        <span className="text-muted-foreground">{m.audience}</span>
+        <b className={empty ? "text-red-400" : "text-primary"}>{(m.audienceCount ?? 0).toLocaleString("ar-SA")} يمكن مراسلتهم</b>
+        <button onClick={() => setOpen(!open)} className="mr-auto text-primary hover:underline">{open ? "إغلاق" : "غيّر الجمهور"}</button>
+      </div>
+      {empty && !open && <p className="text-red-400 mt-1.5">لا أحد في هذا الجمهور الآن — ارفع القائمة من «القوائم» أو اختر قائمة أخرى، ثم وافق.</p>}
+      {open && (
+        <div className="mt-3 space-y-3">
+          {(lists.length > 0 || folders.length > 0) && (
+            <div className="space-y-1.5">
+              <p className="text-[11px] text-muted-foreground">قوائم ومجلدات (اختياري):</p>
+              <div className="flex flex-wrap gap-1.5">
+                {folders.map((fo: any) => { const on = !!f.folderIds?.includes(fo.id); return <button key={`f${fo.id}`} onClick={() => setF({ ...f, folderIds: on ? f.folderIds!.filter((x) => x !== fo.id) : [...(f.folderIds ?? []), fo.id] })} className={chip(on)}>📁 {fo.name}</button>; })}
+                {lists.filter((l: any) => !l.stage).map((l: any) => { const on = !!f.listIds?.includes(l.id); return <button key={`l${l.id}`} onClick={() => setF({ ...f, listIds: on ? f.listIds!.filter((x) => x !== l.id) : [...(f.listIds ?? []), l.id] })} className={chip(on)}>{l.name} ({l.sendable})</button>; })}
+              </div>
+            </div>
+          )}
+          <AudiencePicker value={f} onChange={setF} compact />
+          <button onClick={() => save.mutate()} disabled={save.isPending} className={primary}>{save.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />} احفظ الجمهور</button>
+        </div>
+      )}
     </div>
   );
 }

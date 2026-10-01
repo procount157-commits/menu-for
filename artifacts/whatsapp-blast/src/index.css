@@ -111,3 +111,13 @@
   .rtl { direction: rtl; }
   .ltr { direction: ltr; }
 }
+
+/* The visual email editor: how the message's marks look while writing. */
+.email-editor p { margin: 0 0 12px; }
+.email-editor h2 { font-size: 18px; font-weight: 700; margin: 0 0 10px; }
+.email-editor ul { list-style: disc; padding-inline-start: 22px; margin: 0 0 12px; }
+.email-editor ol { list-style: decimal; padding-inline-start: 22px; margin: 0 0 12px; }
+.email-editor li { margin: 0 0 4px; }
+.email-editor a { color: #38bdf8; text-decoration: underline; }
+.email-editor p.cta a { display: inline-block; background: #0284c7; color: #fff; text-decoration: none; padding: 9px 18px; border-radius: 8px; font-weight: 600; }
+.email-editor .note { background: rgba(148, 163, 184, .12); border-inline-start: 4px solid #0284c7; border-radius: 6px; padding: 10px 14px; margin: 0 0 12px; }

@@ -21,6 +21,7 @@ import { seedSkills } from "../skills";
 import { logger } from "../logger";
 import { count, describe, resolve } from "./segments";
 import { passages } from "./knowledge-docs";
+import { getSettings } from "./service";
 import { teamVoice, onDuty, type EmailRole } from "./team";
 
 export const EMAIL_ROLE = "email";
@@ -170,9 +171,13 @@ export function toHtml(text: string): string {
     const lines = para.split("\n").map((l) => esc(l.trim()).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")).filter(Boolean);
     const out: string[] = [];
     let text: string[] = [], items: string[] = [];
-    const flushText = () => { if (text.length) out.push(`<p style="margin:0 0 14px">${text.join("<br>")}</p>`); text = []; };
-    const flushList = () => { if (items.length) out.push(`<ul style="margin:0 0 14px;padding-right:22px">${items.map((l) => `<li style="margin:4px 0">${l}</li>`).join("")}</ul>`); items = []; };
+    // Plain tags: the layout styles them, in the message's own direction.
+    const flushText = () => { if (text.length) out.push(`<p>${text.join("<br>")}</p>`); text = []; };
+    const flushList = () => { if (items.length) out.push(`<ul>${items.map((l) => `<li>${l}</li>`).join("")}</ul>`); items = []; };
     for (const l of lines) {
+      // "[زر] Book a call" — the call to action as a button; its link is filled in by whoever sends.
+      const button = /^\[(?:زر|button)\]\s*(.+)$/i.exec(l);
+      if (button) { flushText(); flushList(); out.push(`<p class="cta"><a href="#cta">${button[1]!.trim()}</a></p>`); continue; }
       if (/^[-•]\s+/.test(l)) { flushText(); items.push(l.replace(/^[-•]\s+/, "")); }
       else { flushList(); text.push(l); }
     }
@@ -232,7 +237,8 @@ export async function writeCampaign(userId: number, input: { filter: SegmentFilt
       "[عنوان] <العنوان الأول>",
       "[عنوان] <عنوان ثانٍ بزاوية مختلفة تماماً — سنختبرهما على شريحة>",
       "[الرسالة]",
-      "<نص الرسالة: فقرات قصيرة مفصولة بسطر فارغ، يبدأ بـ «{{first_name|…}}،» أو تحية باسم الشركة، وينتهي بطلب واحد وتوقيع {{sender}}>",
+      "<نص الرسالة: فقرات قصيرة مفصولة بسطر فارغ، يبدأ بـ «{{first_name|…}}،» أو تحية باسم الشركة، وينتهي بطلب واحد، ثم سطر الزر، ثم التوقيع>",
+      "[زر] <نص زر الدعوة: ٢ إلى ٥ كلمات بلغة الرسالة، مثل «Review your AML readiness» أو «احجزوا استشارة مجانية»> — سطر مستقل قبل التوقيع في الرسالة وفي كل متابعة",
       "[/الرسالة]",
       "[متابعة بعد=72 جمهور=دافئ]",
       "عنوان: <عنوان لمن فتح ولم يرد>",
@@ -260,6 +266,15 @@ export async function writeCampaign(userId: number, input: { filter: SegmentFilt
   if (!out?.text) return null;
   const draft = parseDraft(out.text);
   if (!draft) { logger.warn({ userId, sample: out.text.slice(0, 300) }, "مسودة نورة لم تُقرأ"); return null; }
+  // A button's link: WhatsApp with the request written, else the website, else a reply.
+  const s = await getSettings(userId).catch(() => null);
+  const wa = (s?.phone ?? "").replace(/\D/g, "");
+  const link = (label: string, ar: boolean) => wa.length >= 9
+    ? `https://wa.me/${wa}?text=${encodeURIComponent(ar ? `مرحباً، أرغب في: ${label}` : `Hello, I would like to: ${label}`)}`
+    : s?.website ? (/^https?:/.test(s.website) ? s.website : `https://${s.website}`) : `mailto:${s?.fromEmail ?? ""}?subject=${encodeURIComponent(label)}`;
+  const fill = (html: string) => html.replace(/<a href="#cta">([^<]+)<\/a>/g, (_m, label: string) => `<a href="${link(label, /[\u0600-\u06FF]/.test(label))}">${label}</a>`);
+  draft.html = fill(draft.html);
+  for (const f of draft.followups) f.html = fill(f.html);
   return { draft, audience, provider: out.provider };
 }
 

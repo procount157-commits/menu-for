@@ -32,9 +32,10 @@ import { addDoc, extractText, learn as learnDoc, ask as askKnowledge, library as
 import { classifySector, SECTORS, UNCLASSIFIED } from "../lib/email/sector";
 import { cleanFilter, facets, resolve as resolveSegment, count as countSegment, describe as describeSegment, conditions as segmentConditions } from "../lib/email/segments";
 import { ensureEmailAgent, memory as agentMemory, teach, rememberKnowledge, writeCampaign, EMAIL_ROLE } from "../lib/email/agent";
-import { createMission, approve as approveMission, runMission, missionsFor, missionReport } from "../lib/email/missions";
+import { createMission, setAudience as setMissionAudience, approve as approveMission, runMission, missionsFor, missionReport } from "../lib/email/missions";
 import { seedEmailDefaults, DEFAULT_SEQUENCE_NAME } from "../lib/email/seed";
 import { newToken, renderEmail, personalize } from "../lib/email/tracking";
+import { brandOf, directionOf } from "../lib/email/layout";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -74,6 +75,10 @@ router.put("/settings", async (req, res) => {
     smtpUser: b.smtpUser ?? null, smtpPass: keep(b.smtpPass, cur?.smtpPass),
     apiKey: keep(b.apiKey, cur?.apiKey),
     fromName: b.fromName ?? null, fromEmail: b.fromEmail ?? null, replyTo: b.replyTo ?? null, signature: b.signature ?? null,
+    layout: b.layout === "plain" ? "plain" : "branded",
+    brandName: b.brandName ?? cur?.brandName ?? null, brandTagline: b.brandTagline ?? cur?.brandTagline ?? null,
+    brandColor: b.brandColor ?? cur?.brandColor ?? null, brandAccent: b.brandAccent ?? cur?.brandAccent ?? null,
+    logoUrl: b.logoUrl ?? cur?.logoUrl ?? null, website: b.website ?? cur?.website ?? null, phone: b.phone ?? cur?.phone ?? null, address: b.address ?? cur?.address ?? null,
     hourlyCap: Math.min(500, Math.max(5, Number(b.hourlyCap) || 40)),
     dailyCap: Math.min(5000, Math.max(10, Number(b.dailyCap) || 300)),
     tracking: b.tracking !== false,
@@ -107,7 +112,7 @@ router.post("/settings/test-send", async (req, res) => {
   const base = (process.env["SITE_URL"] ?? "").replace(/\/+$/, "");
   const r = renderEmail("<p>هذه رسالة اختبار من إعدادات البريد في FLOW HUB. إن وصلتك فالمُرسِل يعمل.</p><p><a href=\"https://example.com\">رابط للتجربة</a></p>", {},
     { base, token, secret: process.env["SESSION_SECRET"] ?? "wam", pixel: !!s!.tracking, links: !!s!.tracking },
-    { base, token, fromName: s!.fromName ?? s!.fromEmail!, fromEmail: s!.fromEmail! });
+    { base, token, fromName: s!.fromName ?? s!.fromEmail!, fromEmail: s!.fromEmail! }, brandOf(s));
   try {
     const out = await sendEmail(s!, { to, subject: "اختبار الإرسال — FLOW HUB", html: r.html, text: r.text, messageId: messageIdFor(token, s!.fromEmail!), unsubscribeUrl: null });
     logger.info({ userId, to, serverReply: out.serverReply, accepted: out.accepted, rejected: out.rejected, messageId: out.providerId }, "رسالة اختبار البريد");
@@ -346,6 +351,10 @@ router.post("/missions", async (req, res) => {
 router.post("/missions/:id/approve", async (req, res) => {
   try { await assertCanSend(req.session.userId!); await approveMission(req.session.userId!, Number(req.params.id), req.body?.draft); res.json({ ok: true }); }
   catch (err: any) { if (planErrorToResponse(err, res)) return; res.status(400).json({ error: String(err?.message ?? err) }); }
+});
+router.post("/missions/:id/audience", async (req, res) => {
+  try { await setMissionAudience(req.session.userId!, Number(req.params.id), cleanFilter(req.body?.filter)); res.json({ ok: true }); }
+  catch (err: any) { res.status(400).json({ error: String(err?.message ?? err) }); }
 });
 router.post("/missions/:id/redraft", async (req, res) => {
   const [m] = await db.update(emailMissionsTable).set({ stage: "draft", pending: null, goal: req.body?.goal ? String(req.body.goal).slice(0, 2000) : sql`${emailMissionsTable.goal}` as any })
@@ -683,13 +692,31 @@ router.delete("/templates/:id", async (req, res) => {
   await db.delete(emailTemplatesTable).where(and(eq(emailTemplatesTable.id, Number(req.params.id)), eq(emailTemplatesTable.userId, req.session.userId!)));
   res.json({ ok: true });
 });
+/** A template rendered as it will arrive, with sample names — the gallery shows it in a frame. */
+router.get("/templates/:id/render", async (req, res) => {
+  const userId = req.session.userId!;
+  const [t] = await db.select().from(emailTemplatesTable).where(and(eq(emailTemplatesTable.id, Number(req.params.id)), eq(emailTemplatesTable.userId, userId))).limit(1);
+  if (!t) return res.status(404).send("not found");
+  const s = await getSettings(userId);
+  const en = directionOf(t.html) === "ltr";
+  const vars = en ? { name: "Khalid Al Ali", first_name: "Khalid", company: "Al Noor Real Estate", city: "Dubai" } : { name: "خالد العلي", first_name: "خالد", company: "شركة النور العقارية", city: "دبي" };
+  const r = renderEmail(t.html + (s?.signature ? `<div style="margin-top:20px">${s.signature}</div>` : ""), { ...vars, sender: s?.fromName ?? "" },
+    { base: "", token: "preview", secret: "x", pixel: false, links: false },
+    { base: "", token: "preview", fromName: s?.fromName ?? "", fromEmail: s?.fromEmail ?? "" }, brandOf(s));
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(r.html);
+});
 router.post("/templates/seed", async (req, res) => res.json(await seedEmailDefaults(req.session.userId!, true)));
 router.post("/preview", async (req, res) => {
   const s = await getSettings(req.session.userId!);
-  const vars = { name: "خالد العلي", first_name: "خالد", company: "شركة النور للمقاولات", city: "دبي", industry: "مقاولات", sender: s?.fromName ?? "بروكاونت", sender_email: s?.fromEmail ?? "" };
+  // Sample names in the message's own language, so an English email previews with an English company.
+  const en = directionOf(String(req.body?.html ?? "")) === "ltr";
+  const vars = en
+    ? { name: "Khalid Al Ali", first_name: "Khalid", company: "Al Noor Real Estate", city: "Dubai", industry: "Real Estate", sender: s?.fromName ?? "Pro Count", sender_email: s?.fromEmail ?? "" }
+    : { name: "خالد العلي", first_name: "خالد", company: "شركة النور للمقاولات", city: "دبي", industry: "مقاولات", sender: s?.fromName ?? "بروكاونت", sender_email: s?.fromEmail ?? "" };
   const r = renderEmail(String(req.body?.html ?? "") + (s?.signature ? `<div style="margin-top:20px">${s.signature}</div>` : ""), vars,
     { base: "", token: "preview", secret: "x", pixel: false, links: false },
-    { base: "", token: "preview", fromName: s?.fromName ?? "بروكاونت", fromEmail: s?.fromEmail ?? "hello@example.com" });
+    { base: "", token: "preview", fromName: s?.fromName ?? "بروكاونت", fromEmail: s?.fromEmail ?? "hello@example.com" }, brandOf(s));
   res.json({ subject: personalize(String(req.body?.subject ?? ""), vars), html: r.html, text: r.text });
 });
 
@@ -762,7 +789,7 @@ router.post("/campaigns/:id/test", async (req, res) => {
   const token = newToken();
   const r = renderEmail(c.html + (s!.signature ? `<div style="margin-top:20px">${s!.signature}</div>` : ""), vars,
     { base: "", token, secret: "x", pixel: false, links: false },
-    { base: "", token, fromName: s!.fromName ?? s!.fromEmail!, fromEmail: s!.fromEmail! });
+    { base: "", token, fromName: s!.fromName ?? s!.fromEmail!, fromEmail: s!.fromEmail! }, brandOf(s));
   try {
     await sendEmail(s!, { to, subject: `[تجربة] ${personalize(c.subject, vars)}`, html: r.html, text: r.text, messageId: messageIdFor(token, s!.fromEmail!), unsubscribeUrl: null });
     res.json({ ok: true, to });

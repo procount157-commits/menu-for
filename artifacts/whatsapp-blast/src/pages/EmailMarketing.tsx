@@ -17,6 +17,7 @@ import { api, input } from "@/components/AgentPanel";
 import { AudienceTab, AgentTab, MissionsTab, type Filter } from "./EmailAgent";
 import { ListsTab, ListDetail } from "./EmailLists";
 import { Campaigns } from "./EmailCampaigns";
+import { EmailEditor, EmailPreviewModal } from "@/components/EmailEditor";
 import { KnowledgeTab } from "./EmailKnowledge";
 import { DashboardTab } from "./EmailDashboard";
 
@@ -358,7 +359,7 @@ function Sequences() {
               <div className="flex items-center gap-2"><span className="text-xs font-semibold">الخطوة {i + 1}</span><span className="text-[11px] text-muted-foreground">بعد</span><input type="number" className={cn(input, "w-24")} value={s.afterHours} onChange={(e) => { const st = [...edit.steps]; st[i] = { ...s, afterHours: Number(e.target.value) }; setEdit({ ...edit, steps: st }); }} /><span className="text-[11px] text-muted-foreground">ساعة من التسجيل</span>
                 <button onClick={() => setEdit({ ...edit, steps: edit.steps.filter((_: any, j: number) => j !== i) })} className="mr-auto text-red-400"><Trash2 className="w-3.5 h-3.5" /></button></div>
               <input className={input} placeholder="العنوان" value={s.subject} onChange={(e) => { const st = [...edit.steps]; st[i] = { ...s, subject: e.target.value }; setEdit({ ...edit, steps: st }); }} />
-              <textarea className={ta} placeholder="HTML" value={s.html} onChange={(e) => { const st = [...edit.steps]; st[i] = { ...s, html: e.target.value }; setEdit({ ...edit, steps: st }); }} />
+              <EmailEditor value={s.html} subject={s.subject} compact minHeight={200} onChange={(html) => { const st = [...edit.steps]; st[i] = { ...s, html }; setEdit({ ...edit, steps: st }); }} />
               <PreviewButton subject={s.subject} html={s.html} />
             </div>
           ))}
@@ -399,6 +400,7 @@ function Templates() {
   const save = useMutation({ mutationFn: (t: any) => t.id ? api(`/api/email/templates/${t.id}`, { method: "PATCH", body: JSON.stringify(t) }) : api("/api/email/templates", { method: "POST", body: JSON.stringify(t) }), onSuccess: () => { setEdit(null); inv(); }, onError: (e: Error) => toast.error(e.message) });
   const del = useMutation({ mutationFn: (id: number) => api(`/api/email/templates/${id}`, { method: "DELETE" }), onSuccess: inv });
   const [cat, setCat] = useState("");
+  const [view, setView] = useState<any | null>(null);
   const cats = [...new Set(rows.map((t) => t.category).filter(Boolean))] as string[];
   const shown = (cat ? rows.filter((t) => t.category === cat) : rows).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
   return (
@@ -412,15 +414,41 @@ function Templates() {
       {edit && <div className={cn(card, "p-4 space-y-2")}>
         <div className="grid md:grid-cols-2 gap-2"><input className={input} placeholder="الاسم" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /><input className={input} placeholder="التصنيف" value={edit.category ?? ""} onChange={(e) => setEdit({ ...edit, category: e.target.value })} /></div>
         <input className={input} placeholder="العنوان" value={edit.subject} onChange={(e) => setEdit({ ...edit, subject: e.target.value })} />
-        <textarea className={ta} value={edit.html} onChange={(e) => setEdit({ ...edit, html: e.target.value })} />
+        <EmailEditor value={edit.html} subject={edit.subject} onChange={(html) => setEdit({ ...edit, html })} minHeight={320} />
         <div className="flex gap-2"><button onClick={() => save.mutate(edit)} className={primary}>احفظ</button><button onClick={() => setEdit(null)} className={ghost}>إلغاء</button><PreviewButton subject={edit.subject} html={edit.html} /></div>
       </div>}
-      <div className={cn(card, "divide-y divide-card-border")}>
-        {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground text-center">لا قوالب — «القوالب الجاهزة» في تبويب المتابعة تثبّت قوالب AML.</p>}
-        {shown.map((t) => <div key={t.id} className="p-3.5 flex items-center gap-3"><button onClick={() => setEdit({ ...t })} className="font-semibold text-sm hover:text-primary">{t.name}</button><span className="text-[11px] text-muted-foreground truncate flex-1">{t.subject}</span>{t.category && <span className="text-[10px] px-2 py-0.5 rounded bg-muted">{t.category}</span>}<button onClick={() => del.mutate(t.id)} className={ghost}><Trash2 className="w-3 h-3" /></button></div>)}
+      {rows.length === 0 && <div className={cn(card, "p-6 text-sm text-muted-foreground text-center")}>لا قوالب — «القوالب الجاهزة» في تبويب المتابعة تثبّت قوالب AML.</div>}
+      {/* The gallery: each template as it arrives, small; click for the full view. */}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+        {shown.map((t) => (
+          <div key={t.id} className={cn(card, "overflow-hidden flex flex-col group")}>
+            <button onClick={() => setView(t)} className="relative h-56 overflow-hidden bg-[#eef2f6] border-b border-card-border" title="معاينة">
+              <iframe title={t.name} src={`${BASE}/api/email/templates/${t.id}/render?v=${new Date(t.updatedAt ?? 0).getTime()}`} loading="lazy" tabIndex={-1}
+                className="pointer-events-none origin-top-left absolute top-0 left-0 border-0" style={{ width: 640, height: 900, transform: "scale(0.42)" }} />
+              <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/30 transition-opacity"><span className="flex items-center gap-1 text-xs text-white bg-black/60 px-3 py-1.5 rounded-full"><Eye className="w-3.5 h-3.5" /> معاينة</span></span>
+            </button>
+            <div className="p-3 flex-1 flex flex-col gap-1">
+              {t.category && <span className="self-start text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary">{t.category}</span>}
+              <p className="text-xs font-semibold leading-snug" dir="auto">{t.name}</p>
+              <p className="text-[11px] text-muted-foreground line-clamp-2" dir="auto">{t.subject}</p>
+              <div className="flex gap-1.5 mt-auto pt-2">
+                <button onClick={() => setEdit({ ...t })} className={cn(ghost, "flex-1 justify-center")}>تعديل</button>
+                <button onClick={() => confirm(`حذف «${t.name}»؟`) && del.mutate(t.id)} className={ghost}><Trash2 className="w-3 h-3" /></button>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
+      {view && <TemplateView t={view} onClose={() => setView(null)} />}
     </div>
   );
+}
+
+/** A template full size, as the server renders it — the firm's layout, signature and sample names. */
+function TemplateView({ t, onClose }: { t: any; onClose: () => void }) {
+  const { data: html } = useQuery<string>({ queryKey: ["email-template-render", t.id, t.updatedAt], queryFn: async () => (await fetch(`${BASE}/api/email/templates/${t.id}/render`, { credentials: "include" })).text() });
+  if (!html) return null;
+  return <EmailPreviewModal html={html} subject={t.subject.replace(/\{\{\s*company\s*(\|[^}]*)?\}\}/g, "Al Noor Real Estate").replace(/\{\{[^}]*\}\}/g, "")} onClose={onClose} />;
 }
 
 // ── Inbox ─────────────────────────────────────────────────────────
@@ -505,6 +533,28 @@ function SettingsTab() {
           <label className="text-xs flex items-center gap-2 pt-6"><input type="checkbox" checked={!!f.tracking} onChange={(e) => setF({ ...f, tracking: e.target.checked })} /> تتبّع الفتح والنقر</label></div>
         <div><label className="text-xs font-semibold block mb-1.5">التوقيع (HTML)</label><textarea className={cn(input, "min-h-[5rem] text-xs")} value={f.signature ?? ""} onChange={(e) => setF({ ...f, signature: e.target.value })} placeholder="{{sender}}<br>بروكاونت للمحاسبة<br>+971 …" /></div>
         <p className="text-[11px] text-muted-foreground">ابدأ بحصة صغيرة (٤٠ في الساعة، ٣٠٠ في اليوم) لعنوان جديد وارفعها بعد أسبوعين من ارتداد منخفض. الإرسال داخل ساعات العمل فقط.</p>
+      </div>
+      <div className={cn(card, "p-4 space-y-3")}>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold">هوية الرسائل</p>
+          <div className="mr-auto flex gap-1">
+            {([["branded", "تصميم الشركة"], ["plain", "رسالة بسيطة"]] as const).map(([k, l]) => (
+              <button key={k} onClick={() => setF({ ...f, layout: k })} className={cn("px-3 py-1.5 rounded-lg text-xs border", (f.layout ?? "branded") === k ? "border-primary bg-primary/10 text-primary" : "border-card-border text-muted-foreground")}>{l}</button>
+            ))}
+          </div>
+        </div>
+        <p className="text-[11px] text-muted-foreground">رأس بلون الشركة وشعارها، الرسالة في بطاقة بيضاء، وتذييل فيه العنوان والموقع والهاتف ورابط إلغاء الاشتراك — يُطبَّق على كل رسالة تلقائياً. الشعار رابط صورة PNG على موقعكم (https).</p>
+        {(f.layout ?? "branded") === "branded" && (<>
+          <div className="grid md:grid-cols-3 gap-3"><L l="اسم العلامة" k="brandName" ph="PRO COUNT" /><L l="السطر تحت الاسم" k="brandTagline" ph="Accounting · Tax · AML Compliance" /><L l="رابط الشعار (PNG)" k="logoUrl" ph="https://www.pro-count.ae/apple-touch-icon.png" /></div>
+          <div className="grid md:grid-cols-3 gap-3"><L l="الموقع" k="website" ph="www.pro-count.ae" /><L l="الهاتف" k="phone" ph="+971 54 232 8336" /><L l="العنوان" k="address" ph="Abu Dhabi, United Arab Emirates" /></div>
+          <div className="flex gap-4 flex-wrap items-center">
+            {([["brandColor", "لون الرأس", "#111c33"], ["brandAccent", "لون الأزرار والروابط", "#0284c7"]] as const).map(([k, l, d]) => (
+              <label key={k} className="text-xs flex items-center gap-2">{l}<input type="color" value={f[k] || d} onChange={(e) => setF({ ...f, [k]: e.target.value })} className="w-9 h-7 rounded border border-card-border bg-transparent" /><code className="text-[10px] text-muted-foreground" dir="ltr">{f[k] || d}</code></label>
+            ))}
+            <PreviewButton subject="Preview — Pro Count" html={`<p>Hello {{first_name|there}},</p><p>This is how every email from {{sender}} looks: your header, the message in a card, and your details in the footer.</p><div class="note">A highlighted box for the one point that matters.</div><p class="cta"><a href="https://${(f.website || "www.pro-count.ae").replace(/^https?:\/\//, "")}">Book a free consultation</a></p><p>Best regards,<br>The team</p>`} />
+            <span className="text-[10px] text-muted-foreground">احفظ أولاً ثم عاين.</span>
+          </div>
+        </>)}
       </div>
       <div className={cn(card, "p-4 space-y-3")}>
         <p className="text-sm font-semibold">العمل الذاتي</p>

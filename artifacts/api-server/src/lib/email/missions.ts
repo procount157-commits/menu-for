@@ -83,8 +83,21 @@ export async function approve(userId: number, id: number, edited?: Partial<Email
   const [m] = await db.select().from(emailMissionsTable).where(and(eq(emailMissionsTable.id, id), eq(emailMissionsTable.userId, userId))).limit(1);
   if (!m || m.stage !== "awaiting_approval" || !m.pending) throw new Error("لا شيء ينتظر الموافقة");
   const d = { ...(m.pending as EmailDraft), ...(edited ?? {}) } as EmailDraft;
+  // Nobody to send to is said now, and the mission keeps waiting — approving
+  // it into a pause, with nothing said, read as "approval does not work".
+  const n = await count(userId, m.filter as SegmentFilter, true);
+  if (!n) throw new Error(`لا أحد في جمهور هذه الحملة يمكن مراسلته الآن (${describe(m.filter as SegmentFilter)}). ارفع القائمة أو غيّر الجمهور، ثم وافق.`);
+  await db.update(emailMissionsTable).set({ status: "active", pending: d as any }).where(eq(emailMissionsTable.id, m.id));
   await log(m.id, "وافق صاحب العمل.", "approve");
-  await launch(m, d);
+  await launch({ ...m, status: "active" }, d);
+}
+
+/** Who a waiting mission goes to, changed before the owner approves it. */
+export async function setAudience(userId: number, id: number, filter: SegmentFilter) {
+  const [m] = await db.select().from(emailMissionsTable).where(and(eq(emailMissionsTable.id, id), eq(emailMissionsTable.userId, userId))).limit(1);
+  if (!m || !["draft", "awaiting_approval"].includes(m.stage)) throw new Error("لا يمكن تغيير جمهور مهمة بدأ إرسالها");
+  await db.update(emailMissionsTable).set({ filter, status: "active" }).where(eq(emailMissionsTable.id, id));
+  await log(id, `غيّر صاحب العمل الجمهور: ${describe(filter)} — ${await count(userId, filter, true)} يمكن مراسلتهم.`, "note");
 }
 
 /** One step for one mission. Safe to call at any time; each stage checks its own evidence. */

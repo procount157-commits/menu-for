@@ -4,10 +4,11 @@
 // the campaign chosen for a list's sector, and the filters a wave uses.
 
 import { and, eq, inArray, like } from "drizzle-orm";
-import { db, botEmployeesTable, emailContactsTable, emailListsTable, emailListMembersTable, emailMessagesTable, listFoldersTable, emailAutopilotTable } from "@workspace/db";
+import { db, botEmployeesTable, emailContactsTable, emailListsTable, emailListMembersTable, emailMessagesTable, listFoldersTable, emailAutopilotTable, emailMissionsTable } from "@workspace/db";
 import { guardCheck, temperature, ensureEmailTeam, EMAIL_TEAM } from "../email/team";
 import { refreshStageLists, campaignFor, saveAutopilot, targetLists, getAutopilot } from "../email/autopilot";
 import { count } from "../email/segments";
+import { createMission, approve } from "../email/missions";
 
 const USER = 1;
 let pass = 0, total = 0;
@@ -88,6 +89,20 @@ const cfg = await saveAutopilot(USER, { folderIds: [fo!.id], waveSize: 99999, qu
 check("settings are kept within bounds", cfg.waveSize === 2000 && cfg.quietDays === 2 && cfg.mode === "approve", JSON.stringify({ w: cfg.waveSize, q: cfg.quietDays, m: cfg.mode }));
 const targets = await targetLists(USER, await getAutopilot(USER));
 check("a folder's lists are worked, not its stage lists", targets.length === 1 && targets[0]!.id === list!.id, targets.map((l) => l.name).join(" | "));
+
+await saveAutopilot(USER, { folderIds: [], listIds: [] });
+const all = await targetLists(USER, await getAutopilot(USER));
+check("nothing picked means every list, still no stage list", all.some((l) => l.id === list!.id) && all.every((l) => !l.parentListId), `${all.length}`);
+
+// ── Approving a mission nobody can receive ───────────────────────
+const m = await createMission(USER, { name: "اختبار-فريق مهمة", goal: "x", filter: { listIds: [-1] }, requireApproval: true });
+await db.update(emailMissionsTable).set({ stage: "awaiting_approval", pending: { subjects: ["s"], html: "<p>x</p>", followups: [], why: "" } as any }).where(eq(emailMissionsTable.id, m.id));
+let said = "";
+try { await approve(USER, m.id); } catch (e: any) { said = e.message; }
+const [after] = await db.select().from(emailMissionsTable).where(eq(emailMissionsTable.id, m.id));
+check("approving an empty audience says why", said.includes("لا أحد"), said.slice(0, 60));
+check("...and the mission keeps waiting, not paused", after!.stage === "awaiting_approval" && after!.status === "active", `${after!.stage}/${after!.status}`);
+await db.delete(emailMissionsTable).where(eq(emailMissionsTable.id, m.id));
 
 // ── The filters a wave uses ──────────────────────────────────────
 check("never written to: one", await count(USER, { listIds: [list!.id], engagement: ["never_sent"] }) === 1);

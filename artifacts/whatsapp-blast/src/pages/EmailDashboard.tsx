@@ -67,7 +67,7 @@ export function DashboardTab({ goMissions }: { goMissions: () => void }) {
             الطيار الآلي للبريد {ap.enabled ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/15 text-primary flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" /> يعمل</span> : <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">متوقف</span>}
           </p>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            {targets ? `يعمل الفريق على ${n(ap.listIds?.length)} قائمة و${n(ap.folderIds?.length)} مجلد` : "اختر القوائم التي يعمل عليها الفريق"} · {ap.mode === "auto" ? "يُرسل تلقائياً بعد مراجعة ماجد" : "كل حملة تنتظر موافقتك"} · موجة {n(ap.waveSize)} · جولة كل ربع ساعة{ap.lastRunAt ? ` · آخر جولة ${ago(ap.lastRunAt)}` : ""}
+            {targets ? `يعمل الفريق على ${n(ap.listIds?.length)} قائمة و${n(ap.folderIds?.length)} مجلد` : `يعمل الفريق على كل قوائم البريد (${n(d.lists.length)})`} · {ap.mode === "auto" ? "يُرسل تلقائياً بعد مراجعة ماجد" : "كل حملة تنتظر موافقتك"} · موجة {n(ap.waveSize)} · جولة كل ربع ساعة{ap.lastRunAt ? ` · آخر جولة ${ago(ap.lastRunAt)}` : ""}
           </p>
         </div>
         <select className={cn(input, "w-28 text-xs")} value={days} onChange={(e) => setDays(Number(e.target.value))}>
@@ -75,7 +75,7 @@ export function DashboardTab({ goMissions }: { goMissions: () => void }) {
         </select>
         <button onClick={() => setShowSettings(!showSettings)} className={ghost}><Settings2 className="w-3.5 h-3.5" /> الإعدادات</button>
         <button onClick={() => run.mutate()} disabled={run.isPending} className={ghost}>{run.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />} جولة الآن</button>
-        <button onClick={() => { if (!ap.enabled && !targets) { setShowSettings(true); toast.info("اختر القوائم أولاً"); return; } save.mutate({ enabled: !ap.enabled }); }} disabled={save.isPending} className={ap.enabled ? ghost : primary}>
+        <button onClick={() => save.mutate({ enabled: !ap.enabled })} disabled={save.isPending} className={ap.enabled ? ghost : primary}>
           {ap.enabled ? <><Pause className="w-3.5 h-3.5" /> أوقف</> : <><Play className="w-3.5 h-3.5" /> شغّل</>}
         </button>
       </div>
@@ -83,6 +83,16 @@ export function DashboardTab({ goMissions }: { goMissions: () => void }) {
       {showSettings && <AutopilotSettings ap={ap} onSave={(b) => save.mutate(b)} saving={save.isPending} onClose={() => setShowSettings(false)} />}
 
       {!d.configured && <Banner tone="red">لا مُرسِل مضبوط — لن يُرسل الفريق شيئاً حتى تُضبط إعدادات البريد.</Banner>}
+      {d.lists.reduce((t: number, l: any) => t + l.sendable, 0) === 0 && (
+        <div className={cn(card, "p-4 flex items-center gap-3 border-primary/40")}>
+          <Users className="w-5 h-5 text-primary shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold">{d.lists.length ? "قوائم البريد فارغة" : "لا قوائم بريد بعد"}</p>
+            <p className="text-[11px] text-muted-foreground">الفريق يعمل على عناوين حقيقية: ارفع ملف Excel وسيُصنَّف ويوضع في مجلد قطاعه، ثم يبدأ الطيار الآلي وحده.</p>
+          </div>
+          <Link href="/email/lists" className={primary}><List className="w-3.5 h-3.5" /> ارفع قائمة</Link>
+        </div>
+      )}
       {!d.tracking && (
         <Banner tone="yellow">
           الفتح والنقر لا يُقاسان بعد: يحتاجان رابطاً عاماً للتطبيق على الإنترنت (<code dir="ltr">SITE_URL</code>) تمر عبره صورة التتبع وروابط الرسائل. الردود تُقاس الآن، وقوائم «فتحوا» و«نقروا» تمتلئ حين يُفعَّل التتبع.
@@ -394,7 +404,7 @@ function AutopilotSettings({ ap, onSave, saving, onClose }: { ap: any; onSave: (
     <div className={cn(card, "p-4 space-y-4 border-primary/30")}>
       <div>
         <p className="text-sm font-semibold mb-1">على أي قوائم يعمل الفريق؟</p>
-        <p className="text-[11px] text-muted-foreground mb-2">مجلد كامل يشمل كل قائمة فيه، حتى ما تضيفه لاحقاً.</p>
+        <p className="text-[11px] text-muted-foreground mb-2">بلا اختيار = كل القوائم. مجلد كامل يشمل كل قائمة فيه، حتى ما تضيفه لاحقاً.</p>
         <div className="grid md:grid-cols-2 gap-3">
           <div className="rounded-lg border border-card-border p-2 max-h-56 overflow-y-auto space-y-1">
             <p className="text-[10px] text-muted-foreground px-1">المجلدات</p>
