@@ -111,7 +111,7 @@ router.post("/auto-heal", async (req, res) => {
 // POST /api/whatsapp/test-send  { phone: "9715XXXXXXXX", message?: "..." }
 router.post("/test-send", async (req, res) => {
   const userId = req.session.userId!;
-  const { phone, message: testMsg = "رسالة اختبار ✓ واتساب ماركتر" } = req.body as { phone?: string; message?: string };
+  const { phone, message: testMsg = "رسالة اختبار ✓ منيو فور يو" } = req.body as { phone?: string; message?: string };
   if (!phone) return res.status(400).json({ error: "phone مطلوب" });
 
   const waState = getStatus(userId);

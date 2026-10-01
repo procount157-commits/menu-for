@@ -384,7 +384,7 @@ function ResponsesPanel({ campaignId }: { campaignId: number }) {
 // ── Test-Send Dialog ──────────────────────────────────────────────
 function TestSendDialog({ onClose }: { onClose: () => void }) {
   const [phone, setPhone] = useState("");
-  const [message, setMessage] = useState("رسالة اختبار ✓ واتساب ماركتر");
+  const [message, setMessage] = useState("رسالة اختبار ✓ منيو فور يو");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ success: boolean; text: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);

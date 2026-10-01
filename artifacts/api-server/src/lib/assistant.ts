@@ -4,6 +4,7 @@
 // but it is given real numbers rather than left to guess at them, because an
 // assistant that invents this week's delivery rate is worse than none.
 
+import { shopContext } from "./menu/assistant-context";
 import { and, count, desc, eq, gte, sql } from "drizzle-orm";
 import {
   db, assistantThreadsTable, assistantMessagesTable,
@@ -72,10 +73,12 @@ export async function buildContext(userId: number): Promise<string> {
 
   const c = campaignStats[0], ct = contactStats[0], w = sentWeek[0], l = leadStats[0], f = followUps[0];
   const em = await emailOverview(userId).catch(() => null);
+  const shop = await shopContext(userId).catch(() => "");
   const pct = (n: number, d: number) => (d > 0 ? `${Math.round((n / d) * 100)}%` : "—");
   const weekSent = Number(w?.sent ?? 0);
 
   return [
+    ...(shop ? [shop, ""] : []),
     profile?.name ? `النشاط: ${profile.name}${profile.industry ? ` — ${profile.industry}` : ""}` : "",
     profile?.description ? `الوصف: ${profile.description}` : "",
     "",
@@ -94,7 +97,7 @@ export async function buildContext(userId: number): Promise<string> {
 
 function systemPrompt(context: string): string {
   return [
-    "أنت مساعد داخلي لصاحب نشاط يستخدم منصة «واتساب ماركتر» لإدارة حملاته على واتساب.",
+    "أنت مساعد داخلي لصاحب محل يستخدم «منيو فور يو»: المنيو الرقمي، صف الانتظار، الطلبات والحجوزات، وواتساب ووكلاؤه.",
     "أنت تتحدث إلى صاحب النشاط نفسه أو موظفيه، لا إلى عملائه.",
     "",
     "أسلوبك: مباشر وعملي وبالعربية. أجب باختصار ما لم يُطلب التفصيل.",

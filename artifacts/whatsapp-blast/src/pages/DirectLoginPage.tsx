@@ -41,7 +41,7 @@ export default function DirectLoginPage() {
           </svg>
         </div>
 
-        <h1 className="text-xl font-bold text-foreground mb-1">واتساب ماركتر</h1>
+        <h1 className="text-xl font-bold text-foreground mb-1">منيو فور يو</h1>
 
         {status === "loading" && (
           <>

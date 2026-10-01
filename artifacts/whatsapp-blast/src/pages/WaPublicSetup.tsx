@@ -94,7 +94,7 @@ export default function WaPublicSetup() {
           </svg>
         </div>
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-white">واتساب ماركتر</h1>
+          <h1 className="text-2xl font-bold text-white">منيو فور يو</h1>
           <p className="text-green-400/80 text-sm mt-1">ربط حساب الواتساب</p>
         </div>
       </div>
@@ -193,7 +193,7 @@ export default function WaPublicSetup() {
       </div>
 
       <p className="mt-6 text-white/20 text-xs text-center">
-        واتساب ماركتر · منصة الإرسال الجماعي الاحترافية
+        منيو فور يو · المنيو والصف الرقمي وواتساب
       </p>
     </div>
   );

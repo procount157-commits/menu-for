@@ -315,7 +315,7 @@ function PlanPanel({ user, onSave }: { user: UserEntry; onSave: (u: Partial<User
               <Copy className="w-4 h-4" />
             </button>
             <button onClick={() => {
-              const msg = encodeURIComponent(`مرحباً 👋\nلربط رقمك في واتساب ماركتر:\n${getPublicQrUrl(localToken)}`);
+              const msg = encodeURIComponent(`مرحباً 👋\nلربط رقم محلك في منيو فور يو:\n${getPublicQrUrl(localToken)}`);
               window.open(`https://wa.me/${user.phone}?text=${msg}`, "_blank");
             }} className="px-3 py-2 bg-[#25D366]/10 text-[#25D366] rounded-lg hover:bg-[#25D366]/20 transition-colors flex-shrink-0">
               <MessageCircle className="w-4 h-4" />
@@ -429,7 +429,7 @@ function CouponsPanel() {
 
   const sendViaWa = (c: Coupon) => {
     const msg = encodeURIComponent(
-      `مرحباً 👋\n🎁 كوبون خاص لك في واتساب ماركتر:\n\n*الكود: ${c.code}*\nالمزايا: ${typeLabel(c)}\n\nادخل الكود في لوحة التحكم ← الإعدادات ← استخدام كوبون`
+      `مرحباً 👋\n🎁 كوبون خاص لك في منيو فور يو:\n\n*الكود: ${c.code}*\nالمزايا: ${typeLabel(c)}\n\nادخل الكود في لوحة التحكم ← الإعدادات ← استخدام كوبون`
     );
     window.open(`https://wa.me/?text=${msg}`, "_blank");
   };
