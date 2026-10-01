@@ -190,9 +190,12 @@ async function vision(dataUrl: string, prompt: string): Promise<string | null> {
     const j: any = await r.json();
     return j?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("") ?? null;
   });
-  if (env("ZHIPU_API_KEY")) tries.push(openaiShape("https://open.bigmodel.cn/api/paas/v4/chat/completions", env("ZHIPU_API_KEY"), env("ZHIPU_VISION_MODEL") || "glm-4v-flash"));
-  if (env("GROQ_API_KEY")) tries.push(openaiShape("https://api.groq.com/openai/v1/chat/completions", env("GROQ_API_KEY"), env("GROQ_VISION_MODEL") || "meta-llama/llama-4-scout-17b-16e-instruct"));
-  if (env("OPENROUTER_API_KEY")) tries.push(openaiShape("https://openrouter.ai/api/v1/chat/completions", env("OPENROUTER_API_KEY"), env("OPENROUTER_VISION_MODEL") || "google/gemma-3-27b-it:free"));
+  // Checked against live keys on 2026-10-01: Groq's qwen3.8-27b read a test
+  // menu exactly; Zhipu's free glm-4.6v-flash exists but is often over
+  // capacity; OpenRouter's free vision models were all rate-limited upstream.
+  if (env("GROQ_API_KEY")) tries.push(openaiShape("https://api.groq.com/openai/v1/chat/completions", env("GROQ_API_KEY"), env("GROQ_VISION_MODEL") || "qwen/qwen3.8-27b"));
+  if (env("ZHIPU_API_KEY")) tries.push(openaiShape("https://open.bigmodel.cn/api/paas/v4/chat/completions", env("ZHIPU_API_KEY"), env("ZHIPU_VISION_MODEL") || "glm-4.6v-flash"));
+  if (env("OPENROUTER_API_KEY")) tries.push(openaiShape("https://openrouter.ai/api/v1/chat/completions", env("OPENROUTER_API_KEY"), env("OPENROUTER_VISION_MODEL") || "google/gemma-4-31b-it:free"));
   for (const t of tries) {
     try { const out = await t(); if (out && out.trim()) return out; }
     catch (err) { logger.warn({ err: String((err as Error)?.message ?? err) }, "menu vision attempt failed"); }
@@ -235,7 +238,11 @@ export async function translateMenu(t: Tenant, opts: { onlyMissing: boolean }) {
   const todoCats = cats.filter((c) => !opts.onlyMissing || !c.nameEn);
   let done = 0;
   const batch = <T,>(arr: T[], n: number) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
-  for (const group of batch(items, 25)) {
+  // Models skip an item now and then; whatever is still untranslated gets one more pass.
+  for (let pass = 0; pass < 2; pass++) {
+  const todo = pass === 0 ? items : (await db.select().from(menuItemsTable).where(and(eq(menuItemsTable.orgId, t.org.id), or(isNull(menuItemsTable.nameEn), eq(menuItemsTable.nameEn, ""))!)));
+  if (!todo.length) break;
+  for (const group of batch(todo, 25)) {
     const input = group.map((i) => ({ id: i.id, name: i.name, description: i.description ?? "" }));
     const r = await complete([
       { role: "system", content: "Translate restaurant menu items from Arabic to natural English menu wording. Keep dish names that are proper names transliterated (e.g. Kunafa, Machboos). Return ONLY a JSON array of {\"id\": number, \"nameEn\": string, \"descriptionEn\": string}." },
@@ -250,6 +257,7 @@ export async function translateMenu(t: Tenant, opts: { onlyMissing: boolean }) {
       }).where(and(eq(menuItemsTable.id, id), eq(menuItemsTable.orgId, t.org.id)));
       done++;
     }
+  }
   }
   if (todoCats.length) {
     const r = await complete([
