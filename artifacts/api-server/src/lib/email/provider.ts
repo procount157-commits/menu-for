@@ -19,7 +19,7 @@ export interface OutgoingEmail {
   inReplyTo?: string | null;
 }
 
-export interface SendResult { providerId: string | null }
+export interface SendResult { providerId: string | null; serverReply?: string; accepted?: string[]; rejected?: string[] }
 
 export class SendError extends Error {
   constructor(message: string, public permanent = false) { super(message); }
@@ -73,7 +73,10 @@ export async function sendEmail(s: EmailSettings, m: OutgoingEmail): Promise<Sen
         messageId: m.messageId, inReplyTo: m.inReplyTo ?? undefined,
         headers,
       });
-      return { providerId: info.messageId ?? null };
+      // What the server said and which addresses it took: "accepted" only
+      // means the server queued it, and the owner checking why nothing
+      // arrived needs to see that, not just "sent".
+      return { providerId: info.messageId ?? null, serverReply: String(info.response ?? "").slice(0, 300), accepted: (info.accepted ?? []).map(String), rejected: (info.rejected ?? []).map(String) };
     } catch (err: any) {
       const code = String(err?.responseCode ?? "");
       const msg = String(err?.message ?? err).slice(0, 300);

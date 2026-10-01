@@ -97,7 +97,8 @@ router.post("/settings/test-send", async (req, res) => {
   const userId = req.session.userId!;
   const s = await getSettings(userId);
   if (!isConfigured(s)) return res.status(400).json({ error: "إعدادات البريد غير مكتملة" });
-  const to = String(req.body?.to ?? s!.fromEmail);
+  const to = String(req.body?.to || s!.fromEmail).trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return res.status(400).json({ error: "بريد الاستلام غير صالح" });
   const token = newToken();
   const base = (process.env["SITE_URL"] ?? "").replace(/\/+$/, "");
   const r = renderEmail("<p>هذه رسالة اختبار من إعدادات البريد في FLOW HUB. إن وصلتك فالمُرسِل يعمل.</p><p><a href=\"https://example.com\">رابط للتجربة</a></p>", {},
@@ -105,8 +106,12 @@ router.post("/settings/test-send", async (req, res) => {
     { base, token, fromName: s!.fromName ?? s!.fromEmail!, fromEmail: s!.fromEmail! });
   try {
     const out = await sendEmail(s!, { to, subject: "اختبار الإرسال — FLOW HUB", html: r.html, text: r.text, messageId: messageIdFor(token, s!.fromEmail!), unsubscribeUrl: null });
-    res.json({ ok: true, providerId: out.providerId });
-  } catch (err: any) { res.status(400).json({ ok: false, error: String(err?.message ?? err) }); }
+    logger.info({ userId, to, serverReply: out.serverReply, accepted: out.accepted, rejected: out.rejected, messageId: out.providerId }, "رسالة اختبار البريد");
+    res.json({ ok: true, to, providerId: out.providerId, serverReply: out.serverReply ?? null, accepted: out.accepted ?? [], rejected: out.rejected ?? [] });
+  } catch (err: any) {
+    logger.warn({ userId, to, err: String(err?.message ?? err) }, "رسالة اختبار البريد فشلت");
+    res.status(400).json({ ok: false, error: String(err?.message ?? err) });
+  }
 });
 
 router.get("/settings/dns", async (req, res) => {

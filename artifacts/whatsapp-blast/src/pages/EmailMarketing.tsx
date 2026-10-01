@@ -468,7 +468,12 @@ function SettingsTab() {
   useEffect(() => { if (data && !f) setF({ provider: "smtp", smtpPort: 587, imapPort: 993, hourlyCap: 40, dailyCap: 300, tracking: true, ...(data.settings ?? {}) }); }, [data]);
   const save = useMutation({ mutationFn: (b: any) => api("/api/email/settings", { method: "PUT", body: JSON.stringify(b) }), onSuccess: () => { qc.invalidateQueries({ queryKey: ["email-settings"] }); qc.invalidateQueries({ queryKey: ["email-overview"] }); toast.success("حُفظت"); }, onError: (e: Error) => toast.error(e.message) });
   const test = useMutation({ mutationFn: () => api("/api/email/settings/test", { method: "POST" }), onSuccess: (d: any) => toast[d.ok ? "success" : "error"](d.detail) });
-  const testSend = useMutation({ mutationFn: () => api("/api/email/settings/test-send", { method: "POST", body: JSON.stringify({}) }), onSuccess: () => toast.success("أُرسلت رسالة اختبار إلى عنوانك"), onError: (e: Error) => toast.error(e.message) });
+  // A test to any address — another provider (Gmail) shows whether mail leaves the domain — and what the server answered.
+  const [testTo, setTestTo] = useState("");
+  const testSend = useMutation({
+    mutationFn: () => api("/api/email/settings/test-send", { method: "POST", body: JSON.stringify({ to: testTo.trim() || undefined }) }),
+    onError: (e: Error) => toast.error(e.message),
+  });
   const [dns, setDns] = useState<any>(null);
   const checkDns = useMutation({ mutationFn: () => api("/api/email/settings/dns"), onSuccess: setDns, onError: (e: Error) => toast.error(e.message) });
   if (!f) return <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />;
@@ -507,9 +512,21 @@ function SettingsTab() {
       <div className="flex gap-2 flex-wrap">
         <button onClick={() => save.mutate(f)} disabled={save.isPending} className={primary}>{save.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} احفظ</button>
         <button onClick={() => test.mutate()} disabled={test.isPending} className={ghost}>اختبر الاتصال</button>
-        <button onClick={() => testSend.mutate()} disabled={testSend.isPending} className={ghost}><Send className="w-3 h-3" /> أرسل رسالة اختبار لنفسي</button>
+        <input className={cn(input, "w-56 text-xs")} dir="ltr" placeholder={f.fromEmail || "you@gmail.com"} value={testTo} onChange={(e) => setTestTo(e.target.value)} title="اختبر أيضاً إلى Gmail — يبيّن أن البريد يخرج من النطاق" />
+        <button onClick={() => testSend.mutate()} disabled={testSend.isPending} className={ghost}>{testSend.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />} أرسل رسالة اختبار</button>
         <button onClick={() => checkDns.mutate()} disabled={checkDns.isPending} className={ghost}>افحص SPF / DKIM / DMARC</button>
       </div>
+      {testSend.data && (() => {
+        const r: any = testSend.data;
+        const took = r.rejected?.length ? false : true;
+        return (
+          <div className={cn(card, "p-3 text-xs space-y-1", took ? "border-primary/30" : "border-red-500/40")}>
+            <p className="font-semibold">{took ? `قبِل السيرفر الرسالة إلى ${r.to}` : `رفض السيرفر ${r.rejected.join("، ")}`}</p>
+            {r.serverReply && <p className="text-muted-foreground">ردّ السيرفر: <code dir="ltr">{r.serverReply}</code></p>}
+            <p className="text-muted-foreground">إن لم تصل خلال دقيقتين: افحص البريد غير المرغوب، ثم افتح <b>Email Logs</b> في لوحة مزوّد البريد وابحث عن هذه الرسالة — يقول السجل هل سُلّمت أو حُجزت ولماذا. وجرّب الإرسال إلى Gmail أيضاً.</p>
+          </div>
+        );
+      })()}
       {dns && (
         <div className={cn(card, "p-4 space-y-2 text-xs")}>
           <p className="font-semibold">{dns.domain}</p>
