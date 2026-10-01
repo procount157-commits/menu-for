@@ -48,48 +48,50 @@
 }
 
 :root {
-  --background: 158 30% 6%;
-  --foreground: 150 20% 90%;
-  --border: 158 20% 15%;
-  --card: 158 25% 9%;
-  --card-foreground: 150 20% 88%;
-  --card-border: 158 18% 14%;
-  --popover: 158 28% 8%;
-  --popover-foreground: 150 20% 88%;
-  --popover-border: 158 20% 16%;
-  --primary: 142 70% 40%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 158 20% 14%;
-  --secondary-foreground: 150 15% 75%;
-  --muted: 158 18% 12%;
-  --muted-foreground: 150 10% 55%;
-  --accent: 142 55% 32%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 65% 50%;
+  /* Menu For You: warm charcoal and brass. Dark, because the staff screen
+     runs all evening on a counter tablet; gold, because that is the menu. */
+  --background: 30 12% 6%;
+  --foreground: 38 25% 92%;
+  --border: 32 10% 15%;
+  --card: 30 11% 9%;
+  --card-foreground: 38 22% 90%;
+  --card-border: 32 10% 14%;
+  --popover: 30 12% 8%;
+  --popover-foreground: 38 22% 90%;
+  --popover-border: 32 10% 16%;
+  --primary: 40 62% 54%;
+  --primary-foreground: 30 30% 8%;
+  --secondary: 32 10% 14%;
+  --secondary-foreground: 38 15% 78%;
+  --muted: 32 9% 12%;
+  --muted-foreground: 36 8% 58%;
+  --accent: 40 45% 38%;
+  --accent-foreground: 38 30% 96%;
+  --destructive: 2 68% 52%;
   --destructive-foreground: 0 0% 100%;
-  --input: 158 20% 16%;
-  --ring: 142 70% 40%;
-  --sidebar: 158 32% 5%;
-  --sidebar-foreground: 150 15% 75%;
-  --sidebar-border: 158 20% 12%;
-  --sidebar-primary: 142 70% 40%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 158 22% 12%;
-  --sidebar-accent-foreground: 150 15% 80%;
+  --input: 32 10% 15%;
+  --ring: 40 62% 54%;
+  --sidebar: 30 13% 5%;
+  --sidebar-foreground: 38 14% 78%;
+  --sidebar-border: 32 10% 12%;
+  --sidebar-primary: 40 62% 54%;
+  --sidebar-primary-foreground: 30 30% 8%;
+  --sidebar-accent: 32 10% 11%;
+  --sidebar-accent-foreground: 38 16% 84%;
   --app-font-sans: 'Cairo', 'Segoe UI', sans-serif;
   --app-font-serif: Georgia, serif;
   --app-font-mono: 'Fira Code', monospace;
-  --radius: 0.5rem;
+  --radius: 0.6rem;
   --opaque-button-border-intensity: -8;
   --elevate-1: rgba(255,255,255,.03);
   --elevate-2: rgba(255,255,255,.07);
   --button-outline: rgba(255,255,255,.10);
   --badge-outline: rgba(255,255,255,.05);
-  --primary-border: hsl(142 70% 32%);
-  --secondary-border: hsl(158 20% 18%);
-  --muted-border: hsl(158 18% 16%);
-  --accent-border: hsl(142 55% 26%);
-  --destructive-border: hsl(0 65% 42%);
+  --primary-border: hsl(40 55% 44%);
+  --secondary-border: hsl(32 10% 18%);
+  --muted-border: hsl(32 9% 16%);
+  --accent-border: hsl(40 45% 30%);
+  --destructive-border: hsl(2 65% 42%);
 }
 
 @layer base {

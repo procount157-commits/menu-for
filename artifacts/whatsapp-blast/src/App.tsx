@@ -34,6 +34,23 @@ import EmailMarketing from "./pages/EmailMarketing";
 import SalesArena from "./pages/SalesArena";
 import Diagnostics from "@/pages/Diagnostics";
 import NotFound from "@/pages/not-found";
+import Onboarding from "@/pages/shop/Onboarding";
+import ShopHome from "@/pages/shop/ShopHome";
+import MenuEditor from "@/pages/shop/MenuEditor";
+import ShopSettings from "@/pages/shop/ShopSettings";
+import StaffManage from "@/pages/shop/StaffManage";
+import QrKit from "@/pages/shop/QrKit";
+import QueueScreen from "@/pages/shop/QueueScreen";
+import Orders from "@/pages/shop/Orders";
+import Bookings from "@/pages/shop/Bookings";
+import Customers from "@/pages/shop/Customers";
+import Messages from "@/pages/shop/Messages";
+import Reports from "@/pages/shop/Reports";
+import AdminOrgs from "@/pages/shop/AdminOrgs";
+import StaffLogin from "@/pages/shop/StaffLogin";
+import StaffLayout from "@/components/shop/StaffLayout";
+import { useShopQuery } from "@/lib/shop-api";
+import { Redirect } from "wouter";
 
 // Helper: is this error a genuine "not authenticated" response?
 function isAuthError(error: unknown): boolean {
@@ -158,11 +175,65 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// ── The shop must exist before its pages ──────────────────────────
+// An owner who has signed up but not made their shop yet gets the
+// onboarding wizard wherever they land; the super admin with no shop of
+// their own still reaches the admin pages.
+function ShopGate({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const { data, isLoading } = useShopQuery();
+  if (isLoading || !data) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center" dir="rtl">
+        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (data.needsOnboarding) {
+    if (user?.isAdmin && (location.pathname.startsWith("/admin"))) return <>{children}</>;
+    return <Onboarding />;
+  }
+  return <>{children}</>;
+}
+
+/** Staff and managers: the queue, orders and bookings, in their own shell. */
+function StaffRoutes() {
+  const { user } = useAuth();
+  return (
+    <StaffLayout>
+      <Switch>
+        <Route path="/queue"     component={QueueScreen} />
+        <Route path="/orders"    component={Orders} />
+        <Route path="/bookings"  component={Bookings} />
+        {user?.role === "manager" && <Route path="/menu" component={MenuEditor} />}
+        {user?.role === "manager" && <Route path="/customers" component={Customers} />}
+        {user?.role === "manager" && <Route path="/reports" component={Reports} />}
+        <Route><Redirect to="/queue" /></Route>
+      </Switch>
+    </StaffLayout>
+  );
+}
+
 function AuthenticatedRoutes() {
+  const { user } = useAuth();
+  if (user && user.role && user.role !== "owner") return <AuthGate><ShopGate><StaffRoutes /></ShopGate></AuthGate>;
   return (
     <AuthGate>
+      <ShopGate>
       <Layout>
         <Switch>
+          <Route path="/menu"           component={MenuEditor} />
+          <Route path="/queue"          component={QueueScreen} />
+          <Route path="/orders"         component={Orders} />
+          <Route path="/bookings"       component={Bookings} />
+          <Route path="/customers"      component={Customers} />
+          <Route path="/reports"        component={Reports} />
+          <Route path="/shop/settings"  component={ShopSettings} />
+          <Route path="/shop"           component={ShopHome} />
+          <Route path="/staff"          component={StaffManage} />
+          <Route path="/messages"       component={Messages} />
+          <Route path="/qr"             component={QrKit} />
+          <Route path="/admin/orgs"     component={AdminOrgs} />
           <Route path="/dashboard"      component={Dashboard} />
           <Route path="/connect"        component={Connect} />
           <Route path="/contacts"       component={ContactsList} />
@@ -192,6 +263,7 @@ function AuthenticatedRoutes() {
           <Route                        component={NotFound} />
         </Switch>
       </Layout>
+      </ShopGate>
     </AuthGate>
   );
 }
@@ -203,6 +275,7 @@ function Router() {
       <Route path="/login"        component={LoginPage} />
       <Route path="/wa/:token"    component={WaPublicSetup} />
       <Route path="/login/:token" component={DirectLoginPage} />
+      <Route path="/staff-login"  component={StaffLogin} />
       <Route component={AuthenticatedRoutes} />
     </Switch>
   );

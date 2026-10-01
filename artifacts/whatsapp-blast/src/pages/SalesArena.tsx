@@ -16,21 +16,27 @@ import { api, input } from "@/components/AgentPanel";
 
 const card = "bg-card border border-card-border rounded-xl";
 const ghost = "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs border border-card-border hover:border-primary/50 transition-colors disabled:opacity-40";
-const LICENCE: Record<string, string> = { mainland: "مين لاند", freezone: "فري زون" };
+// The card's `licence` column holds how the customer wants it (see lib/lead-card.ts).
+const LICENCE: Record<string, string> = { delivery: "توصيل", pickup: "استلام", dinein: "في المحل", booking: "حجز", queue: "دور", preorder: "طلب مسبق" };
 const INTENT: Record<string, string> = { interested: "مهتم", question: "سؤال", not_interested: "غير مهتم", complaint: "شكوى", opt_out: "إيقاف", greeting: "تحية", unclear: "غير واضح" };
 
 // Customers the owner can drop in with one click — the situations that
-// decide whether a salesman is any good.
+// decide whether a host is any good: a price that must come from the menu,
+// a dish that may not exist, a time that may not be free, an allergy.
 const SCENARIOS: Array<{ label: string; msgs: string[] }> = [
-  { label: "يسأل السعر أولاً", msgs: ["السلام عليكم، كم أسعاركم للمحاسبة؟"] },
-  { label: "«غالي»", msgs: ["عندنا شركة مقاولات فري زون وعندنا تقريبا ٤٠ فاتورة بالشهر", "والله غالي شوي"] },
-  { label: "«عندي محاسب»", msgs: ["مرحبا", "عندي محاسب بس ما يمسك الضريبة"] },
-  { label: "«أرسل التفاصيل»", msgs: ["أرسل لي التفاصيل"] },
-  { label: "مصري", msgs: ["عايز أعرف بتاخدوا كام على مسك الدفاتر؟"] },
-  { label: "غرامة", msgs: ["جاتنا غرامة من الضريبة وما ندري ليش، رخصتنا مين لاند"] },
-  { label: "موافق", msgs: ["شركة تجارة فري زون ١٥ موظف", "تمام موافق نبدأ من الأحد"] },
-  { label: "شكوى", msgs: ["صار لي أسبوعين أنتظر ردكم على الإقرار وما أحد رد!"] },
-  { label: "إنجليزي", msgs: ["Hi, do you handle VAT registration for free zone companies?"] },
+  { label: "يسأل السعر", msgs: ["السلام عليكم، بكم الكنافة؟"] },
+  { label: "«عندكم توصيل؟»", msgs: ["عندكم توصيل للبرشاء؟"] },
+  { label: "حجز طاولة", msgs: ["ابغى احجز طاولة لـ٤ أشخاص الخميس الساعة ٨ المسا", "عيد ميلاد بنتي"] },
+  { label: "«فيه موعد اليوم؟»", msgs: ["فيه موعد اليوم لقص شعر؟"] },
+  { label: "زحمة الحين", msgs: ["فيه زحمة الحين؟ احنا ٦ نفر"] },
+  { label: "صنف غير موجود", msgs: ["عندكم سوشي؟"] },
+  { label: "«فيه خصم؟»", msgs: ["ابي اطلب ٣ برجر سفري", "فيه خصم؟"] },
+  { label: "حساسية", msgs: ["بنتي عندها حساسية من المكسرات، الكيكة فيها مكسرات؟"] },
+  { label: "طلب مسبق", msgs: ["ابي اوصي على صينية كنافة للجمعة ٥ مساءً"] },
+  { label: "مصري", msgs: ["عايز أعرف بتفتحوا الساعة كام يوم الجمعة؟"] },
+  { label: "موافق", msgs: ["طاولة لشخصين الليلة ٩", "تمام ثبت الحجز"] },
+  { label: "شكوى", msgs: ["صار لي ساعة أنتظر الطلب وما وصل!"] },
+  { label: "إنجليزي", msgs: ["Hi, do you deliver to Dubai Marina?"] },
 ];
 
 type Turn = { role: "user" | "assistant"; content: string; meta?: any };
@@ -41,7 +47,7 @@ export default function SalesArena() {
     <div className="p-6 space-y-5 max-w-6xl">
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2"><Target className="w-6 h-6 text-primary" /> ميدان التدريب</h1>
-        <p className="text-sm text-muted-foreground mt-1">كن أنت العميل وشاهد كيف يفكّر الموظف ويردّ — ثم قيّمه. كل تقييم يدخل ذاكرته، وكل تصحيح منك يصير تعليمة يلتزم بها.</p>
+        <p className="text-sm text-muted-foreground mt-1">كن أنت الزبون وشاهد كيف يفكّر الموظف ويردّ — ثم قيّمه. كل تقييم يدخل ذاكرته، وكل تصحيح منك يصير تعليمة يلتزم بها.</p>
       </div>
       <div className="flex gap-1 border-b border-card-border">
         {[["arena", "حاور موظفاً"], ["review", "راجع الردود الحقيقية"]].map(([k, l]) => (
@@ -56,7 +62,7 @@ export default function SalesArena() {
 function Diagnosis({ m }: { m: any }) {
   if (!m) return null;
   const q = m.quality;
-  const facts = [m.card?.licence && LICENCE[m.card.licence], m.card?.activity, m.card?.size, m.card?.staff, m.card?.accountant, m.card?.pain && `وجعه: ${m.card.pain}`].filter(Boolean);
+  const facts = [m.card?.licence && LICENCE[m.card.licence], m.card?.activity, m.card?.size, m.card?.staff, m.card?.accountant, m.card?.taxStatus, m.card?.pain].filter(Boolean);
   return (
     <div className="mt-2 rounded-lg border border-card-border bg-muted/20 p-2.5 space-y-1.5 text-[11px]">
       <div className="flex flex-wrap gap-1.5 items-center">
@@ -140,7 +146,7 @@ function Arena() {
     <div className="space-y-3">
       <div className="flex gap-2 flex-wrap items-center">
         <select className={cn(input, "w-56")} value={role} onChange={(e) => { setRole(e.target.value); setTurns([]); }}>
-          {staff.length ? staff.map((e) => <option key={e.role} value={e.role}>{e.avatar} {e.name} — {e.title}</option>) : <option value="sales">هال — المبيعات</option>}
+          {staff.length ? staff.map((e) => <option key={e.role} value={e.role}>{e.avatar} {e.name} — {e.title}</option>) : <option value="sales">هال — المضيّف</option>}
         </select>
         <button onClick={() => setTurns([])} className={ghost}><RotateCcw className="w-3 h-3" /> محادثة جديدة</button>
         <span className="text-[11px] text-muted-foreground">سيناريوهات جاهزة:</span>
@@ -165,10 +171,10 @@ function Arena() {
       </div>
 
       <div className="flex gap-2">
-        <input className={cn(input, "flex-1")} value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="رسالة العميل…" dir="auto" />
+        <input className={cn(input, "flex-1")} value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="رسالة الزبون…" dir="auto" />
         <button onClick={send} disabled={busy || !msg.trim()} className="px-4 rounded-lg bg-primary text-primary-foreground disabled:opacity-40"><Send className="w-4 h-4" /></button>
       </div>
-      <p className="text-[11px] text-muted-foreground">لا يُرسل شيء لأي أحد هنا. الموظف يعمل بنفس شخصيته ومهاراته وذاكرته ومعرفة الشركة، ومراجع الجودة يفحص ردّه قبل أن تراه — كما يحدث مع العملاء الحقيقيين.</p>
+      <p className="text-[11px] text-muted-foreground">لا يُرسل شيء لأي أحد هنا. الموظف يعمل بنفس شخصيته ومهاراته وذاكرته ومعرفة المحل، ومراجع الجودة يفحص ردّه قبل أن تراه — كما يحدث مع العملاء الحقيقيين.</p>
     </div>
   );
 }
@@ -219,7 +225,7 @@ function Review() {
           </div>
         ))}
       </div>
-      <p className="text-[11px] text-muted-foreground"><Sparkles className="w-3 h-3 inline ml-1" />«تقدّم» = اهتم أو أعطى معلومة عن شركته بعد الرد. «انصرف» = رفض أو صمت يوماً كاملاً. هذا ما تتعلم منه المديرة كل أسبوع؛ تقييمك يسبقها.</p>
+      <p className="text-[11px] text-muted-foreground"><Sparkles className="w-3 h-3 inline ml-1" />«تقدّم» = طلب أو حجز أو أعطى تفاصيل بعد الرد. «انصرف» = رفض أو صمت يوماً كاملاً. هذا ما تتعلم منه رئيسة الفريق كل أسبوع؛ تقييمك يسبقها.</p>
     </div>
   );
 }

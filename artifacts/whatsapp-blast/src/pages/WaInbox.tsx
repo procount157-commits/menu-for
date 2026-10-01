@@ -512,7 +512,7 @@ export default function WaInbox() {
               {leadCard?.card && (
                 <span className={cn("text-[10px] px-2 py-0.5 rounded-full border",
                   leadCard.card.stage >= 7 ? "border-primary/40 text-primary" : leadCard.card.stage >= 5 ? "border-orange-500/40 text-orange-400" : "border-border text-muted-foreground")}
-                  title={[leadCard.card.licence, leadCard.card.activity, leadCard.card.size, leadCard.card.pain].filter(Boolean).join(" · ")}>
+                  title={[leadCard.card.size, leadCard.card.staff, leadCard.card.taxStatus, leadCard.card.activity, leadCard.card.accountant, leadCard.card.pain].filter(Boolean).join(" · ")}>
                   {leadCard.card.stage} · {(leadCard.stages ?? []).find((s: any) => s.n === leadCard.card.stage)?.name ?? ""}
                 </span>
               )}

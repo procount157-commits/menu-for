@@ -172,9 +172,11 @@ export default function Board() {
   const seg = data?.segments ?? { counts: {}, labels: {} };
   const fn = data?.funnel ?? null;
   const stageName = (n: number) => (fn?.byStage ?? []).find((s: any) => s.stage === n)?.name ?? `مرحلة ${n}`;
+  // The card's columns hold a shop's facts now (see api-server lib/lead-card.ts): licence is how they want it.
+  const MODE: Record<string, string> = { delivery: "توصيل", pickup: "استلام", dinein: "في المحل", booking: "حجز", queue: "دور", preorder: "طلب مسبق" };
   const factsOf = (c: any) => [
-    c.licence === "mainland" ? "مين لاند" : c.licence === "freezone" ? "فري زون" : null,
-    c.activity, c.size, c.pain ? `وجعه: ${c.pain}` : null,
+    c.licence ? MODE[c.licence] ?? c.licence : null,
+    c.size, c.staff, c.taxStatus, c.activity, c.accountant, c.pain,
   ].filter(Boolean).join(" · ");
 
   return (
@@ -201,7 +203,7 @@ export default function Board() {
             <div>
               <p className="font-semibold text-sm">قمع البيع — آخر ٣٠ يوماً</p>
               <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-                كل عميل له بطاقة تُكتب من كلامه هو: رخصته ونشاطه وحجمه ووجعه، وأي مرحلة بلغها. الموظف يقرأها قبل كل رد ولا يسأل عمّا فيها.
+                كل زبون له بطاقة تُكتب من كلامه هو: يبغى توصيل ولا حجز ولا دور، كم شخص، أي وقت، المناسبة والحساسية، وأي مرحلة بلغها. الموظف يقرأها قبل كل رد ولا يسأل عمّا فيها.
               </p>
             </div>
             <Link href="/inbox" className={ghost}><Inbox className="w-3.5 h-3.5" /> المحادثات</Link>

@@ -6,6 +6,10 @@ interface AuthUser {
   displayName: string | null;
   isAdmin: boolean;
   status: string;
+  /** owner, or a member of staff signed in with shop + username. */
+  role?: "owner" | "manager" | "staff";
+  staffId?: number;
+  impersonating?: boolean;
 }
 
 interface AuthContextType {
