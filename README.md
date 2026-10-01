@@ -527,6 +527,31 @@ A test copy goes to the owner's own address first (`/campaigns/:id/test`),
 and a campaign can be copied as a new draft. Each campaign card shows its
 progress against its audience and its open, click, reply and bounce rates.
 
+**Knowledge** (`lib/email/knowledge-docs.ts`, the «المعرفة» tab, migration
+029) is where the owner puts everything نورة should know before she writes.
+The tab holds four things:
+- the company card (the business profile, shared with the whole team);
+- documents: PDF, Word (.docx), Excel, CSV, HTML or text, up to twenty at
+  once, each with a category (company, services and prices, sector,
+  compliance, FAQ, style) and an optional sector;
+- quick facts typed in by hand;
+- a box to ask نورة a question and see her answer with its sources.
+
+Each document is kept whole, and نورة reads it in the background, up to
+~120k characters in 10k pieces, into facts. Each fact is stored in
+`agent_memory` with `doc_id` pointing back to its document, so deleting a
+document takes its facts with it, and re-reading it replaces them. Writing a
+campaign or a reply uses both:
+- the facts, through `brief`, by sector;
+- the document passages that bear on the subject, through `passages`, with
+  rare words weighted the way the WhatsApp knowledge base ranks its entries.
+
+Many PDFs store Arabic in its joined display shapes with each line's words
+reversed. `fixPdfArabic` turns the shapes back into plain letters and the
+words back into reading order, keeping English runs and numbers whole. An
+image-only PDF is refused with a note to export it as text. A read cut off
+by a restart shows as failed after half an hour, ready to retry.
+
 **Clearing email data** (`lib/email/delete.ts`). The audience can be cleared
 in one step: the ticked rows, everyone the current filter selects, a list on
 its own or with its addresses (those in no other list), or all of it. A bulk

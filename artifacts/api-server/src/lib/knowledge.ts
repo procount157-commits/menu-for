@@ -66,7 +66,7 @@ function stem(word: string): string {
 }
 
 /** Base words of a query, each carrying its own surface form and stem. */
-function queryWords(text: string): Array<{ word: string; forms: string[] }> {
+export function queryWords(text: string): Array<{ word: string; forms: string[] }> {
   const words = stripMarks(normalizeArabic(text)).split(" ")
     .map(stripMarks)
     .filter((w) => w.length > 1 && !STOP.has(w));
@@ -76,7 +76,7 @@ function queryWords(text: string): Array<{ word: string; forms: string[] }> {
   }));
 }
 
-function terms(text: string): string[] {
+export function terms(text: string): string[] {
   const words = stripMarks(normalizeArabic(text)).split(" ")
     .map(stripMarks)
     .filter((w) => w.length > 1 && !STOP.has(w));

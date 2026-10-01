@@ -11,7 +11,7 @@ import {
   db, listFoldersTable, emailSettingsTable, emailContactsTable, emailListsTable, emailListMembersTable,
   emailTemplatesTable, emailCampaignsTable, emailSequencesTable, emailSequenceJobsTable,
   emailMessagesTable, emailEventsTable, emailInboundTable, emailSegmentsTable, emailMissionsTable,
-  botEmployeesTable, agentMemoryTable, type EmailStep,
+  botEmployeesTable, agentMemoryTable, emailKnowledgeDocsTable, type EmailStep,
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
 import { assertCanSend, assertCanAddContacts, planErrorToResponse } from "../lib/plans";
@@ -24,6 +24,7 @@ import { readWorkbook, parseTables, whatsappEntries } from "../lib/phone-import"
 import { saveToNewGroup, validateInBackground } from "../lib/contact-save";
 import { folderForSector, listSector } from "../lib/folders";
 import { deleteContacts, deleteList } from "../lib/email/delete";
+import { addDoc, extractText, learn as learnDoc, ask as askKnowledge, library as knowledgeLibrary } from "../lib/email/knowledge-docs";
 import { classifySector, SECTORS, UNCLASSIFIED } from "../lib/email/sector";
 import { cleanFilter, facets, resolve as resolveSegment, count as countSegment, describe as describeSegment, conditions as segmentConditions } from "../lib/email/segments";
 import { ensureEmailAgent, memory as agentMemory, teach, rememberKnowledge, writeCampaign, EMAIL_ROLE } from "../lib/email/agent";
@@ -905,6 +906,75 @@ router.post("/messages/:id/event", async (req, res) => {
   if (!["bounce", "complaint", "unsubscribe", "reply"].includes(type)) return res.status(400).json({ error: "نوع غير معروف" });
   await recordEvent(req.session.userId!, Number(req.params.id), type as any, { meta: { manual: true } });
   res.json({ ok: true });
+});
+
+// ── Knowledge: what the owner uploads about the company and its field ──
+// Files arrive with their names in latin1 (multer); an Arabic name is put back.
+const fileNameOf = (f: Express.Multer.File) => { const n = Buffer.from(f.originalname, "latin1").toString("utf8"); return n.includes("\uFFFD") ? f.originalname : n; };
+
+router.get("/knowledge", async (req, res) => res.json(await knowledgeLibrary(req.session.userId!)));
+
+/** Files (up to 20 at once) or pasted text, with a category and a sector for all of them. */
+router.post("/knowledge", upload.array("files", 20), async (req, res) => {
+  const userId = req.session.userId!;
+  const b: any = req.body ?? {};
+  const category = String(b.category ?? "company"), sector = b.sector ? String(b.sector) : null;
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  const added: any[] = [], failed: Array<{ file: string; error: string }> = [];
+  for (const f of files) {
+    const name = fileNameOf(f);
+    try {
+      const text = await extractText(f.buffer, name);
+      added.push(await addDoc(userId, { title: name.replace(/\.[a-z0-9]+$/i, ""), content: text, category, sector, fileName: name }));
+    } catch (err: any) { failed.push({ file: name, error: String(err?.message ?? err) }); }
+  }
+  if (typeof b.text === "string" && b.text.trim()) {
+    try { added.push(await addDoc(userId, { title: String(b.title ?? "").trim() || b.text.trim().slice(0, 60), content: b.text, category, sector })); }
+    catch (err: any) { failed.push({ file: "النص الملصق", error: String(err?.message ?? err) }); }
+  }
+  if (!added.length && !failed.length) return res.status(400).json({ error: "ارفع ملفاً أو الصق نصاً" });
+  res.status(added.length ? 201 : 400).json({ added: added.map(({ content, ...d }) => d), failed, error: added.length ? undefined : failed.map((f) => `${f.file}: ${f.error}`).join(" · ") });
+});
+
+router.get("/knowledge/:id", async (req, res) => {
+  const userId = req.session.userId!;
+  const [doc] = await db.select().from(emailKnowledgeDocsTable).where(and(eq(emailKnowledgeDocsTable.id, Number(req.params.id)), eq(emailKnowledgeDocsTable.userId, userId))).limit(1);
+  if (!doc) return res.status(404).json({ error: "المستند غير موجود" });
+  const facts = await db.select().from(agentMemoryTable).where(and(eq(agentMemoryTable.userId, userId), eq(agentMemoryTable.docId, doc.id))).orderBy(agentMemoryTable.id);
+  res.json({ doc: { ...doc, content: doc.content.slice(0, 60_000), truncated: doc.content.length > 60_000 }, facts });
+});
+
+router.patch("/knowledge/:id", async (req, res) => {
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (typeof req.body?.title === "string" && req.body.title.trim()) set["title"] = req.body.title.trim().slice(0, 200);
+  if (typeof req.body?.category === "string") set["category"] = req.body.category.slice(0, 30);
+  if (req.body?.sector !== undefined) set["sector"] = req.body.sector ? String(req.body.sector).slice(0, 80) : null;
+  const [doc] = await db.update(emailKnowledgeDocsTable).set(set).where(and(eq(emailKnowledgeDocsTable.id, Number(req.params.id)), eq(emailKnowledgeDocsTable.userId, req.session.userId!))).returning({ id: emailKnowledgeDocsTable.id, sector: emailKnowledgeDocsTable.sector });
+  if (!doc) return res.status(404).json({ error: "المستند غير موجود" });
+  // The facts follow the document's sector.
+  if (req.body?.sector !== undefined) await db.update(agentMemoryTable).set({ topic: doc.sector }).where(and(eq(agentMemoryTable.userId, req.session.userId!), eq(agentMemoryTable.docId, doc.id)));
+  res.json(doc);
+});
+
+/** The document and every fact drawn from it. */
+router.delete("/knowledge/:id", async (req, res) => {
+  await db.delete(emailKnowledgeDocsTable).where(and(eq(emailKnowledgeDocsTable.id, Number(req.params.id)), eq(emailKnowledgeDocsTable.userId, req.session.userId!)));
+  res.json({ ok: true });
+});
+
+/** Read it again — after the model was down, or the sector changed. */
+router.post("/knowledge/:id/learn", async (req, res) => {
+  const userId = req.session.userId!;
+  const [doc] = await db.select({ id: emailKnowledgeDocsTable.id }).from(emailKnowledgeDocsTable).where(and(eq(emailKnowledgeDocsTable.id, Number(req.params.id)), eq(emailKnowledgeDocsTable.userId, userId))).limit(1);
+  if (!doc) return res.status(404).json({ error: "المستند غير موجود" });
+  void learnDoc(userId, doc.id);
+  res.json({ ok: true });
+});
+
+router.post("/knowledge/ask", async (req, res) => {
+  const q = String(req.body?.question ?? "").trim();
+  if (!q) return res.status(400).json({ error: "اكتب سؤالاً" });
+  res.json(await askKnowledge(req.session.userId!, q.slice(0, 500), req.body?.sector ? String(req.body.sector) : null));
 });
 
 export default router;

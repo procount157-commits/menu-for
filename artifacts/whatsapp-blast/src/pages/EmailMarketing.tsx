@@ -10,13 +10,14 @@ import { Link, useRoute, useLocation } from "wouter";
 import { toast } from "sonner";
 import {
   Mail, Upload, Users, Megaphone, ListOrdered, FileText, Inbox, Settings2, Loader2, Play, Pause,
-  CheckCircle2, AlertTriangle, Eye, MousePointerClick, Reply, ShieldAlert, RefreshCw, Trash2, Plus, Send, Sparkles, Rocket, FolderOpen,
+  CheckCircle2, AlertTriangle, Eye, MousePointerClick, Reply, ShieldAlert, RefreshCw, Trash2, Plus, Send, Sparkles, Rocket, FolderOpen, BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, input } from "@/components/AgentPanel";
 import { AudienceTab, AgentTab, MissionsTab, type Filter } from "./EmailAgent";
 import { ListsTab, ListDetail } from "./EmailLists";
 import { Campaigns } from "./EmailCampaigns";
+import { KnowledgeTab } from "./EmailKnowledge";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const card = "bg-card border border-card-border rounded-xl";
@@ -37,6 +38,7 @@ const TABS = [
   { key: "campaigns", label: "الحملات",         icon: Megaphone },
   { key: "import",    label: "رفع Excel",      icon: Upload },
   { key: "agent",     label: "نورة",           icon: Sparkles },
+  { key: "knowledge", label: "المعرفة",        icon: BookOpen },
   { key: "missions",  label: "المهام",         icon: Rocket },
   { key: "sequences", label: "المتابعة",        icon: ListOrdered },
   { key: "templates", label: "القوالب",         icon: FileText },
@@ -93,6 +95,7 @@ export default function EmailMarketing() {
       {tab === "lists"     && (listId ? <ListDetail id={listId} onCampaign={toCampaign} onWrite={toWrite} /> : <ListsTab onCampaign={toCampaign} />)}
       {tab === "contacts"  && <AudienceTab onWrite={toWrite} />}
       {tab === "agent"     && <AgentTab initialFilter={writeFor} onMissionCreated={() => navigate("/email/missions")} />}
+      {tab === "knowledge" && <KnowledgeTab />}
       {tab === "missions"  && <MissionsTab />}
       {tab === "campaigns" && <Campaigns initialListId={campaignFor} onUsedInitial={() => setCampaignFor(null)} />}
       {tab === "sequences" && <Sequences />}

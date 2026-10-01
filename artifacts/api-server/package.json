@@ -28,6 +28,7 @@
     "imapflow": "^2.1.0",
     "jimp": "^1.6.1",
     "mailparser": "^3.9.29",
+    "mammoth": "^1.13.0",
     "multer": "^2.1.1",
     "node-cron": "^4.2.1",
     "nodemailer": "^10.0.11",
@@ -36,6 +37,7 @@
     "protobufjs": "^8.4.0",
     "qrcode": "^1.5.4",
     "sharp": "^0.35.2",
+    "unpdf": "^1.8.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

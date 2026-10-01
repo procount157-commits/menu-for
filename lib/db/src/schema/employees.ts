@@ -133,6 +133,8 @@ export const agentMemoryTable = pgTable("agent_memory", {
   topic:     varchar("topic", { length: 80 }),
   times:     integer("times").notNull().default(1),
   phone:     varchar("phone", { length: 50 }),
+  /** The uploaded document a fact was drawn from (email_knowledge_docs); deleting it takes the fact with it. */
+  docId:     integer("doc_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [index("idx_agent_memory").on(t.userId, t.role, t.kind)]);

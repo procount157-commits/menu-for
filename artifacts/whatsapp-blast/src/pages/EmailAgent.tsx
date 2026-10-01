@@ -348,7 +348,7 @@ export function AgentTab({ initialFilter, onMissionCreated }: { initialFilter?: 
       <div className="grid lg:grid-cols-2 gap-4">
         {/* Teach */}
         <div className={cn(card, "p-4 space-y-3")}>
-          <p className="text-sm font-semibold flex items-center gap-1.5"><BookOpen className="w-4 h-4" /> علّميها</p>
+          <p className="text-sm font-semibold flex items-center gap-1.5"><BookOpen className="w-4 h-4" /> علّميها <a href="/email/knowledge" className="mr-auto text-[11px] font-normal text-primary hover:underline">مكتبة المعرفة: PDF وWord وأكثر ←</a></p>
           <p className="text-[11px] text-muted-foreground">اكتب بكلامك أو الصق نصاً أو ارفع ملفاً (نص، CSV، Excel): عن خدماتنا، عن قطاع، عن التزاماتهم، عن أسلوبنا. تقسّمه هي إلى معلومات وتحفظ كل واحدة مع قطاعها.</p>
           <textarea className={cn(input, "min-h-[8rem] text-xs leading-relaxed")} value={teachText} onChange={(e) => setTeachText(e.target.value)} placeholder="مثال: الوسطاء العقاريون في الإمارات من الجهات المعنية بمكافحة غسل الأموال. نحن في بروكاونت نسجّلهم في goAML، نكتب تقييم المخاطر، ونقدّم مسؤول الامتثال بالإنابة…" />
           <div className="flex gap-2 flex-wrap items-center">

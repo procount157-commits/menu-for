@@ -17,6 +17,7 @@ import {
 } from "@workspace/db";
 import { classify } from "../intent";
 import { retrieve } from "../knowledge";
+import { passages } from "./knowledge-docs";
 import { complete } from "../llm";
 import { skillsFor, skillsPreamble } from "../agent-skills";
 import { memoryPreamble } from "../agent-memory";
@@ -170,10 +171,12 @@ export async function draftReply(userId: number, inboundId: number): Promise<{ s
   const [ours] = inb.messageId ? await db.select({ subject: emailMessagesTable.subject }).from(emailMessagesTable).where(eq(emailMessagesTable.id, inb.messageId)).limit(1) : [null];
   const s = await getSettings(userId);
 
-  const [facts, skills, memory] = await Promise.all([
+  const [facts, skills, memory, docs] = await Promise.all([
     retrieve(userId, `${inb.subject ?? ""} ${inb.text ?? ""}`.slice(0, 500), 4).catch(() => []),
     skillsFor(userId, "sales", inb.intent as any || "question").catch(() => []),
     memoryPreamble(userId, "sales").catch(() => ""),
+    // What the owner uploaded about the company and the field, the passages that bear on this message.
+    passages(userId, `${inb.subject ?? ""} ${inb.text ?? ""}`.slice(0, 500), { sectors: contact?.sector ? [contact.sector] : [], limit: 3 }).catch(() => []),
   ]);
 
   const out = await complete([
@@ -191,7 +194,7 @@ export async function draftReply(userId: number, inboundId: number): Promise<{ s
       skillsPreamble(skills.filter((x) => /التفاوض|تشخيص|احتواء|قراءة نية/.test(x.name))),
       memory,
       profile?.guardrails ? `تعليمات صاحب العمل: ${profile.guardrails}` : "",
-      facts.length ? `معلومات مفيدة:\n${facts.map((f, i) => `[${i + 1}] ${f.entry.title}\n${f.entry.content}`).join("\n\n")}` : "لا توجد معلومة محددة — اسأل عمّا تحتاجه لتُجيب بدقة.",
+      facts.length || docs.length ? `معلومات مفيدة:\n${[...facts.map((f) => `${f.entry.title}\n${f.entry.content}`), ...docs.map((d) => `${d.title}\n${d.text}`)].map((t, i) => `[${i + 1}] ${t}`).join("\n\n")}` : "لا توجد معلومة محددة — اسأل عمّا تحتاجه لتُجيب بدقة.",
       "",
       "اكتب بهذا الشكل بالضبط:",
       "الخلاصة: <سطر واحد: ماذا يريد هو بالضبط>",

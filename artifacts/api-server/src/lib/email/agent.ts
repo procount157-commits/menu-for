@@ -20,6 +20,7 @@ import { skillsFor, skillsPreamble } from "../agent-skills";
 import { seedSkills } from "../skills";
 import { logger } from "../logger";
 import { count, describe, resolve } from "./segments";
+import { passages } from "./knowledge-docs";
 
 export const EMAIL_ROLE = "email";
 const KNOWLEDGE = "knowledge";
@@ -38,14 +39,15 @@ export async function ensureEmailAgent(userId: number) {
 }
 
 // ── What she knows ────────────────────────────────────────────────
-export async function rememberKnowledge(userId: number, content: string, topic: string | null) {
+export async function rememberKnowledge(userId: number, content: string, topic: string | null, docId: number | null = null) {
   const text = content.trim().slice(0, 1500);
   if (!text) return;
   await db.execute(sql`
-    INSERT INTO agent_memory (user_id, role, kind, content, topic)
-    VALUES (${userId}, ${EMAIL_ROLE}, ${KNOWLEDGE}, ${text}, ${topic})
+    INSERT INTO agent_memory (user_id, role, kind, content, topic, doc_id)
+    VALUES (${userId}, ${EMAIL_ROLE}, ${KNOWLEDGE}, ${text}, ${topic}, ${docId})
     ON CONFLICT (user_id, role, kind, md5(content))
-    DO UPDATE SET times = agent_memory.times + 1, topic = coalesce(EXCLUDED.topic, agent_memory.topic), updated_at = NOW()
+    DO UPDATE SET times = agent_memory.times + 1, topic = coalesce(EXCLUDED.topic, agent_memory.topic),
+      doc_id = coalesce(agent_memory.doc_id, EXCLUDED.doc_id), updated_at = NOW()
   `);
 }
 
@@ -115,7 +117,7 @@ async function voice(userId: number) {
  * one. Without a model the text is kept in paragraphs, so nothing the owner
  * taught is lost to an outage.
  */
-export async function teach(userId: number, text: string, topic: string | null = null): Promise<Array<{ content: string; topic: string | null }>> {
+export async function teach(userId: number, text: string, topic: string | null = null, docId: number | null = null): Promise<Array<{ content: string; topic: string | null }>> {
   await ensureEmailAgent(userId);
   const src = text.trim().slice(0, 12_000);
   if (!src) return [];
@@ -145,7 +147,7 @@ export async function teach(userId: number, text: string, topic: string | null =
       for (let i = 0; i < para.length; i += 1400) items.push({ content: para.slice(i, i + 1400), topic });
     }
   }
-  for (const it of items) await rememberKnowledge(userId, it.content, it.topic);
+  for (const it of items) await rememberKnowledge(userId, it.content, it.topic, docId);
   logger.info({ userId, items: items.length, viaModel: !!out?.text }, "نورة تعلّمت");
   return items;
 }
@@ -206,11 +208,12 @@ const LANG: Record<string, string> = { ar: "العربية الفصحى المه
 export async function writeCampaign(userId: number, input: { filter: SegmentFilter; goal: string; language?: string; tone?: string | null; notes?: string | null }): Promise<{ draft: EmailDraft; audience: { description: string; count: number; sample: string[] }; provider: string } | null> {
   const { head } = await voice(userId);
   const sectors = input.filter.sectors ?? [];
-  const [n, sampleRows, knows, facts] = await Promise.all([
+  const [n, sampleRows, knows, facts, docs] = await Promise.all([
     count(userId, input.filter, true),
     resolve(userId, input.filter, { sendable: true, limit: 12 }),
     brief(userId, sectors),
     retrieve(userId, `${input.goal} ${sectors.join(" ")}`, 4).catch(() => []),
+    passages(userId, `${input.goal} ${sectors.join(" ")}`, { sectors, limit: 4 }).catch(() => []),
   ]);
   const sample = sampleRows.map((r) => [r.company ?? r.name, r.city].filter(Boolean).join(" — ")).filter(Boolean);
   const audience = { description: describe(input.filter), count: n, sample };
@@ -221,6 +224,7 @@ export async function writeCampaign(userId: number, input: { filter: SegmentFilt
       "",
       knows,
       facts.length ? `من قاعدة معرفة الشركة:\n${facts.map((f) => `- ${f.entry.title}: ${f.entry.content.slice(0, 400)}`).join("\n")}` : "",
+      docs.length ? `من مستندات الشركة التي رفعها صاحب العمل:\n${docs.map((d) => `[${d.title}]\n${d.text}`).join("\n\n")}` : "",
       "",
       "المطلوب: حملة بريد لجمهور محدد. اكتبي بهذا الشكل بالضبط ولا شيء خارجه:",
       "[عنوان] <العنوان الأول>",

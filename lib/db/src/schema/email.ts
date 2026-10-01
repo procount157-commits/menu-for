@@ -271,3 +271,27 @@ export interface SegmentFilter {
   /** Only contacts with a WhatsApp number on file. */
   hasPhone?: boolean;
 }
+
+// ── What the owner taught the email section ──────────────────────
+// A document about the company or its field, kept whole: passages of it are
+// quoted to نورة when she writes, and the facts she drew from it live in
+// agent_memory with doc_id pointing here.
+export const emailKnowledgeDocsTable = pgTable("email_knowledge_docs", {
+  id:        serial("id").primaryKey(),
+  userId:    integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  title:     varchar("title", { length: 200 }).notNull(),
+  /** company | services | sector | compliance | faq | style | other */
+  category:  varchar("category", { length: 30 }).notNull().default("company"),
+  /** A sector this document is about, or null for all of them. */
+  sector:    varchar("sector", { length: 80 }),
+  fileName:  varchar("file_name", { length: 255 }),
+  content:   text("content").notNull(),
+  chars:     integer("chars").notNull().default(0),
+  /** processing | ready | failed */
+  status:    varchar("status", { length: 20 }).notNull().default("processing"),
+  facts:     integer("facts").notNull().default(0),
+  error:     text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export type EmailKnowledgeDoc = typeof emailKnowledgeDocsTable.$inferSelect;
