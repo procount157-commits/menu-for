@@ -21,6 +21,7 @@ import { seedSkills } from "../skills";
 import { logger } from "../logger";
 import { count, describe, resolve } from "./segments";
 import { passages } from "./knowledge-docs";
+import { teamVoice, onDuty, type EmailRole } from "./team";
 
 export const EMAIL_ROLE = "email";
 const KNOWLEDGE = "knowledge";
@@ -205,8 +206,9 @@ const LANG: Record<string, string> = { ar: "العربية الفصحى المه
  * A campaign for a target: two or three subjects to test, the body, and a
  * follow-up for each audience the campaign will leave behind.
  */
-export async function writeCampaign(userId: number, input: { filter: SegmentFilter; goal: string; language?: string; tone?: string | null; notes?: string | null }): Promise<{ draft: EmailDraft; audience: { description: string; count: number; sample: string[] }; provider: string } | null> {
-  const { head } = await voice(userId);
+export async function writeCampaign(userId: number, input: { filter: SegmentFilter; goal: string; language?: string; tone?: string | null; notes?: string | null; role?: EmailRole }): Promise<{ draft: EmailDraft; audience: { description: string; count: number; sample: string[] }; provider: string } | null> {
+  // The writer's own voice — نورة, or يوسف for a follow-up wave — with the team's doctrine.
+  const head = await teamVoice(userId, input.role ?? "email");
   const sectors = input.filter.sectors ?? [];
   const [n, sampleRows, knows, facts, docs] = await Promise.all([
     count(userId, input.filter, true),
@@ -245,7 +247,8 @@ export async function writeCampaign(userId: number, input: { filter: SegmentFilt
       `اللغة: ${LANG[input.language ?? "ar"] ?? LANG.ar}.`,
       input.tone ? `النبرة: ${input.tone}.` : "",
       "حقول الشخصنة المتاحة فقط: {{first_name}} {{company}} {{city}} {{sender}} — مع بديل: {{company|شركتكم}}.",
-      "لا رقماً أو غرامة أو مهلة أو سعراً ليس في معرفتك أعلاه. لا HTML، نص فقط.",
+      "اسم شركة المستلم {{company|شركتكم}} في أحد العنوانين على الأقل وفي السطر الأول، والتوقيع «بروكاونت للمحاسبة» في آخر الرسالة وكل متابعة.",
+      "لا رقماً أو غرامة أو مهلة أو سعراً ليس في معرفتك أعلاه — سيُراجع حارس الجودة كل رقم ويوقف الرسالة. لا HTML، نص فقط.",
     ].filter(Boolean).join("\n") },
     { role: "user", content: [
       `الهدف: ${input.goal}`,
@@ -262,8 +265,9 @@ export async function writeCampaign(userId: number, input: { filter: SegmentFilt
 
 /** The answer to a reply, in her voice and with what she knows about the sector. */
 export async function replyVoice(userId: number, sector: string | null): Promise<string> {
-  const { head } = await voice(userId);
-  return [head, await brief(userId, sector ? [sector] : [], 2000)].filter(Boolean).join("\n\n");
+  // ليلى answers when she is on duty; نورة otherwise.
+  const role: EmailRole = (await onDuty(userId, "email_replies")) ? "email_replies" : "email";
+  return [await teamVoice(userId, role), await brief(userId, sector ? [sector] : [], 2000)].filter(Boolean).join("\n\n");
 }
 
 /** A few lines on what a finished mission taught her, written into memory. */

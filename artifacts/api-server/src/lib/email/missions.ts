@@ -26,6 +26,8 @@ import { notify, esc } from "../telegram";
 import { startCampaign, enrolInSequence } from "./service";
 import { writeCampaign, rememberLesson, learnFrom, type EmailDraft } from "./agent";
 import { count, describe } from "./segments";
+import { activity, guardCheck, onDuty, type EmailRole } from "./team";
+import { knowledgeText } from "./knowledge-docs";
 
 async function log(missionId: number, text: string, kind = "note") {
   await db.insert(emailMissionLogTable).values({ missionId, kind, text: text.slice(0, 2000) });
@@ -36,12 +38,14 @@ async function set(id: number, patch: Partial<typeof emailMissionsTable.$inferIn
 
 export async function createMission(userId: number, input: {
   name: string; goal: string; filter: SegmentFilter; language?: string; tone?: string | null; requireApproval?: boolean; followAfterHours?: number;
+  agentRole?: EmailRole; sourceListId?: number | null;
 }) {
   const [m] = await db.insert(emailMissionsTable).values({
     userId, name: input.name.slice(0, 160), goal: input.goal.slice(0, 2000), filter: input.filter,
     language: input.language ?? "ar", tone: input.tone ?? null,
     requireApproval: input.requireApproval !== false,
     followAfterHours: Math.min(24 * 14, Math.max(24, Number(input.followAfterHours) || 48)),
+    agentRole: input.agentRole ?? null, sourceListId: input.sourceListId ?? null,
   }).returning();
   await log(m!.id, `أُنشئت المهمة: ${describe(input.filter)} — ${input.goal.slice(0, 200)}`, "start");
   return m!;
@@ -70,6 +74,7 @@ async function launch(m: EmailMission, d: EmailDraft) {
   const [warm, cold] = await Promise.all([seqFor("warm"), seqFor("cold")]);
   const r = await startCampaign(m.userId, camp!.id);
   await set(m.id, { stage: "sending", campaignId: camp!.id, warmSequenceId: warm, coldSequenceId: cold, pending: null });
+  await activity(m.userId, (m.agentRole as EmailRole | null) ?? "email", "send", `بدأ إرسال «${m.name}» إلى ${r.queued} شركة.`, { missionId: m.id, campaignId: camp!.id });
   await log(m.id, `بدأ الإرسال إلى ${r.queued} شركة${(r as any).ab ? ` — اختبار عنوانين على ${(r as any).ab.a + (r as any).ab.b} منهم` : ""}.`, "send");
 }
 
@@ -89,9 +94,24 @@ export async function runMission(m: EmailMission): Promise<void> {
   const sectors = filter.sectors ?? [];
 
   if (m.stage === "draft") {
-    const w = await writeCampaign(m.userId, { filter, goal: m.goal, language: m.language, tone: m.tone });
+    const role = (m.agentRole as EmailRole | null) ?? "email";
+    const w = await writeCampaign(m.userId, { filter, goal: m.goal, language: m.language, tone: m.tone, role });
     if (!w) { await log(m.id, "تعذّرت الكتابة — النموذج لم يستجب. أحاول في الجولة القادمة.", "error"); await set(m.id, {}); return; }
     await log(m.id, `كتبت الحملة (${w.provider}): «${w.draft.subjects.join("» / «")}» — ${w.draft.why}`, "write");
+    await activity(m.userId, role, "write", `كتب حملة «${m.name}» لـ ${w.audience.count} شركة: «${w.draft.subjects[0]}»`, { missionId: m.id });
+    // ماجد reads it before anything goes out on its own; what he finds sends it to the owner instead.
+    if (!m.requireApproval && (await onDuty(m.userId, "email_guard"))) {
+      const knowledge = await knowledgeText(m.userId);
+      const issues = guardCheck([...w.draft.subjects, w.draft.html, ...w.draft.followups.flatMap((f) => [f.subject, f.html])], knowledge);
+      if (issues.length) {
+        await set(m.id, { stage: "awaiting_approval", pending: w.draft as any });
+        await log(m.id, `أوقفها حارس الجودة قبل الإرسال: ${issues.join(" · ")}`, "error");
+        await activity(m.userId, "email_guard", "hold", `أوقف «${m.name}» حتى تراجعها: ${issues.slice(0, 3).join(" · ")}`, { missionId: m.id, issues });
+        await notify(m.userId, `<b>🛡️ ماجد أوقف حملة «${esc(m.name)}» قبل الإرسال</b>\n${issues.slice(0, 4).map((i) => `• ${esc(i)}`).join("\n")}\nراجعها من البريد → المهام.`).catch(() => {});
+        return;
+      }
+      await activity(m.userId, "email_guard", "pass", `راجع «${m.name}»: لا أرقام خارج المعرفة ولا مبالغة — يُرسل.`, { missionId: m.id });
+    }
     if (m.requireApproval) {
       await set(m.id, { stage: "awaiting_approval", pending: w.draft as any });
       await notify(m.userId, `<b>📧 نورة كتبت حملة «${esc(m.name)}» وتنتظر موافقتك</b>\n${esc(w.audience.description)} — ${w.audience.count} شركة\nالعنوان: ${esc(w.draft.subjects[0]!)}\nافتح البريد → المهام.`).catch(() => {});
@@ -151,6 +171,7 @@ async function followUp(m: EmailMission, campaignId: number) {
   const c = m.coldSequenceId && cold.length ? await enrolInSequence(m.userId, m.coldSequenceId, cold) : { enrolled: 0 };
   await set(m.id, { stage: "following_up" });
   await log(m.id, `المتابعة: ${w.enrolled} فتحوا ولم يردوا ← زاوية جديدة؛ ${c.enrolled} لم يفتحوا ← عنوان أقصر مختلف.`, "follow");
+  await activity(m.userId, "email_followup", "follow", `«${m.name}»: ${w.enrolled} فتحوا ولم يردوا ← متابعة بزاوية جديدة، ${c.enrolled} لم يفتحوا ← عنوان أقصر.`, { missionId: m.id });
 }
 
 /** The numbers, by subject, city and sector. Used live and at the end. */

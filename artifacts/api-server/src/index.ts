@@ -14,6 +14,7 @@ import { sweepQuietOutcomes } from "./lib/agent-memory";
 import { startEmailWorkers } from "./lib/email/service";
 import { startInboundPolling } from "./lib/email/inbound";
 import { startMissionWorker } from "./lib/email/missions";
+import { startAutopilotWorker } from "./lib/email/autopilot";
 import { ensureEmailAgent } from "./lib/email/agent";
 import { db as dbx, botEmployeesTable as botEmp } from "@workspace/db";
 import { runAutoMaintenance } from "./lib/diagnosis-engine";
@@ -130,6 +131,7 @@ function startListening() {
     startEmailWorkers();
     startInboundPolling();
     startMissionWorker();
+    startAutopilotWorker();
     // نورة joins every team that exists, so she appears beside the others.
     setTimeout(async () => {
       const teams = await dbx.selectDistinct({ userId: botEmp.userId }).from(botEmp).catch(() => []);

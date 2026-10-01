@@ -10,7 +10,7 @@ import { Link, useRoute, useLocation } from "wouter";
 import { toast } from "sonner";
 import {
   Mail, Upload, Users, Megaphone, ListOrdered, FileText, Inbox, Settings2, Loader2, Play, Pause,
-  CheckCircle2, AlertTriangle, Eye, MousePointerClick, Reply, ShieldAlert, RefreshCw, Trash2, Plus, Send, Sparkles, Rocket, FolderOpen, BookOpen,
+  CheckCircle2, AlertTriangle, Eye, MousePointerClick, Reply, ShieldAlert, RefreshCw, Trash2, Plus, Send, Sparkles, Rocket, FolderOpen, BookOpen, LayoutDashboard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, input } from "@/components/AgentPanel";
@@ -18,6 +18,7 @@ import { AudienceTab, AgentTab, MissionsTab, type Filter } from "./EmailAgent";
 import { ListsTab, ListDetail } from "./EmailLists";
 import { Campaigns } from "./EmailCampaigns";
 import { KnowledgeTab } from "./EmailKnowledge";
+import { DashboardTab } from "./EmailDashboard";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const card = "bg-card border border-card-border rounded-xl";
@@ -32,7 +33,8 @@ const ago = (d?: string | Date | null) => {
 const pct = (n?: number | null) => (n === null || n === undefined ? "—" : `${n}%`);
 
 const TABS = [
-  { key: "overview",  label: "النظرة العامة", icon: Mail },
+  { key: "dashboard", label: "لوحة المتابعة", icon: LayoutDashboard },
+  { key: "overview",  label: "ما يحدث الآن",  icon: Mail },
   { key: "lists",     label: "القوائم",        icon: FolderOpen },
   { key: "contacts",  label: "الجمهور",        icon: Users },
   { key: "campaigns", label: "الحملات",         icon: Megaphone },
@@ -57,7 +59,7 @@ export default function EmailMarketing() {
   const [, params] = useRoute("/email/:tab?");
   const [, deep] = useRoute("/email/:tab/:id");
   const [, navigate] = useLocation();
-  const tab = (TABS.find((t) => t.key === (deep?.tab ?? params?.tab))?.key ?? "overview") as Tab;
+  const tab = (TABS.find((t) => t.key === (deep?.tab ?? params?.tab))?.key ?? "dashboard") as Tab;
   const listId = tab === "lists" && deep?.id ? Number(deep.id) : null;
   // A list's "campaign" button opens the builder on that list.
   const [campaignFor, setCampaignFor] = useState<number | null>(null);
@@ -90,6 +92,7 @@ export default function EmailMarketing() {
         ))}
       </div>
 
+      {tab === "dashboard" && <DashboardTab goMissions={() => navigate("/email/missions")} />}
       {tab === "overview"  && <Overview ov={ov} />}
       {tab === "import"    && <Import />}
       {tab === "lists"     && (listId ? <ListDetail id={listId} onCampaign={toCampaign} onWrite={toWrite} /> : <ListsTab onCampaign={toCampaign} />)}

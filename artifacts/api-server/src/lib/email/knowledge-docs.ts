@@ -242,3 +242,13 @@ export async function library(userId: number) {
     bySector: bySector.map((r) => ({ key: r.k, n: Number(r.n) })),
   };
 }
+
+/** Everything the firm taught, as one text — what ماجد checks a message's numbers against. */
+export async function knowledgeText(userId: number): Promise<string> {
+  const [docs, facts, kb] = await Promise.all([
+    db.select({ c: emailKnowledgeDocsTable.content }).from(emailKnowledgeDocsTable).where(eq(emailKnowledgeDocsTable.userId, userId)),
+    db.select({ c: agentMemoryTable.content }).from(agentMemoryTable).where(and(eq(agentMemoryTable.userId, userId), eq(agentMemoryTable.role, EMAIL_ROLE))),
+    db.execute(sql`select title || ' ' || content as c from knowledge_base where user_id = ${userId} and is_active`),
+  ]);
+  return [...docs.map((d) => d.c), ...facts.map((f) => f.c), ...(kb.rows as any[]).map((r) => String(r.c))].join("\n");
+}

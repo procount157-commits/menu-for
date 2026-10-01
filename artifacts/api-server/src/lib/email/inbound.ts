@@ -18,6 +18,7 @@ import {
 import { classify } from "../intent";
 import { retrieve } from "../knowledge";
 import { passages } from "./knowledge-docs";
+import { activity, temperature, TEMP_AR } from "./team";
 import { complete } from "../llm";
 import { skillsFor, skillsPreamble } from "../agent-skills";
 import { memoryPreamble } from "../agent-memory";
@@ -122,6 +123,15 @@ export async function handleInbound(userId: number, mail: InboundMail): Promise<
     if (matched) await recordEvent(userId, matched.id, "unsubscribe", { meta: { via: "reply" } });
   }
 
+  // ليلى rates the reply — hot, warm, cold — on the contact, where the
+  // dashboard's hot list and the follow-up lists read it.
+  const temp = temperature(text, verdict.intent);
+  if (contact) {
+    const tags = ((contact.tags as string[] | null) ?? []).filter((t) => !["hot", "warm", "cold"].includes(t));
+    await db.update(emailContactsTable).set({ tags: temp ? [...tags, temp] : tags }).where(eq(emailContactsTable.id, contact.id));
+  }
+  await activity(userId, "email_replies", "reply", `${temp ? TEMP_AR[temp] : "رد"} — ${contact?.company ?? mail.fromName ?? from}: «${text.slice(0, 140)}»`, { inboundId: row!.id, contactId: contact?.id ?? null, intent: verdict.intent, temperature: temp });
+
   // The same card the WhatsApp side keeps, when the contact has a phone: a
   // company that writes by email and then by WhatsApp is one lead, and what
   // it said in the email should be in front of whoever answers next.
@@ -145,9 +155,9 @@ export async function handleInbound(userId: number, mail: InboundMail): Promise<
   }).catch((err) => logger.warn({ userId, err: String(err?.message ?? err) }, "تعذّرت مسودة الرد على البريد"));
 
   await notify(userId, [
-    `<b>📧 ردّ على البريد</b> — ${esc(mail.fromName ?? from)} &lt;${esc(from)}&gt;`,
+    `<b>${temp === "hot" ? "🔥 عميل حار ردّ على البريد" : "📧 ردّ على البريد"}</b> — ${esc(mail.fromName ?? from)} &lt;${esc(from)}&gt;`,
     contact?.company ? esc(contact.company) : "",
-    `النية: ${esc(verdict.intent)}`,
+    `النية: ${esc(verdict.intent)}${temp ? ` · ليلى: ${TEMP_AR[temp]}` : ""}${temp === "hot" && contact?.phone ? ` · واتساب: +${esc(contact.phone.replace(/\D/g, ""))}` : ""}`,
     `«${esc(text.slice(0, 300))}»`,
     "", "المسودة تنتظرك في قسم البريد → الوارد.",
   ].filter(Boolean).join("\n")).catch(() => {});

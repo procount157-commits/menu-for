@@ -34,7 +34,10 @@ export type EmailList = {
   id: number; name: string; description: string | null; folderId: number | null; createdAt: string;
   count: number; sendable: number; unsubscribed: number; bounced: number; withPhone: number;
   reached: number; opened: number; replied: number; sector: string | null; lastSentAt: string | null;
+  /** A stage list يوسف keeps under another list: its parent and which stage. */
+  parentListId?: number | null; stage?: string | null;
 };
+const STAGE_AR: Record<string, string> = { opened: "فتحوا ولم يردّوا", clicked: "نقروا", replied: "ردّوا", unopened: "لم يفتحوا" };
 
 export function useEmailLists() {
   return useQuery<EmailList[]>({ queryKey: ["email-lists"], queryFn: () => api("/api/email/lists") });
@@ -194,6 +197,7 @@ export function ListsTab({ onCampaign }: { onCampaign: (listId: number) => void 
                     <div className="flex-1 min-w-0">
                       <Link href={`/email/lists/${l.id}`} className="font-semibold truncate block hover:text-primary">{l.name}</Link>
                       <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                        {l.stage && <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/30">🔁 قائمة مرحلة: {STAGE_AR[l.stage] ?? l.stage}</span>}
                         {l.sector && <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">{l.sector}</span>}
                         <span className="text-[10px] text-muted-foreground">{ago(l.lastSentAt)}</span>
                       </div>

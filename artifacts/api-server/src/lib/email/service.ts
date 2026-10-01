@@ -320,7 +320,12 @@ async function drainOne(userId: number) {
     .orderBy(asc(emailMessagesTable.createdAt)).limit(1);
   if (!m) { await completeFinishedCampaigns(userId); return; }
 
-  const [contact] = m.contactId ? await db.select().from(emailContactsTable).where(eq(emailContactsTable.id, m.contactId)).limit(1) : [null];
+  // A message whose contact was deleted is nobody's to send any more.
+  if (!m.contactId) {
+    await db.update(emailMessagesTable).set({ status: "cancelled", error: "ألغيت: جهة الاتصال حُذفت" }).where(eq(emailMessagesTable.id, m.id));
+    return;
+  }
+  const [contact] = await db.select().from(emailContactsTable).where(eq(emailContactsTable.id, m.contactId)).limit(1);
   if (contact && contact.status !== "active") {
     await db.update(emailMessagesTable).set({ status: "failed", error: `جهة الاتصال ${contact.status}` }).where(eq(emailMessagesTable.id, m.id));
     return;

@@ -38,6 +38,9 @@ export function conditions(userId: number, f: SegmentFilter = {}): SQL[] {
       .innerJoin(emailListsTable, eq(emailListsTable.id, emailListMembersTable.listId))
       .where(and(eq(emailListsTable.userId, userId), inArray(emailListsTable.folderId, f.folderIds)))));
   }
+  // Rest between messages, and a ceiling on how many a person gets in a month.
+  if (f.quietDays) out.push(sql`(${c.lastSentAt} is null or ${c.lastSentAt} < now() - make_interval(days => ${f.quietDays}))`);
+  if (f.maxTouches) out.push(sql`(select count(*) from email_messages m where m.contact_id = ${c.id} and m.created_at > now() - interval '30 days') < ${f.maxTouches}`);
   if (f.q?.trim()) {
     const q = `%${f.q.trim()}%`;
     out.push(or(ilike(c.email, q), ilike(c.company, q), ilike(c.name, q))!);
@@ -68,6 +71,10 @@ export function cleanFilter(raw: any): SegmentFilter {
   if (Array.isArray(raw?.folderIds) && raw.folderIds.length) f.folderIds = raw.folderIds.map(Number).filter(Boolean).slice(0, 20);
   if (typeof raw?.q === "string" && raw.q.trim()) f.q = raw.q.trim().slice(0, 100);
   if (raw?.hasPhone === true || raw?.hasPhone === "true") f.hasPhone = true;
+  const num = (v: unknown, max: number) => { const n = Math.floor(Number(v)); return n > 0 ? Math.min(n, max) : undefined; };
+  if (num(raw?.quietDays, 60)) f.quietDays = num(raw.quietDays, 60);
+  if (num(raw?.maxTouches, 20)) f.maxTouches = num(raw.maxTouches, 20);
+  if (num(raw?.take, 5000)) f.take = num(raw.take, 5000);
   return f;
 }
 
@@ -76,14 +83,15 @@ export async function resolve(userId: number, f: SegmentFilter, opts: { sendable
   const conds = conditions(userId, f);
   if (opts.sendable) conds.push(eq(c.status, "active"), sql`coalesce(${c.mxOk}, true)`);
   const q = db.select().from(c).where(and(...conds)).orderBy(c.id);
-  return opts.limit ? q.limit(opts.limit) : q;
+  const lim = Math.min(opts.limit ?? Infinity, f.take ?? Infinity);
+  return Number.isFinite(lim) ? q.limit(lim) : q;
 }
 
 export async function count(userId: number, f: SegmentFilter, sendable = false): Promise<number> {
   const conds = conditions(userId, f);
   if (sendable) conds.push(eq(c.status, "active"), sql`coalesce(${c.mxOk}, true)`);
   const [r] = await db.select({ n: sql<number>`count(*)` }).from(c).where(and(...conds));
-  return Number(r?.n ?? 0);
+  return Math.min(Number(r?.n ?? 0), f.take ?? Infinity);
 }
 
 /**
@@ -125,6 +133,8 @@ export function describe(f: SegmentFilter): string {
   if (f.hasPhone) parts.push("لهم رقم واتساب");
   if (f.listIds?.length) parts.push(f.listIds.length === 1 ? "قائمة واحدة" : `${f.listIds.length} قوائم`);
   if (f.folderIds?.length) parts.push(f.folderIds.length === 1 ? "مجلد واحد" : `${f.folderIds.length} مجلدات`);
+  if (f.quietDays) parts.push(`لم يُراسَل منذ ${f.quietDays} أيام`);
+  if (f.take) parts.push(`موجة من ${f.take}`);
   if (f.q) parts.push(`«${f.q}»`);
   return parts.join(" · ") || "كل جهات الاتصال";
 }

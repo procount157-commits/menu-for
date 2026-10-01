@@ -6,12 +6,16 @@
 // address being written to again when a file with it is uploaded later.
 
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { db, emailContactsTable, emailListMembersTable, emailListsTable } from "@workspace/db";
+import { db, emailContactsTable, emailListMembersTable, emailListsTable, emailMessagesTable } from "@workspace/db";
 
 export async function deleteContacts(userId: number, ids: number[]) {
   let deleted = 0, keptUnsubscribed = 0;
   for (let i = 0; i < ids.length; i += 1000) {
     const part = ids.slice(i, i + 1000);
+    // What is queued for them is cancelled first: once the contact is gone the
+    // message no longer knows whose it was, and must not go out.
+    await db.update(emailMessagesTable).set({ status: "cancelled", error: "ألغيت: حُذفت جهة الاتصال" })
+      .where(and(inArray(emailMessagesTable.contactId, part), inArray(emailMessagesTable.status, ["queued", "ab_hold"])));
     const gone = await db.delete(emailContactsTable)
       .where(and(eq(emailContactsTable.userId, userId), inArray(emailContactsTable.id, part), eq(emailContactsTable.status, "active")))
       .returning({ id: emailContactsTable.id });

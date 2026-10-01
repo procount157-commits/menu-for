@@ -24,6 +24,9 @@ import { readWorkbook, parseTables, whatsappEntries } from "../lib/phone-import"
 import { saveToNewGroup, validateInBackground } from "../lib/contact-save";
 import { folderForSector, listSector } from "../lib/folders";
 import { deleteContacts, deleteList } from "../lib/email/delete";
+import { dashboard as emailDashboard } from "../lib/email/dashboard";
+import { getAutopilot, saveAutopilot, runAutopilot } from "../lib/email/autopilot";
+import { teamStatus, activity as teamActivity } from "../lib/email/team";
 import { addDoc, extractText, learn as learnDoc, ask as askKnowledge, library as knowledgeLibrary } from "../lib/email/knowledge-docs";
 import { classifySector, SECTORS, UNCLASSIFIED } from "../lib/email/sector";
 import { cleanFilter, facets, resolve as resolveSegment, count as countSegment, describe as describeSegment, conditions as segmentConditions } from "../lib/email/segments";
@@ -378,7 +381,7 @@ router.delete("/missions/:id", async (req, res) => {
 // reached, opened, replied, its main sector and when it was last written to.
 async function listStats(userId: number, listId?: number) {
   const r = await db.execute(sql`
-    SELECT l.id, l.name, l.description, l.folder_id AS "folderId", l.created_at AS "createdAt",
+    SELECT l.id, l.name, l.description, l.folder_id AS "folderId", l.created_at AS "createdAt", l.parent_list_id AS "parentListId", l.stage,
       count(c.id)::int AS count,
       (count(c.id) FILTER (WHERE c.status = 'active' AND coalesce(c.mx_ok, true)))::int AS sendable,
       (count(c.id) FILTER (WHERE c.status IN ('unsubscribed','complained')))::int AS unsubscribed,
@@ -980,6 +983,25 @@ router.post("/knowledge/ask", async (req, res) => {
   const q = String(req.body?.question ?? "").trim();
   if (!q) return res.status(400).json({ error: "اكتب سؤالاً" });
   res.json(await askKnowledge(req.session.userId!, q.slice(0, 500), req.body?.sector ? String(req.body.sector) : null));
+});
+
+// ── The follow-up dashboard and the team on its own ───────────────
+router.get("/dashboard", async (req, res) => res.json(await emailDashboard(req.session.userId!, Number(req.query["days"]) || 14)));
+router.get("/autopilot", async (req, res) => {
+  const userId = req.session.userId!;
+  res.json({ autopilot: await getAutopilot(userId), team: await teamStatus(userId) });
+});
+router.put("/autopilot", async (req, res) => {
+  const userId = req.session.userId!;
+  const before = await getAutopilot(userId);
+  const row = await saveAutopilot(userId, req.body ?? {});
+  if (row.enabled !== before.enabled) await teamActivity(userId, "email_strategist", "autopilot", row.enabled ? `شغّل صاحب العمل الطيار الآلي (${row.mode === "auto" ? "إرسال تلقائي بعد مراجعة ماجد" : "كل حملة تنتظر موافقته"}).` : "أوقف صاحب العمل الطيار الآلي.");
+  res.json(row);
+});
+/** A round now, rather than at the next quarter hour. */
+router.post("/autopilot/run", async (req, res) => {
+  try { res.json(await runAutopilot(req.session.userId!, { force: true })); }
+  catch (err: any) { res.status(400).json({ error: String(err?.message ?? err) }); }
 });
 
 export default router;

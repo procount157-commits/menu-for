@@ -552,6 +552,57 @@ words back into reading order, keeping English runs and numbers whole. An
 image-only PDF is refused with a note to export it as text. A read cut off
 by a restart shows as failed after half an hour, ready to retry.
 
+**The email team** (`lib/email/team.ts`) is five employees who work only on
+email, each with one job:
+
+| Agent | Role | Job |
+|---|---|---|
+| نورة | `email` | writes campaigns |
+| سلمى | `email_strategist` | plans waves per list and sector |
+| يوسف | `email_followup` | keeps the stage lists and works them |
+| ليلى | `email_replies` | rates replies hot, warm or cold, and answers |
+| ماجد | `email_guard` | checks messages before an automatic send, and watches sending health |
+
+They are ordinary employees on the team page, with a persona, tasks, a
+memory of the owner's instructions, and skills. Every prompt starts from
+`EMAIL_DOCTRINE`, the firm's own B2B email rules from its knowledge base:
+educate, then qualify, then sell; the message formula; claim safety; the
+never-do list; and the call-to-action library.
+
+`guardCheck` is deterministic. It stops hype, guarantees, fake urgency and
+anything posing as an official notice. It also stops any number (a fine, a
+rate, a deadline, a price, in either digit set) that does not appear in what
+the firm taught. `temperature` rates a reply by the knowledge base's
+hot/warm/cold definitions, and a hot reply is reported to the owner at once.
+
+**The autopilot** (`lib/email/autopilot.ts`, migration 030) runs every 15
+minutes on the lists and folders the owner picks. Each round:
+1. ماجد holds new waves if sending health is critical.
+2. يوسف keeps four stage lists under each list (opened and did not reply,
+   clicked, replied, did not open), in the same folder.
+3. سلمى starts the next wave of people not yet written to, with the campaign
+   from the firm's library that fits the list's dominant sector.
+4. يوسف starts waves for those who clicked and those who opened, each with a
+   new angle.
+
+Waves respect rest days between messages (`quietDays`) and a monthly
+ceiling (`maxTouches`). They run as missions: نورة or يوسف writes, then
+either the owner approves (the default) or, in auto mode, ماجد passes it,
+and then the mission engine sends and follows up.
+
+**The dashboard** (`lib/email/dashboard.ts`, the «لوحة المتابعة» tab)
+shows:
+- the period's sends, opens, clicks, replies, bounces and unsubscribes;
+- sends by day, and opens, clicks and replies by day;
+- each worked list as a funnel into its stage lists;
+- the hottest contacts;
+- what each agent did;
+- campaigns waiting for approval;
+- the autopilot's controls, with a line of instruction to any agent.
+
+Opens and clicks need `SITE_URL`, a public address for the pixel and the
+links; replies are measured without it.
+
 **Clearing email data** (`lib/email/delete.ts`). The audience can be cleared
 in one step: the ticked rows, everyone the current filter selects, a list on
 its own or with its addresses (those in no other list), or all of it. A bulk

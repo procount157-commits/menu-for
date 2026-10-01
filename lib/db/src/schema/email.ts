@@ -66,6 +66,10 @@ export const emailListsTable = pgTable("email_lists", {
   name:        varchar("name", { length: 160 }).notNull(),
   description: text("description"),
   folderId:    integer("folder_id"),
+  /** A stage list the follow-up agent keeps under a list it works: its parent, and which stage. */
+  parentListId: integer("parent_list_id"),
+  /** opened | clicked | replied | unopened */
+  stage:       varchar("stage", { length: 20 }),
   createdAt:   timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -243,6 +247,10 @@ export const emailMissionsTable = pgTable("email_missions", {
   warmSequenceId:   integer("warm_sequence_id"),
   coldSequenceId:   integer("cold_sequence_id"),
   followAfterHours: integer("follow_after_hours").notNull().default(48),
+  /** Which email agent writes it (bot_employees.role); null is نورة. */
+  agentRole:        varchar("agent_role", { length: 30 }),
+  /** The list the autopilot started it for. */
+  sourceListId:     integer("source_list_id"),
   report:           jsonb("report"),
   lastRunAt:        timestamp("last_run_at", { withTimezone: true }),
   createdAt:        timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -270,6 +278,12 @@ export interface SegmentFilter {
   q?: string;
   /** Only contacts with a WhatsApp number on file. */
   hasPhone?: boolean;
+  /** Not written to in the last this-many days. */
+  quietDays?: number;
+  /** Fewer than this many messages in the last 30 days. */
+  maxTouches?: number;
+  /** At most this many, oldest first — a wave, not the whole list at once. */
+  take?: number;
 }
 
 // ── What the owner taught the email section ──────────────────────
@@ -295,3 +309,31 @@ export const emailKnowledgeDocsTable = pgTable("email_knowledge_docs", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 export type EmailKnowledgeDoc = typeof emailKnowledgeDocsTable.$inferSelect;
+
+// ── The email team on its own ────────────────────────────────────
+export const emailAutopilotTable = pgTable("email_autopilot", {
+  userId:           integer("user_id").primaryKey().references(() => usersTable.id, { onDelete: "cascade" }),
+  enabled:          boolean("enabled").notNull().default(false),
+  /** approve | auto */
+  mode:             varchar("mode", { length: 10 }).notNull().default("approve"),
+  listIds:          jsonb("list_ids").$type<number[]>().notNull().default([]),
+  folderIds:        jsonb("folder_ids").$type<number[]>().notNull().default([]),
+  waveSize:         integer("wave_size").notNull().default(150),
+  followAfterHours: integer("follow_after_hours").notNull().default(48),
+  maxTouches:       integer("max_touches").notNull().default(3),
+  quietDays:        integer("quiet_days").notNull().default(4),
+  language:         varchar("language", { length: 5 }).notNull().default("ar"),
+  lastRunAt:        timestamp("last_run_at", { withTimezone: true }),
+  updatedAt:        timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export type EmailAutopilot = typeof emailAutopilotTable.$inferSelect;
+
+export const emailAgentActivityTable = pgTable("email_agent_activity", {
+  id:        serial("id").primaryKey(),
+  userId:    integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  role:      varchar("role", { length: 30 }).notNull(),
+  action:    varchar("action", { length: 30 }).notNull(),
+  text:      text("text").notNull(),
+  ref:       jsonb("ref"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("idx_email_agent_activity").on(t.userId, t.createdAt)]);
