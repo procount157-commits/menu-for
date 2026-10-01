@@ -37,10 +37,10 @@ if ! docker ps --format '{{.Names}}' | grep -qx wam-postgres; then
   }
 fi
 for i in $(seq 1 45); do
-  docker exec wam-postgres pg_isready -U wam -d whatsapp_marketer >/dev/null 2>&1 && break
+  docker exec wam-postgres pg_isready -U wam -d menu4u >/dev/null 2>&1 && break
   sleep 2
 done
-if ! docker exec wam-postgres pg_isready -U wam -d whatsapp_marketer >/dev/null 2>&1; then
+if ! docker exec wam-postgres pg_isready -U wam -d menu4u >/dev/null 2>&1; then
   log "قاعدة البيانات لا تستجيب — أتوقف"
   exit 1
 fi

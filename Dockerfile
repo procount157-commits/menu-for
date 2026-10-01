@@ -15,15 +15,18 @@ COPY lib/db/package.json                 lib/db/
 COPY lib/api-spec/package.json           lib/api-spec/
 COPY lib/api-zod/package.json            lib/api-zod/
 COPY lib/api-client-react/package.json   lib/api-client-react/
+COPY lib/menu-shared/package.json        lib/menu-shared/
 COPY artifacts/api-server/package.json   artifacts/api-server/
 COPY artifacts/whatsapp-blast/package.json artifacts/whatsapp-blast/
+COPY artifacts/menu-web/package.json     artifacts/menu-web/
 COPY scripts/package.json                scripts/
 RUN pnpm install --frozen-lockfile=false
 
 COPY . .
 RUN pnpm run typecheck:libs \
  && pnpm --filter @workspace/api-server run build \
- && pnpm --filter @workspace/whatsapp-blast run build
+ && pnpm --filter @workspace/whatsapp-blast run build \
+ && pnpm --filter @workspace/menu-web run build
 
 # ── Runtime ───────────────────────────────────────────────────────
 FROM node:24-slim AS runtime
@@ -43,6 +46,10 @@ COPY --from=build /app/node_modules                     ./node_modules
 COPY --from=build /app/artifacts/api-server/node_modules ./artifacts/api-server/node_modules
 COPY --from=build /app/lib/db/migrations                ./migrations
 COPY --from=build /app/scripts/ops                      ./ops
+# The server serves both front ends itself, from these paths relative to ./dist
+# (app.ts → ../../whatsapp-blast/dist/public, lib/menu/web.ts → ../../menu-web/dist).
+COPY --from=build /app/artifacts/whatsapp-blast/dist    /whatsapp-blast/dist
+COPY --from=build /app/artifacts/menu-web/dist          /menu-web/dist
 
 RUN mkdir -p /data/uploads
 VOLUME ["/data"]

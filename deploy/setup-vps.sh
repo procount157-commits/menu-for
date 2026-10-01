@@ -43,7 +43,7 @@ CRON="* * * * * $(pwd)/deploy/heartbeat.sh >> /var/log/wam-heartbeat.log 2>&1"
 ( crontab -l 2>/dev/null | grep -v 'deploy/heartbeat.sh' ; echo "$CRON" ) | crontab -
 
 echo "→ nightly backup at 04:30"
-BCRON="30 4 * * * cd $(pwd) && docker compose exec -T db pg_dump -U wam -d whatsapp_marketer --no-owner --no-acl | gzip > deploy/backups/wam-\$(date +\%Y\%m\%d).sql.gz && find deploy/backups -name 'wam-*.sql.gz' -mtime +30 -delete"
+BCRON="30 4 * * * cd $(pwd) && docker compose exec -T db pg_dump -U wam -d menu4u --no-owner --no-acl | gzip > deploy/backups/wam-\$(date +\%Y\%m\%d).sql.gz && find deploy/backups -name 'wam-*.sql.gz' -mtime +30 -delete"
 ( crontab -l 2>/dev/null | grep -v 'pg_dump -U wam' ; echo "$BCRON" ) | crontab -
 mkdir -p deploy/backups
 

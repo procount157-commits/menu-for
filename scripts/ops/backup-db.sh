@@ -11,7 +11,7 @@
 set -eu
 
 CONTAINER="${WAM_PG_CONTAINER:-wam-postgres}"
-DB="${WAM_PG_DB:-whatsapp_marketer}"
+DB="${WAM_PG_DB:-menu4u}"
 USER_NAME="${WAM_PG_USER:-wam}"
 DEST="${1:-${WAM_BACKUP_DIR:-$HOME/Documents/whatsapp-marketer-backups}}"
 KEEP_DAYS="${WAM_BACKUP_KEEP_DAYS:-30}"

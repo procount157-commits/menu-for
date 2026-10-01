@@ -28,20 +28,41 @@ docker compose up -d db
 until docker compose exec -T db pg_isready -U "${POSTGRES_USER:-wam}" >/dev/null 2>&1; do sleep 1; done
 
 # Only meaningful once there is data to lose; harmless on a fresh install.
-if docker compose exec -T db psql -U "${POSTGRES_USER:-wam}" -d "${POSTGRES_DB:-whatsapp_marketer}" -tAc \
+if docker compose exec -T db psql -U "${POSTGRES_USER:-wam}" -d "${POSTGRES_DB:-menu4u}" -tAc \
      "select 1 from information_schema.tables where table_name='users'" 2>/dev/null | grep -q 1; then
   echo "→ backup before migrating"
   mkdir -p deploy/backups
-  docker compose exec -T db pg_dump -U "${POSTGRES_USER:-wam}" -d "${POSTGRES_DB:-whatsapp_marketer}" \
+  docker compose exec -T db pg_dump -U "${POSTGRES_USER:-wam}" -d "${POSTGRES_DB:-menu4u}" \
     --no-owner --no-acl | gzip > "deploy/backups/pre-deploy-$(date +%Y%m%d-%H%M%S).sql.gz"
 fi
 
-echo "→ migrations"
-for f in lib/db/migrations/*.sql; do
-  echo "   $(basename "$f")"
-  docker compose exec -T db psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-wam}" \
-    -d "${POSTGRES_DB:-whatsapp_marketer}" < "$f" >/dev/null
-done
+# A fresh database gets the whole schema at once (000_base.sql, a schema-only
+# dump of a fully migrated database), and every migration is recorded as done
+# — replaying Flow Hub's history on it does not work, 001 assumes its tables
+# already exist. After that each numbered migration runs once, recorded in
+# schema_migrations. A database from before that table existed runs them all
+# once more; they were written to be re-runnable for exactly that.
+PSQL="docker compose exec -T db psql -v ON_ERROR_STOP=1 -U ${POSTGRES_USER:-wam} -d ${POSTGRES_DB:-menu4u}"
+fresh=1
+$PSQL -tAc "select 1 from information_schema.tables where table_name='users'" 2>/dev/null | grep -q 1 && fresh=0
+$PSQL -qc "create table if not exists schema_migrations (name text primary key, applied_at timestamptz not null default now())" >/dev/null
+if [ "$fresh" = 1 ]; then
+  echo "→ fresh database: base schema"
+  $PSQL < lib/db/migrations/000_base.sql >/dev/null
+  for f in lib/db/migrations/[0-9][0-9][0-9]_*.sql; do
+    $PSQL -qc "insert into schema_migrations (name) values ('$(basename "$f")') on conflict do nothing" >/dev/null
+  done
+else
+  echo "→ migrations"
+  for f in lib/db/migrations/[0-9][0-9][0-9]_*.sql; do
+    n="$(basename "$f")"
+    [ "$n" = "000_base.sql" ] && continue
+    $PSQL -tAc "select 1 from schema_migrations where name = '$n'" | grep -q 1 && continue
+    echo "   $n"
+    $PSQL < "$f" >/dev/null
+    $PSQL -qc "insert into schema_migrations (name) values ('$n')" >/dev/null
+  done
+fi
 
 echo "→ building and restarting the app"
 docker compose build api

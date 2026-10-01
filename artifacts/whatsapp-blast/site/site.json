@@ -1,26 +1,63 @@
 {
-  "name": "FLOW HUB",
-  "tagline": "رسائل واتساب جماعية تصل، وفريق مبيعات ذكي يردّ ويتابع — بدون أن تخسر رقمك.",
-  "description": "منصة عربية للإرسال الجماعي عبر واتساب مع فريق موظفين بالذكاء الاصطناعي يردّون على العملاء ويتابعونهم، وطبقة حماية تقرأ إشارات الحظر وتبطئ قبل أن يُحظر الرقم. للإمارات والسعودية.",
-  "ctaLine": "فريق مبيعات كامل على رقم واتساب واحد: يرسل، يردّ، يتابع، ويحمي الرقم.",
-  "blogDescription": "ما تعلّمناه من تشغيل أرقام واتساب للأعمال في الخليج: الحظر، الإحماء، البوتات التي تبيع فعلاً، والمتابعة التي لا تُزعج.",
+  "name": "منيو فور يو",
+  "tagline": "منيو رقمي أنيق، وصف انتظار رقمي، وطلبات وحجوزات على واتساب — لمحلك.",
+  "description": "منيو فور يو: منيو رقمي بحركات وصور، طلب على واتساب، صف انتظار رقمي بدون تطبيق يرسل للزبون «جاء دورك»، وحجوزات ومواعيد — للمطاعم والكافيهات ومحلات الحلويات وصالونات التجميل في الإمارات والسعودية.",
+  "ctaLine": "رابط واحد على الباب: المنيو، الطلب، الدور، والحجز — وواتساب يكمل الباقي.",
+  "blogDescription": "ما نتعلّمه من تشغيل المنيو والصف الرقمي في المطاعم والصالونات: الزحمة على الباب، الطلب عبر واتساب، والحجوزات التي لا تضيع.",
   "nav": [
-    { "label": "المميزات", "href": "/features/ai-sales-team/" },
-    { "label": "الإمارات", "href": "/uae/" },
-    { "label": "السعودية", "href": "/saudi/" },
-    { "label": "المدونة", "href": "/blog/" }
+    {
+      "label": "المنيو الرقمي",
+      "href": "/features/digital-menu/"
+    },
+    {
+      "label": "الصف الرقمي",
+      "href": "/features/digital-queue/"
+    },
+    {
+      "label": "الإمارات",
+      "href": "/uae/"
+    },
+    {
+      "label": "السعودية",
+      "href": "/saudi/"
+    },
+    {
+      "label": "المدونة",
+      "href": "/blog/"
+    }
   ],
   "footer": {
     "platform": [
-      { "label": "الإرسال الجماعي", "href": "/features/bulk-whatsapp-sending/" },
-      { "label": "فريق المبيعات الذكي", "href": "/features/ai-sales-team/" },
-      { "label": "المتابعة التلقائية", "href": "/features/auto-follow-up/" },
-      { "label": "حماية الرقم", "href": "/features/number-protection/" }
+      {
+        "label": "المنيو الرقمي",
+        "href": "/features/digital-menu/"
+      },
+      {
+        "label": "الصف الرقمي",
+        "href": "/features/digital-queue/"
+      },
+      {
+        "label": "الطلب على واتساب",
+        "href": "/features/whatsapp-ordering/"
+      },
+      {
+        "label": "الحجوزات والمواعيد",
+        "href": "/features/bookings/"
+      }
     ],
     "learn": [
-      { "label": "حماية الرقم من الحظر", "href": "/blog/whatsapp-ban-protection/" },
-      { "label": "كم رسالة في اليوم؟", "href": "/blog/how-many-whatsapp-messages-per-day/" },
-      { "label": "بوت مبيعات يبيع فعلاً", "href": "/blog/whatsapp-sales-bot-that-sells/" }
+      {
+        "label": "صف الانتظار الرقمي للمطاعم",
+        "href": "/blog/restaurant-digital-waitlist/"
+      },
+      {
+        "label": "منيو QR يبيع",
+        "href": "/blog/qr-menu-that-sells/"
+      },
+      {
+        "label": "الطلب عبر واتساب",
+        "href": "/blog/whatsapp-ordering-for-restaurants/"
+      }
     ]
   }
 }

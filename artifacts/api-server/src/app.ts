@@ -6,6 +6,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import trackRouter from "./routes/track";
 import { logger } from "./lib/logger";
+import { mountMenuWeb } from "./lib/menu/web";
 
 const PgSession = connectPgSimple(session);
 
@@ -121,6 +122,10 @@ app.use(
 app.use(trackRouter);
 
 app.use("/api", router);
+
+// The public menu, ticket, order, booking and TV pages — before the
+// dashboard, which takes every path they do not.
+mountMenuWeb(app);
 
 // ── The web interface ──────────────────────────────────────────────
 // On the VPS nginx serves these files; on a laptop nothing did, so running the

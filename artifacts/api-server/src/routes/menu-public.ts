@@ -255,5 +255,15 @@ router.get("/display/:token/stream", limit("stream", 120, 60_000), async (req, r
   stream(req, res, [`branch:${b!.id}`], () => displayView(tok));
 });
 
+/** The TV's join QR, as an image: no QR library in the public bundle. */
+router.get("/display/:token/qr.png", limit("display", 600, 60_000), async (req, res) => {
+  const v = await displayView(String(req.params.token));
+  if (!v) return res.status(404).end();
+  const QRCode = (await import("qrcode")).default;
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "public, max-age=240");
+  res.send(await QRCode.toBuffer(v.joinUrl, { errorCorrectionLevel: "M", margin: 1, width: 520 }));
+});
+
 export { displayView };
 export default router;

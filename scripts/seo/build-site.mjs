@@ -137,7 +137,7 @@ function layout({ url, title, description, body, jsonld = [], hreflang = false, 
 <body>
   <header class="top">
     <div class="wrap">
-      <a class="brand" href="/">${esc(site.name)}<span>™</span></a>
+      <a class="brand" href="/">${esc(site.name)}</a>
       <nav>${nav}</nav>
       <a class="cta" href="/login">دخول</a>
     </div>
@@ -153,7 +153,7 @@ ${body}
         <div><p class="h">الأسواق</p><a href="/uae/">الإمارات</a><a href="/saudi/">السعودية</a></div>
         <div><p class="h">تعلّم</p>${site.footer.learn.map((n) => `<a href="${n.href}">${n.label}</a>`).join("")}</div>
       </div>
-      <p class="fine">© ${new Date().getFullYear()} ${esc(site.name)}. الإرسال الجماعي على واتساب مسؤوليتك تجاه من تراسلهم — المنصة تحمي رقمك ولا تُعفيك من موافقتهم.</p>
+      <p class="fine">© ${new Date().getFullYear()} ${esc(site.name)}. الرسائل تصل فقط لمن راسل المحل أو وافق — هكذا يبقى رقمك بأمان.</p>
     </div>
   </footer>
 </body>
@@ -249,6 +249,6 @@ if (SITE_URL) {
   fs.writeFileSync(path.join(OUT, "robots.txt"), `User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${abs("/sitemap.xml")}\n`);
 } else {
   fs.writeFileSync(path.join(OUT, "robots.txt"), `User-agent: *\nAllow: /\nDisallow: /api/\n`);
-  console.warn("⚠ SITE_URL is not set — pages built with relative links, no canonical tags and no sitemap. Set SITE_URL in .env (e.g. https://flowhub.example) and rebuild.");
+  console.warn("⚠ SITE_URL is not set — pages built with relative links, no canonical tags and no sitemap. Set SITE_URL in .env (e.g. https://menuforyou.example) and rebuild.");
 }
 console.log(`site: ${urls.length} pages → ${path.relative(ROOT, OUT)}${SITE_URL ? ` (canonical ${SITE_URL})` : ""}`);

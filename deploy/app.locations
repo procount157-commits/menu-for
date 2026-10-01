@@ -1,36 +1,40 @@
 client_max_body_size 80m;
 
+# Everything goes to the API, which serves the dashboard, the public menu
+# pages (/{shop}, /t/…, /o/…, /b/…, /d/…) and the generated marketing pages
+# itself. One router — the server — decides what a path is, so a new shop
+# address works without touching nginx.
+
+proxy_http_version 1.1;
+proxy_set_header Host              $host;
+proxy_set_header X-Real-IP         $remote_addr;
+proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-Host  $host;
+
+# Live queue, ticket, order and TV streams: no buffering, long reads.
+location ~ ^/api/(public/(queues|tickets|orders|display)/[^/]+/stream|queue/[0-9]+/stream|orders/stream|bookings/stream)$ {
+    proxy_pass http://wam_api;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 1h;
+    add_header X-Accel-Buffering no;
+}
+
 location /api/ {
     proxy_pass http://wam_api;
-    proxy_http_version 1.1;
-    proxy_set_header Host              $host;
-    proxy_set_header X-Real-IP         $remote_addr;
-    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
     # Campaigns and the QR poll are long-lived; the default 60s cuts them off.
     proxy_read_timeout 300s;
     proxy_send_timeout 300s;
 }
 
-# Tracking redirects are served by the API too.
-location /t/ { proxy_pass http://wam_api; proxy_set_header Host $host; }
-
-# The home page: generated HTML for anyone without a session cookie (a
-# crawler, a visitor), the app shell for someone signed in. The map is in
-# nginx.conf because a map must sit at http level.
-location = / {
-    root /usr/share/nginx/html;
-    if ($wam_signed_in = 0) { rewrite ^ /home/index.html last; }
-    try_files /index.html =404;
+# Hashed assets of both apps: cache hard at the edge too.
+location ~ ^/(mw/)?assets/ {
+    proxy_pass http://wam_api;
+    expires 1y;
+    add_header Cache-Control "public, immutable";
 }
 
 location / {
-    root /usr/share/nginx/html;
-    try_files $uri $uri/ /index.html;   # SPA
-}
-
-location ~* \.(js|css|png|jpg|jpeg|gif|svg|webp|woff2?)$ {
-    root /usr/share/nginx/html;
-    expires 1y;
-    add_header Cache-Control "public, immutable";
+    proxy_pass http://wam_api;
 }
