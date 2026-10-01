@@ -154,21 +154,22 @@ async function managerVerdict(
     e.segment ? `تصنيف ريم: ${SEGMENT_AR[e.segment]}.` : "",
     e.quietHours !== null ? `آخر تواصل قبل ${e.quietHours} ساعة.` : "لم يحدث أي تواصل ثنائي بعد.",
     `رأي فهد عن حالة الرقم: ${opsView}`,
-    // What the team knows about this lead and where the sale stands. A
+    // What the team knows about this customer and where the conversation stands. A
     // follow-up that ignores a stated objection or re-asks a known fact is
     // the reason a seventh message gets a block instead of a reply.
     card ? `\n${cardText(card)}` : "",
-    history.length ? `\nآخر ما دار:\n${history.reverse().map((h) => `${h.fromMe ? "نحن" : "العميل"}: ${(h.text ?? "").slice(0, 150)}`).join("\n")}` : "",
+    history.length ? `\nآخر ما دار:\n${history.reverse().map((h) => `${h.fromMe ? "نحن" : "الزبون"}: ${(h.text ?? "").slice(0, 150)}`).join("\n")}` : "",
   ].filter(Boolean).join("\n");
 
   const out = await complete([
     { role: "system", content: [
-      manager ? `أنت ${manager.name}${manager.title ? `، ${manager.title}` : ""}.` : "أنت مديرة مبيعات.",
+      manager ? `أنت ${manager.name}${manager.title ? `، ${manager.title}` : ""}.` : "أنت رئيسة فريق الضيافة.",
       manager?.persona ?? "",
       "",
-      "يسألك موظف المتابعة: هل نرسل لهذا العميل رسالة متابعة الآن؟",
+      "يسألك موظف المتابعة: هل نرسل لهذا الزبون رسالة متابعة الآن؟ (شكر وطلب تقييم بعد زيارة، تذكير بحجز، أو رسالة ترجّع زبوناً غاب)",
       "قرّري بناءً على سلوكه هو — هل يفتح رسائلنا؟ كم مرة تابعنا معه بلا نتيجة؟ — لا بناءً على أن الوقت حان.",
-      "من لم يفتح شيئاً ولم يرد، تكرار التذكير معه يضرّ ولا ينفع.",
+      "من لم يفتح شيئاً ولم يرد، تكرار التذكير معه يضرّ ولا ينفع. ومن اشتكى ولم تُحل شكواه لا يُطلب منه تقييم.",
+      "لا تخترعي في الرسالة عرضاً ولا خصماً ولا صنفاً جديداً — فقط ما هو مكتوب في المنيو والمعلومات.",
       "",
       "أجيبي بهذا الشكل بالضبط:",
       "القرار: أرسل | أجّل | أوقف",
@@ -184,7 +185,7 @@ async function managerVerdict(
 
   if (!out?.text) {
     // A model that cannot be reached must not become an accidental yes.
-    return { verdict: "hold", reason: "تعذّر الوصول لمديرة المبيعات — أُجّل القرار", draft: null };
+    return { verdict: "hold", reason: "تعذّر الوصول لرئيسة الفريق — أُجّل القرار", draft: null };
   }
 
   const text = out.text;

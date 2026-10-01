@@ -10,12 +10,12 @@ import {
   db, botEmployeesTable, businessProfileTable, knowledgeBaseTable,
   autoReplyLogTable, monitorReportsTable, followUpJobsTable, leadSourcesTable,
   agentHandoffsTable, conversationOwnerTable,
-  DEFAULT_EMPLOYEES,
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
 import { getStatus, getHealth } from "../lib/whatsapp";
 import { getDailySentCount, getEffectiveDailyLimit } from "../lib/daily-limit";
 import { runMonitorFor, MONITOR_INTERVAL_MS } from "../lib/monitor-agent";
+import { shopRoster, refreshUntouchedPersonas } from "../lib/provision";
 
 const router = Router();
 router.use(requireAuth);
@@ -29,9 +29,12 @@ const RESERVED_ROLES = new Set(["monitor"]);
 /** Hire the defaults for an account that has none yet. */
 async function ensureHired(userId: number) {
   const existing = await db.select().from(botEmployeesTable).where(eq(botEmployeesTable.userId, userId));
-  if (existing.length > 0) return existing;
+  if (existing.length > 0) {
+    if (!(await refreshUntouchedPersonas(userId, existing))) return existing;
+    return db.select().from(botEmployeesTable).where(eq(botEmployeesTable.userId, userId));
+  }
   await db.insert(botEmployeesTable)
-    .values(DEFAULT_EMPLOYEES.map((e) => ({ userId, ...e })))
+    .values(shopRoster(userId))
     .onConflictDoNothing();
   return db.select().from(botEmployeesTable).where(eq(botEmployeesTable.userId, userId));
 }

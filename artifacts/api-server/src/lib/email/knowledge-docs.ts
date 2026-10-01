@@ -21,9 +21,9 @@ import { brief, ensureEmailAgent, teach, EMAIL_ROLE } from "./agent";
 
 export const CATEGORIES: Record<string, string> = {
   company: "عن الشركة",
-  services: "الخدمات والأسعار",
-  sector: "عن القطاع والعملاء",
-  compliance: "القوانين والامتثال",
+  services: "الباقات والأسعار",
+  sector: "عن القطاع والمحلات",
+  compliance: "القواعد والسياسات",
   faq: "أسئلة شائعة واعتراضات",
   style: "أسلوب الكتابة",
   other: "أخرى",
@@ -62,7 +62,7 @@ export async function extractText(buffer: Buffer, fileName: string): Promise<str
 
 // Many PDFs store Arabic as it is drawn, not as it is read: each letter in
 // its joined shape (the "presentation forms"), and each line's words right to
-// left in storage order, so a reader gets "ﺑﺮوﻛﺎوﻧﺖ ﻟﻠﻤﺤﺎﺳﺒﺔ" backwards and in
+// left in storage order, so a reader gets "ﻳﻮ ﻓﻮﺭ ﻣﻨﻴﻮ" backwards and in
 // shapes no search matches. A line carrying those shapes is put back: the
 // shapes to plain letters, and the words reversed — with a run of English
 // words or numbers kept in its own order, and a mark or full stop that was

@@ -21,15 +21,15 @@ const MODELS = ["whisper-large-v3-turbo", "whisper-large-v3"];
  * Vocabulary hint.
  *
  * Whisper accepts a prompt that biases its decoding, and this is where domain
- * words go: without it "فري زون" and "إقرار ضريبي" come back as something
+ * words go: without it "مجبوس" and "صينية كنافة" come back as something
  * phonetically close and semantically useless. It cannot fix genuinely unclear
  * audio, only tilt the decoder towards words that belong in this conversation.
  */
 const VOCAB = [
-  "محادثة واتساب بالعربية الخليجية عن المحاسبة والضريبة في الإمارات.",
-  "مفردات متوقعة: ضريبة القيمة المضافة، ضريبة الشركات، مين لاند، فري زون،",
-  "رخصة تجارية، إقرار ضريبي، غرامة، تدقيق، مقاولات، فواتير، رواتب،",
-  "كم السعر، أبغى، الحين، وش، ليش، دبي، أبوظبي، الشارقة.",
+  "محادثة واتساب بالعربية الخليجية مع مطعم أو كافيه أو محل حلويات أو صالون في الإمارات.",
+  "مفردات متوقعة: المنيو، توصيل، سفري، استلام، حجز طاولة، موعد، الدور، طلب مسبق،",
+  "صينية، كنافة، كيك، قهوة، كرك، شاورما، مجبوس، قص شعر، مكياج، حساسية، مكسرات،",
+  "كم السعر، بكم، أبغى، الحين، الليلة، بكرة، كم شخص، وش، ليش، دبي، أبوظبي، الشارقة.",
 ].join(" ");
 
 /** WhatsApp caps voice notes well below this; the limit guards against abuse. */

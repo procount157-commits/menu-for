@@ -28,37 +28,45 @@ check("general trading", s("Star General Trading LLC") === "تجارة عامة"
 check("Arabic: مؤسسة للمقاولات", s("مؤسسة النور للمقاولات العامة") === "مقاولات");
 check("gold", s("Malabar Gold & Diamonds") === "ذهب ومجوهرات");
 check("auditing", s("ABC Chartered Accountants & Auditors") === "محاسبة وتدقيق");
-check("activity column wins over the name", classifySector({ company: "Al Noor Properties", industry: "Restaurant" }) === "مطاعم ومقاهي");
+check("activity column wins over the name", classifySector({ company: "Al Noor Properties", industry: "Restaurant" }) === "مطاعم");
+check("a restaurant before gold", s("Golden Spoon Restaurant") === "مطاعم");
+check("a café", s("Brew Lab Coffee Roasters") === "كافيهات");
+check("Arabic: مقهى", s("مقهى الشاي العربي") === "كافيهات");
+check("sweets before café", s("Al Reef Sweets & Cafe") === "حلويات");
+check("Arabic: حلويات", s("حلويات الريم") === "حلويات");
+check("a salon", s("Lamsa Beauty Salon") === "تجميل وصالونات");
+check("kitchen fit-out is still contracting", s("Kitchen Fit Out Contracting") === "مقاولات");
+check("plumbing is not a spa", s("مؤسسة السباكة الحديثة") === "صيانة وخدمات فنية");
 check("the file name is a last hint", classifySector({ company: "Ahmed Mohamed Ahmed Abdelgawad Shaftar", hint: "real-estate-companies-ALL" }) === "عقارات");
 check("nothing to go on is unclassified", classifySector({ company: "Zelin" }) === null);
 
 // ── Drafts ───────────────────────────────────────────────────────
-const raw = `[عنوان] {{company|شركتكم}} ومتطلبات مكافحة غسل الأموال
-[عنوان] سؤال عن مسؤول الامتثال لديكم
+const raw = `[عنوان] {{company|محلكم}}: المنيو والدور في رابط واحد
+[عنوان] وقت الزحمة، وين ينتظر زباينكم؟
 [الرسالة]
 {{first_name|أهلاً}}،
 
-الوسطاء العقاريون ملزمون **بالتسجيل**.
-- تقييم مخاطر
-- مسؤول امتثال
+الزبون ياخذ دوره من **الـ QR** عند الباب.
+- يشوف كم قدامه
+- يوصله «جاء دورك» على واتساب
 
-هل لديكم مسؤول امتثال؟
+تحب تشوف منيو تجريبي؟
 {{sender}}
 [/الرسالة]
 [متابعة بعد=72 جمهور=دافئ]
-عنوان: مثال من وسيط في دبي
+عنوان: الدور من جهة الزبون
 قصة قصيرة.
 [/متابعة]
 [متابعة بعد=96 جمهور=بارد]
 عنوان: سؤال واحد
 أقصر.
 [/متابعة]
-[السبب] الوسطاء يعرفون الالتزام ولا يعرفون من يطبّقه.`;
+[السبب] المطاعم تعرف الزحمة ولا تعرف أن الدور يقدر ينتظر في السيارة.`;
 const d = parseDraft(raw)!;
-check("two subjects", d.subjects.length === 2 && d.subjects[1] === "سؤال عن مسؤول الامتثال لديكم");
-check("the body becomes HTML with bold and a list", d.html.includes("<b>بالتسجيل</b>") && d.html.includes("<li") && d.html.includes("{{first_name|أهلاً}}"));
+check("two subjects", d.subjects.length === 2 && d.subjects[1] === "وقت الزحمة، وين ينتظر زباينكم؟");
+check("the body becomes HTML with bold and a list", d.html.includes("<b>الـ QR</b>") && d.html.includes("<li") && d.html.includes("{{first_name|أهلاً}}"));
 check("a warm and a cold follow-up", d.followups.length === 2 && d.followups[0]!.audience === "warm" && d.followups[1]!.audience === "cold" && d.followups[1]!.afterHours === 96);
-check("the reason", /الوسطاء/.test(d.why));
+check("the reason", /المطاعم/.test(d.why));
 check("a draft without a body is refused", parseDraft("[عنوان] x") === null);
 check("HTML is escaped", toHtml("<script>x</script>").includes("&lt;script&gt;"));
 
@@ -78,7 +86,7 @@ async function clean() {
   await db.delete(agentMemoryTable).where(and(eq(agentMemoryTable.userId, USER), eq(agentMemoryTable.role, "email")));
 }
 await clean();
-await db.insert(emailSettingsTable).values({ userId: USER, provider: "smtp", smtpHost: "smtp.invalid", smtpUser: "u", smtpPass: "p", fromEmail: "t@procount.invalid" });
+await db.insert(emailSettingsTable).values({ userId: USER, provider: "smtp", smtpHost: "smtp.invalid", smtpUser: "u", smtpPass: "p", fromEmail: "t@menu.invalid" });
 const rows = [
   ...Array.from({ length: 30 }, (_, i) => ({ userId: USER, email: `re${i}@x.ae`, company: `RE ${i} Real Estate`, sector: "عقارات", city: i < 20 ? "Dubai" : "Ajman" })),
   ...Array.from({ length: 12 }, (_, i) => ({ userId: USER, email: `co${i}@x.ae`, company: `CO ${i} Contracting`, sector: "مقاولات", city: "Dubai", phone: "971500000000" })),
@@ -101,17 +109,17 @@ check("a filter in words", describe(cleanFilter({ sectors: ["عقارات"], cit
 check("junk in a filter is dropped", Object.keys(cleanFilter({ engagement: ["nonsense"], sectors: "x" })).length === 0);
 
 // ── What she knows ───────────────────────────────────────────────
-await rememberKnowledge(USER, "الوسطاء العقاريون من الجهات الملزمة بالتسجيل.", "عقارات");
+await rememberKnowledge(USER, "الوسطاء العقاريون يستقبلون العملاء بالمواعيد.", "عقارات");
 await rememberKnowledge(USER, "المقاولون يهتمون بتدفق المستخلصات.", "مقاولات");
-await rememberKnowledge(USER, "بروكاونت تقدّم خدمة مسؤول الامتثال بالإنابة.", null);
-await rememberLesson(USER, "win", "عنوان فاز: «سؤال عن مسؤول الامتثال لديكم»", "عقارات");
+await rememberKnowledge(USER, "منيو فور يو يجهّز نسخة تجريبية بمنيو المحل قبل الاشتراك.", null);
+await rememberLesson(USER, "win", "عنوان فاز: «سؤال عن مواعيد مكتبكم»", "عقارات");
 const b = await brief(USER, ["عقارات"]);
-check("her brief for real estate holds its own knowledge and the general", b.includes("الوسطاء العقاريون") && b.includes("بالإنابة"));
+check("her brief for real estate holds its own knowledge and the general", b.includes("الوسطاء العقاريون") && b.includes("نسخة تجريبية"));
 check("...not another sector's", !b.includes("المستخلصات"));
-check("...and what won before", b.includes("سؤال عن مسؤول الامتثال"));
+check("...and what won before", b.includes("سؤال عن مواعيد مكتبكم"));
 
 // ── A mission, from approval to the follow-up split ──────────────
-const m = await createMission(USER, { name: "AML — عقارات", goal: "تعريف بخدمة الامتثال", filter: re });
+const m = await createMission(USER, { name: "تعريف — عقارات", goal: "تعريف بمنيو فور يو", filter: re });
 await db.update(emailMissionsTable).set({ stage: "awaiting_approval", pending: d as any }).where(eq(emailMissionsTable.id, m.id));
 await approve(USER, m.id);
 let [mm] = await db.select().from(emailMissionsTable).where(eq(emailMissionsTable.id, m.id));

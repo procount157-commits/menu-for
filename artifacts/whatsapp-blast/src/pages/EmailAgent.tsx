@@ -280,10 +280,10 @@ function DraftEditor({ draft, onChange }: { draft: any; onChange: (d: any) => vo
 }
 
 const GOALS = [
-  "تعريف بخدمة الامتثال لمكافحة غسل الأموال (AML): التسجيل، مسؤول الامتثال، تقييم المخاطر — وطلب مكالمة قصيرة",
-  "عرض خدمة مسؤول الامتثال بالإنابة لمن لا يملك مسؤولاً",
-  "تذكير بالتزامات ضريبة الشركات والإقرار — وطلب مراجعة الوضع",
-  "مسك الدفاتر الشهري لمن لا يملك محاسباً",
+  "تعريف بمنيو فور يو للمطاعم: المنيو والطلب على واتساب وصف الانتظار في رابط واحد — ودعوة لفتح منيو تجريبي",
+  "صف الانتظار الرقمي للمحلات اللي عليها زحمة: «جاء دورك» على واتساب بدل الورق — وطلب عرض ١٠ دقايق",
+  "الطلبات المسبقة لمحلات الحلويات: صواني وكيك بتاريخ استلام — ودعوة للتجربة المجانية",
+  "المواعيد للصالونات: حجز من الرابط وتذكير «جاية / ألغي» — وطلب عرض قصير",
 ];
 
 // ── نورة ──────────────────────────────────────────────────────────
@@ -351,7 +351,7 @@ export function AgentTab({ initialFilter, onMissionCreated }: { initialFilter?: 
         <div className={cn(card, "p-4 space-y-3")}>
           <p className="text-sm font-semibold flex items-center gap-1.5"><BookOpen className="w-4 h-4" /> علّميها <a href="/email/knowledge" className="mr-auto text-[11px] font-normal text-primary hover:underline">مكتبة المعرفة: PDF وWord وأكثر ←</a></p>
           <p className="text-[11px] text-muted-foreground">اكتب بكلامك أو الصق نصاً أو ارفع ملفاً (نص، CSV، Excel): عن خدماتنا، عن قطاع، عن التزاماتهم، عن أسلوبنا. تقسّمه هي إلى معلومات وتحفظ كل واحدة مع قطاعها.</p>
-          <textarea className={cn(input, "min-h-[8rem] text-xs leading-relaxed")} value={teachText} onChange={(e) => setTeachText(e.target.value)} placeholder="مثال: الوسطاء العقاريون في الإمارات من الجهات المعنية بمكافحة غسل الأموال. نحن في بروكاونت نسجّلهم في goAML، نكتب تقييم المخاطر، ونقدّم مسؤول الامتثال بالإنابة…" />
+          <textarea className={cn(input, "min-h-[8rem] text-xs leading-relaxed")} value={teachText} onChange={(e) => setTeachText(e.target.value)} placeholder="مثال: أصحاب المطاعم في دبي أكثر شي يزعجهم زحمة العشاء والطلبات بالتلفون. منيو فور يو يعطيهم صف رقمي على QR الباب وطلب على واتساب محسوب من المنيو…" />
           <div className="flex gap-2 flex-wrap items-center">
             <select className={cn(input, "w-44 text-xs")} value={teachTopic} onChange={(e) => setTeachTopic(e.target.value)}><option value="">القطاع: تحدّده هي</option>{(data.sectors ?? []).map((s: string) => <option key={s} value={s}>{s}</option>)}</select>
             <button onClick={() => teachM.mutate(undefined)} disabled={teachM.isPending || !teachText.trim()} className={primary}>{teachM.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />} احفظي هذا</button>

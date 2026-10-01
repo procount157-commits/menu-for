@@ -29,7 +29,7 @@ async function clean() {
 await clean();
 
 // A configured sender that nothing will actually send through in this test.
-await db.insert(emailSettingsTable).values({ userId: USER, provider: "smtp", smtpHost: "smtp.invalid", smtpUser: "u", smtpPass: "p", fromEmail: "test@procount.invalid", fromName: "بروكاونت" });
+await db.insert(emailSettingsTable).values({ userId: USER, provider: "smtp", smtpHost: "smtp.invalid", smtpUser: "u", smtpPass: "p", fromEmail: "test@menu.invalid", fromName: "منيو فور يو" });
 
 const contacts = await db.insert(emailContactsTable).values(
   Array.from({ length: 60 }, (_, i) => ({ userId: USER, email: `c${i}@firm${i}.ae`, company: `شركة ${i}`, status: i === 0 ? "unsubscribed" : "active", mxOk: i === 1 ? false : null })),
@@ -79,14 +79,14 @@ check("...with the subject personalised", rung?.subject === "مرحبا شركة
 
 // ── Events ───────────────────────────────────────────────────────
 const [m0] = await db.select().from(emailMessagesTable).where(and(eq(emailMessagesTable.campaignId, camp!.id), eq(emailMessagesTable.contactId, contacts[3]!.id)));
-await db.update(emailMessagesTable).set({ status: "sent", sentAt: new Date(), messageIdHdr: "<abc@procount.invalid>" }).where(eq(emailMessagesTable.id, m0!.id));
+await db.update(emailMessagesTable).set({ status: "sent", sentAt: new Date(), messageIdHdr: "<abc@menu.invalid>" }).where(eq(emailMessagesTable.id, m0!.id));
 await recordEvent(USER, m0!.id, "open"); await recordEvent(USER, m0!.id, "open");
 const [c1] = await db.select().from(emailCampaignsTable).where(eq(emailCampaignsTable.id, camp!.id));
 const [m0b] = await db.select().from(emailMessagesTable).where(eq(emailMessagesTable.id, m0!.id));
 check("two opens count twice on the message, once on the campaign", m0b?.openCount === 2 && c1?.openCount === 1);
 
 // A reply, matched by In-Reply-To, ends the ladder for that contact.
-const rep = await handleInbound(USER, { from: contacts[3]!.email, subject: "Re: العنوان أ", text: "مهتمين، كم التكلفة؟\n\nOn Mon wrote:\n> العنوان", inReplyTo: "<abc@procount.invalid>" });
+const rep = await handleInbound(USER, { from: contacts[3]!.email, subject: "Re: العنوان أ", text: "مهتمين، كم التكلفة؟\n\nOn Mon wrote:\n> العنوان", inReplyTo: "<abc@menu.invalid>" });
 check("the reply is filed", !!rep && !rep.bounce);
 const [inb] = await db.select().from(emailInboundTable).where(eq(emailInboundTable.userId, USER));
 check("...with the quoted original stripped", inb?.text === "مهتمين، كم التكلفة؟", JSON.stringify(inb?.text));

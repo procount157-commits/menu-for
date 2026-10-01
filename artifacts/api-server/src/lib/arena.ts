@@ -1,14 +1,14 @@
 // ── The training arena ────────────────────────────────────────────
 // The owner plays the customer and watches an employee answer — with
 // everything that went into the answer laid out beside it: the intent it
-// read, the card it built, the stage it thinks the sale is at, the skills
+// read, the card it built, the stage it thinks the conversation is at, the skills
 // it carried, what the pre-send check caught, and the first draft if it was
 // rewritten. Nothing is sent to anyone.
 //
 // Then the owner grades it. A thumbs-up is a win in the employee's memory;
 // a thumbs-down with "this is what it should have said" becomes a standing
 // instruction in the owner's own words. That is the fastest way an
-// employee learns what this particular business wants, and it does not wait
+// employee learns what this particular shop wants, and it does not wait
 // for real customers to generate outcomes.
 
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
@@ -44,7 +44,7 @@ export function cardFrom(turns: Turn[], intents: Intent[]): LeadCard {
 export async function simulate(userId: number, role: string, turns: Turn[]) {
   const clean = turns.filter((t) => t.content?.trim()).slice(-20);
   const last = [...clean].reverse().find((t) => t.role === "user");
-  if (!last) throw new Error("اكتب رسالة العميل");
+  if (!last) throw new Error("اكتب رسالة الزبون");
 
   const [agent] = await db.select().from(botEmployeesTable)
     .where(and(eq(botEmployeesTable.userId, userId), eq(botEmployeesTable.role, role))).limit(1);
@@ -91,7 +91,7 @@ export async function rate(userId: number, input: {
     const fix = (input.correction ?? "").trim();
     if (fix) {
       await remember(userId, input.role, "instruction",
-        `حين يكتب العميل مثل «${input.customer.trim().slice(0, 90)}» فالرد الصحيح مثل: «${fix.slice(0, 220)}»`);
+        `حين يكتب الزبون مثل «${input.customer.trim().slice(0, 90)}» فالرد الصحيح مثل: «${fix.slice(0, 220)}»`);
       remembered.push("تعليمة منك");
     }
   }

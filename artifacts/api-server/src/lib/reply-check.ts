@@ -1,9 +1,9 @@
 // ── The check before a reply leaves ──────────────────────────────
 // The writing skill tells the model the rules; this makes sure it followed
 // them. Every rule here is one the owner has already complained about or a
-// mistake that costs a sale: a reply that runs to seven lines, asks three
-// questions, opens with «يسعدني», asks for the licence type the card already
-// holds, or quotes a price that is nowhere in the company's own knowledge.
+// mistake that loses a customer: a reply that runs to seven lines, asks three
+// questions, opens with «يسعدني», asks how many people when the card already
+// says four, or quotes a price that is nowhere on the shop's own menu.
 //
 // Rules, not a model: they run on every reply for free, and a rewrite — the
 // one extra call — happens only when something is actually wrong.
@@ -32,7 +32,7 @@ export interface CheckResult { score: number; issues: Issue[] }
 const ROBOTIC = [
   "يسعدني", "يسرني", "لا تتردد", "نحن هنا لخدمتك", "سأكون سعيدا", "شكرا لتواصلك", "نتشرف",
   "في انتظار ردكم", "اتمني ان يكون ذلك واضحا", "دعني اوضح لك", "بناء علي ما ذكرت", "هل هناك اي شيء اخر",
-  "لا تتردد في التواصل", "بكل سرور", "عزيزي العميل",
+  "لا تتردد في التواصل", "بكل سرور", "عزيزي العميل", "عزيزي الزبون", "عميلنا العزيز",
 ];
 const SELF_REVEAL = /(ذكاء اصطناعي|نموذج لغوي|كبوت|انا بوت|as an ai|language model|chatgpt|openai)/i;
 
@@ -83,21 +83,24 @@ export function checkReply(reply: string, ctx: CheckContext): CheckResult {
   // Asking for what the card already holds.
   const k = ctx.known ?? {};
   const asks = (re: RegExp) => ls.some((l) => /[؟?]/.test(l) && re.test(normalizeArabic(l)));
-  if (k.licence && asks(/(مين ?لاند|فري ?زون|رخصت|نوع الرخصه)/)) {
-    issues.push({ code: "reask", note: "يسأل عن الرخصة وهي معروفة", fix: `الرخصة معروفة (${k.licence}) — لا تسأل عنها، ابنِ عليها.` });
+  if (k.licence && asks(/(توصيل ولا|سفري ولا|استلام ولا|ولا توصيل|ولا سفري|تطلب ولا تحجز|طلب ولا حجز|delivery or|pick ?up or)/)) {
+    issues.push({ code: "reask", note: "يسأل عن نوع الطلب وهو معروف", fix: `نوع الطلب معروف (${k.licence}) — لا تسأل عنه، ابنِ عليه.` });
   }
-  if (k.activity && asks(/(نشاط|وش تشتغل|شو شغلكم|مجال)/)) {
-    issues.push({ code: "reask", note: "يسأل عن النشاط وهو معروف", fix: `النشاط معروف (${k.activity}) — لا تسأل عنه.` });
+  if (k.activity && asks(/(المناسبه|وش المناسبه|occasion)/)) {
+    issues.push({ code: "reask", note: "يسأل عن المناسبة وهي معروفة", fix: `المناسبة معروفة (${k.activity}) — لا تسأل عنها.` });
   }
-  if (k.size && asks(/(كم فاتوره|عدد الفواتير|حجم الشغل|ايراد)/)) {
-    issues.push({ code: "reask", note: "يسأل عن الحجم وهو معروف", fix: `الحجم معروف (${k.size}) — لا تسأل عنه.` });
+  if (k.size && asks(/(كم شخص|كم عددكم|كم نفر|كم واحد|كم بتكونون|عدد الاشخاص|how many)/)) {
+    issues.push({ code: "reask", note: "يسأل عن العدد وهو معروف", fix: `العدد معروف (${k.size}) — لا تسأل عنه.` });
+  }
+  if (k.staff && asks(/(اي وقت|اي ساعه|الساعه كم|متي تبي|متي تحب|اي يوم|what time|which day)/)) {
+    issues.push({ code: "reask", note: "يسأل عن الوقت وهو معروف", fix: `الوقت معروف (${k.staff}) — لا تسأل عنه.` });
   }
 
-  // Numbers the company never gave it.
+  // Numbers the shop never gave it: a price, a delivery fee, a wait in minutes.
   const allowed = new Set([...claims(ctx.facts ?? ""), ...claims(ctx.customer)]);
   const invented = claims(text).filter((c) => !allowed.has(c));
   if (invented.length) {
-    issues.push({ code: "invented", note: `رقم غير موجود في معلومات الشركة: ${invented.join("، ")}`, fix: "احذف الرقم. إن سُئلت عنه فقل إنه يعتمد على وضعه واسأل عمّا يحدّده." });
+    issues.push({ code: "invented", note: `رقم غير موجود في معلومات المحل: ${invented.join("، ")}`, fix: "احذف الرقم. إن سُئلت عنه فقل «بتأكد لك من المحل» أو أرسل رابط المنيو." });
   }
 
   // Same opening word as last time reads as a template.
@@ -111,9 +114,9 @@ export function checkReply(reply: string, ctx: CheckContext): CheckResult {
     issues.push({ code: "language", note: "بلغة غير لغة العميل", fix: cAr > 0.6 ? "العميل كتب عربياً — رُدّ بالعربية." : "العميل كتب إنجليزياً — رُدّ بالإنجليزية." });
   }
 
-  // Selling again after a yes.
-  if (ctx.stage === 7 && /(سعر|خصم|عرض خاص|باقه|باقات)/.test(n)) {
-    issues.push({ code: "oversell", note: "يعرض من جديد بعد أن وافق العميل", fix: "العميل وافق — انتقل للتنفيذ: الخطوة التالية وموعدها فقط." });
+  // Offering more after a yes.
+  if (ctx.stage === 7 && /(خصم|عرض خاص|عندنا كمان|جرب كمان|تبي تضيف|تحب تضيف|باقه|باقات)/.test(n)) {
+    issues.push({ code: "oversell", note: "يعرض من جديد بعد أن وافق الزبون", fix: "الزبون وافق — أكّد التفاصيل في سطر فقط، بلا عرض جديد." });
   }
 
   const weights: Record<string, number> = { long: 15, questions: 15, list: 10, robotic: 20, reveal: 40, reask: 20, invented: 30, "same-open": 5, language: 30, oversell: 20 };
@@ -129,10 +132,10 @@ export function needsRewrite(r: CheckResult): boolean {
 /** The instruction the rewrite call gets: the draft, and exactly what is wrong with it. */
 export function rewritePrompt(draft: string, r: CheckResult, ctx: CheckContext): string {
   return [
-    "أنت تُراجع رد موظف مبيعات على واتساب قبل إرساله. أعد كتابته ليصلح المشكلات أدناه فقط، مع الحفاظ على معناه وهدفه ولهجته.",
+    "أنت تُراجع رد مضيّف المحل على واتساب قبل إرساله. أعد كتابته ليصلح المشكلات أدناه فقط، مع الحفاظ على معناه وهدفه ولهجته.",
     "اكتب الرد المصحّح وحده، بلا مقدمة ولا شرح ولا علامات تنصيص.",
     "",
-    `رسالة العميل: ${ctx.customer.slice(0, 600)}`,
+    `رسالة الزبون: ${ctx.customer.slice(0, 600)}`,
     "",
     `الرد المقترح:\n${draft}`,
     "",

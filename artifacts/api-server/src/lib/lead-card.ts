@@ -1,18 +1,29 @@
 // ── The lead card ─────────────────────────────────────────────────
-// The conversation map tells an employee to know which stage of the sale it
-// is in, what it has already learnt, and what the one goal of this message
-// is. Until now it had to work all three out from the transcript on every
-// reply, and a ten-message history rarely says "licence: free zone" in so
-// many words — so it asked again, which is the single most reliable way to
-// sound like a machine.
+// The conversation map tells the host to know where the conversation is,
+// what it has already been told, and what the one goal of this message is.
+// Until now it had to work all three out from the transcript on every reply,
+// and a ten-message history rarely says "four people, Thursday at eight" in
+// so many words — so it asked again, which is the single most reliable way
+// to sound like a machine.
 //
 // So the facts are extracted by rules from the customer's own messages, the
 // stage is computed from them, and both are written into the prompt as a
 // card. Rules rather than a model call: extraction runs on every inbound
 // message, the free tier cannot afford a second call per message, and the
-// vocabulary — licence types, activities, "كم فاتورة" — is small and stable.
-// What the rules miss the model still sees in the history; what they catch
-// it no longer has to guess.
+// vocabulary — «توصيل», «كم شخص», «الخميس ٨ المسا», «حساسية» — is small and
+// stable. What the rules miss the model still sees in the history; what they
+// catch it no longer has to guess.
+//
+// The card's columns are Flow Hub's, kept so the table, the follow-up engine
+// and the dashboards keep working. What each one holds for a shop:
+//
+//   licence    → how they want it: delivery, pickup, dine-in, booking, queue, pre-order
+//   activity   → the occasion: a birthday, guests, a wedding…
+//   size       → the party size
+//   staff      → the day and time they want
+//   taxStatus  → the area, for delivery
+//   accountant → dietary needs and allergies
+//   pain       → what they are asking about: price, delivery, hours, location…
 
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { db, leadCardsTable, waThreadMessagesTable, type LeadCard } from "@workspace/db";
@@ -21,17 +32,26 @@ import { logger } from "./logger";
 
 // ── Facts ─────────────────────────────────────────────────────────
 
+export type Mode = "delivery" | "pickup" | "dinein" | "booking" | "queue" | "preorder";
+
 export interface LeadFacts {
-  licence?: "mainland" | "freezone";
+  /** How they want it — see Mode. Stored in the `licence` column. */
+  licence?: Mode;
+  /** The occasion. */
   activity?: string;
+  /** The party size. */
   size?: string;
+  /** The day and time wanted. */
   staff?: string;
+  /** The area, for delivery. */
   taxStatus?: string;
+  /** Dietary needs and allergies. */
   accountant?: string;
+  /** What they are asking about. */
   pain?: string;
   /** The objection raised in this message, if any. Transient. */
   objection?: string;
-  /** This message is an agreement to go ahead. */
+  /** This message is a go-ahead: book it, I'm coming, confirm. */
   agreed?: boolean;
 }
 
@@ -41,108 +61,147 @@ export interface LeadFacts {
 // word characters, so it never finds the edge of an Arabic word — hence the
 // lookarounds on letters and digits.
 const B = "\\p{L}\\p{N}";
-// A conjunction is written attached — «وعندي محاسب», «فغالي» — so one is
-// allowed on the front of every match.
-const W = (src: string) => new RegExp(`(?<![${B}])[وف]?(?:${src})(?![${B}])`, "iu");
+// A conjunction or a preposition is written attached — «وبكم», «فغالي»,
+// «للخميس» — so one is allowed on the front of every match.
+const W = (src: string) => new RegExp(`(?<![${B}])(?:[وفبل]|ال)?(?:${src})(?![${B}])`, "iu");
 
-// Activities a UAE company owner names. The stored value is the canonical
-// form on the right.
-const ACTIVITIES: Array<[RegExp, string]> = [
-  [W("مقاول(ات|ه)?|مقاولين"), "مقاولات"],
-  [W("مطعم|مطاعم|كافيه|كوفي|مقهي"), "مطاعم"],
-  [W("تجاره|تجاري|بيع وشراء|جمله|تجزيه"), "تجارة"],
-  [W("عقار(ات|ي)?"), "عقارات"],
-  [W("نقل|شحن|لوجستي(ات|ه)?"), "نقل وشحن"],
-  [W("صيانه|تكييف|كهرباء|سباكه"), "صيانة"],
-  [W("نظافه|تنظيف"), "نظافة"],
-  [W("تسويق|اعلان(ات)?|دعايه"), "تسويق"],
-  [W("برمج(ه|يات)|تقنيه|سوفت|تطبيق(ات)?"), "تقنية"],
-  [W("استشار(ات|ي|يه)"), "استشارات"],
-  [W("صالون|حلاق(ه|ين)?|تجميل|بيوتي"), "صالونات"],
-  [W("عياد(ه|ات)|طبي|مركز طبي"), "طبي"],
-  [W("صيدلي(ه|ات)"), "صيدلية"],
-  [W("ذهب|مجوهرات"), "ذهب ومجوهرات"],
-  [W("سيارات|معرض سيارات|ورشه"), "سيارات"],
-  [W("تعليم|معهد|مدرسه|تدريب"), "تعليم"],
-  [W("سياح(ه|ي|يه)|سفر|فندق"), "سياحة"],
-  [W("ديكور|اثاث|تصميم داخلي"), "ديكور وأثاث"],
-  [W("مواد بناء|حديد|اسمنت"), "مواد بناء"],
-  [W("الكتروني(ات|ه)?|جوالات|اجهزه"), "إلكترونيات"],
-  [W("ملابس|ازياء|عبايات"), "ملابس"],
-  [W("اغذيه|مواد غذائيه|مواد غذاييه|سوبرماركت|بقاله"), "أغذية"],
-  [W("توصيل|دليفري"), "توصيل"],
-  [W("تاجير|ايجار"), "تأجير"],
+// Most specific first: «أوصّي على صينية توصيل للخميس» is a pre-order, not a delivery.
+const MODES: Array<[RegExp, Mode]> = [
+  [W("طلب مسبق|طلبيه|اوصي|توصيه|صينيه|صينيات|صواني|كيك(ه)? (ل|لعيد|ليوم)|pre ?order"), "preorder"],
+  [W("احجز(ه|لي|ون)?|حجز|نحجز|تحجزون|موعد|مواعيد|ريزرف|reserv(e|ation)|book(ing)?"), "booking"],
+  [W("دوري|الدور|دور|الصف|طابور|فيه زحمه|زحمه|فيه مكان|انتظار|queue|waiting ?list"), "queue"],
+  [W("توصيل|توصلون|يوصل|دليفري|delivery|deliver"), "delivery"],
+  [W("سفري|استلام|استلم|بستلم|من السياره|take ?away|pick ?up"), "pickup"],
+  [W("بنجلس|نجلس|داخل المحل|في المحل|dine ?in"), "dinein"],
 ];
 
-const PAINS: Array<[RegExp, string]> = [
-  [W("غرام(ه|ات)|مخالف(ه|ات)"), "غرامات"],
-  [W("متاخر(ه|ات|ين)?|متراكم(ه|ات)?|من شهور"), "متأخرات متراكمة"],
-  [W("تدقيق|مدقق|اوديت"), "تدقيق قادم"],
-  [W("تجديد (ال)?رخص(ه|تنا|تي)?"), "تجديد الرخصة"],
-  [W("البنك|قرض|تمويل|شريك"), "بنك أو شريك يطلب أرقاماً"],
-  [W("محاسب(ي|نا)? (ترك|استقال|مشي|راح)|ما عندي محاسب|بدون محاسب"), "بلا محاسب"],
-  [W("ما اعرف (ربح|ارباح)|ما ادري (وين|كم) (الربح|الفلوس)|الفلوس (وين|فين)"), "لا يعرف ربحه"],
-  [W("فوضي|مو مرتب|مش مرتب|مبعثر"), "دفاتر غير مرتبة"],
-  [W("اشعار|خطاب رسمي|رساله من الهييه"), "إشعار رسمي"],
+const OCCASIONS: Array<[RegExp, string]> = [
+  [W("عيد ميلاد|ميلاد(ه|ي|ها)?|birthday"), "عيد ميلاد"],
+  [W("زواج|عرس|ملكه|خطوب(ه|تي)|wedding|engagement"), "زواج أو ملكة"],
+  [W("عروس(ه)?|bride"), "عروس"],
+  [W("عزيم(ه)?|عزومه|ضيوف|وليم(ه)?|guests"), "عزيمة"],
+  [W("تخرج|graduation"), "تخرّج"],
+  [W("اجتماع|ميتنج|meeting"), "اجتماع عمل"],
+  [W("افطار|سحور|رمضان|العيد"), "رمضان أو العيد"],
+  [W("ذكري|anniversary"), "ذكرى"],
+  [W("مولود|بيبي شاور|baby shower"), "مولود"],
+];
+
+const NEEDS: Array<[RegExp, string]> = [
+  [W("بكم|كم سعر|كم السعر|السعر|اسعار|الاسعار|price|how much"), "يسأل عن السعر"],
+  [W("توصلون|توصيل|دليفري|delivery"), "يسأل عن التوصيل"],
+  [W("متي تفتحون|متي تسكرون|الدوام|مفتوحين|فاتحين|تفتحون|تسكرون|open|close"), "يسأل عن الساعات"],
+  [W("وين موقعكم|وين مكانكم|موقعكم|العنوان|لوكيشن|location|where"), "يسأل عن الموقع"],
+  [W("فيه مكان|فيه زحمه|زحمه|كم الانتظار|كم قدامي|دوري"), "يبي يجي الحين"],
+  [W("احجز|حجز|موعد|book"), "يبي يحجز"],
+  [W("المنيو|منيو|القائمه|وش عندكم|شو عندكم|menu"), "يبي المنيو"],
+  [W("متوفر|موجود|عندكم"), "يسأل هل الصنف موجود"],
 ];
 
 const OBJECTIONS: Array<[RegExp, string]> = [
   [W("غالي|مرتفع|كثير (علي|عليه)|expensive"), "غالي"],
-  [W("عندي محاسب|محاسب عندي|عندنا محاسب|مكتب محاسبه"), "عنده محاسب"],
-  [W("ارسل(ي|وا)? (لي )?(ال)?تفاصيل|ابغي تفاصيل|عطني تفاصيل"), "يطلب التفاصيل"],
-  [W("بعدين|مشغول|مو الحين|مش دلوقتي|لاحقا"), "يؤجّل"],
-  [W("شركت(نا|ي) صغيره|احنا صغار|لسه بدايه"), "يرى شركته صغيرة"],
-  [W("مع مكتب (ثاني|اخر)|متعاقد(ين)? مع"), "مع مكتب آخر"],
-  [W("من انتم|مين انتم|ما اعرفكم|منين (جبتوا|جبت) رقمي"), "لا يعرفنا"],
+  [W("خصم|كوبون|كود خصم|فيه عرض|عروض|discount|offer"), "يطلب خصماً"],
+  [W("بعيد|ما توصلون|خارج المنطقه|too far"), "بعيد عن التوصيل"],
+  [W("انتظار طويل|وايد انتظار|طولتوا|طول الانتظار|too long"), "الانتظار طويل"],
+  [W("بعدين|مشغول|مو الحين|مب الحين|مش دلوقتي|لاحقا|later"), "يؤجّل"],
 ];
 
-// Agreement comes in two strengths. «موافق» and «أرسل العقد» are a yes
-// wherever they appear. «نبدأ» is a yes only as a statement — «كيف نبدأ؟» and
-// «متى نبدأ» are an interested customer asking a question, and reading them
-// as agreement closed the sale before the offer had been made.
-const AGREED_STRONG = W("موافق(ين)?|اتفقنا|ارسل (لي )?العقد|علي بركه الله|deal");
-const AGREED_SOFT   = W("نبدا|خلاص ابدا|تمام ابدا|يلا نبدا|ابشر نبدا|let s start");
-const ASKING        = W("كيف|متي|وش|شو|شلون|هل|ايش|ليش|كم|how|when|what");
+// A go-ahead comes in two strengths. «ثبّت الحجز» and «موافق» are a yes
+// wherever they appear. «بجي» is a yes only as a statement — «متى أجي؟» and
+// «كيف أحجز» are a customer asking a question, and reading them as a yes
+// confirmed a booking nobody had made.
+const AGREED_STRONG = W("موافق(ين)?|اتفقنا|ثبت(ه|لي)?( الحجز| الطلب)?|اكد(ه|لي)? (الحجز|الطلب)|احجز(ه)? لي|احجزلي|سجلني|علي بركه الله|deal|confirm(ed)?|book it");
+const AGREED_SOFT   = W("بجي|بنجي|نجي|نجيكم|جايينكم|خلاص (احجز|نطلب|بطلب)|تمام احجز|اوكي احجز|we re coming|see you");
+const ASKING        = W("كيف|متي|وش|شو|شلون|هل|ايش|ليش|كم|وين|how|when|what|where");
 
-const LICENCE_MAINLAND = W("مين ?لاند|مينلاند|mainland|رخصه (محليه|اقتصاديه|رييسيه)|دايره (الاقتصاد|التنميه)");
-const LICENCE_FREEZONE = W("فري ?زون|فريزون|free ?zone|منطقه حره");
-const INVOICES = /(\d{1,6})\s*(?:الي|او)?\s*(\d{1,6})?\s*(فاتوره|فواتير)/;
-const REVENUE  = /(\d{1,4}(?:[.,]\d+)?)\s*(مليون|الف|k|m)(?![\p{L}])/iu;
-const STAFF    = /(\d{1,5})\s*(موظف(ين)?|عامل|عمال|شخص|انفار)/;
-const TAX_NO   = W("(مو|مش|غير|ما) مسجل(ين)?|ما سجلنا|لسه ما سجلت");
-const TAX_YES  = W("مسجل(ين)? (في|ب)?(ال)?ضريب(ه|ة)?");
-const ACC_HAS  = W("عندي محاسب|محاسب عندي|عندنا محاسب");
-const ACC_FIRM = W("مكتب محاسبه|متعاقد(ين)? مع مكتب");
-const ACC_NONE = W("ما عندي محاسب|بدون محاسب|لسه ما عندنا محاسب");
+// Party size: a count with a word for people, or a table for a number.
+const PARTY      = /(?<![\p{N}])(\d{1,3})\s*(اشخاص|شخص|نفر|انفار|افراد|ضيوف|ضيف|people|persons|pax|guests)(?![\p{L}])/iu;
+const PARTY_TBL  = /(طاوله|حجز|table for)\s*(ل)?\s*(\d{1,3})(?![\p{N}])/iu;
+const PARTY_WORD = W("شخصين|لشخصين|اثنين|ثنين|two of us");
+const PARTY_ONE  = W("لوحدي|بروحي|بس انا|just me");
 
-/** What this one message says about the lead. Pure. */
+// The day, as said, and how it is shown back.
+const DAYS: Array<[RegExp, string]> = [
+  [W("بعد بكره|بعد باكر|بعد بكرا"), "بعد بكرة"],
+  [W("بكره|باكر|بكرا|tomorrow"), "بكرة"],
+  [W("الليله|tonight"), "الليلة"],
+  [W("اليوم|today"), "اليوم"],
+  [W("الحين|now"), "الحين"],
+  [W("السبت|saturday"), "السبت"], [W("الاحد|sunday"), "الأحد"], [W("الاثنين|monday"), "الاثنين"],
+  [W("الثلاثاء|tuesday"), "الثلاثاء"], [W("الاربعاء|wednesday"), "الأربعاء"], [W("الخميس|thursday"), "الخميس"],
+  [W("الجمعه|friday"), "الجمعة"],
+];
+// A clock time needs a marker — «الساعة» before it or a period after it — or
+// every «٤ أشخاص» would read as four o'clock.
+const CLOCK = /(?:(الساعه|ساعه|at)\s*)?(\d{1,2})(?:\s*[:.]\s*(\d{2}))?\s*(صباحا|الصبح|ص|مساء|المسا|مسا|بالليل|الليل|العصر|الظهر|م|pm|am)?(?![\p{L}\p{N}])/giu;
+const PERIOD: Record<string, string> = { "صباحا": "صباحاً", "الصبح": "صباحاً", "ص": "صباحاً", am: "صباحاً", "مساء": "مساءً", "المسا": "مساءً", "مسا": "مساءً", "بالليل": "مساءً", "الليل": "مساءً", "م": "مساءً", pm: "مساءً", "العصر": "العصر", "الظهر": "الظهر" };
+
+// Areas a UAE customer names for delivery, shown back in their usual spelling.
+// Neighbourhoods before cities: «دبي مارينا» is the Marina.
+const AREAS: Array<[RegExp, string]> = [
+  [W("البرشاء|al barsha"), "البرشاء"], [W("الكرامه|karama"), "الكرامة"], [W("ديره|deira"), "ديرة"],
+  [W("جميرا|jumeirah"), "جميرا"], [W("jlt|ابراج بحيرات جميرا"), "أبراج بحيرات جميرا"], [W("jvc|قريه جميرا"), "قرية جميرا"], [W("مارينا|المارينا|marina"), "المارينا"], [W("الخالديه|khalidiya"), "الخالدية"],
+  [W("مدينه خليفه|خليفه|khalifa city"), "مدينة خليفة"], [W("مصفح|musaffah"), "مصفح"], [W("جزيره الريم|reem island"), "جزيرة الريم"],
+  [W("ياس|yas"), "ياس"], [W("النهده|nahda"), "النهدة"], [W("القصيص|qusais"), "القصيص"], [W("المجاز|majaz"), "المجاز"],
+  [W("الخوانيج|khawaneej"), "الخوانيج"], [W("الممزر|mamzar"), "الممزر"], [W("بزنس باي|business bay"), "بزنس باي"],
+  [W("داون تاون|downtown"), "داون تاون"],
+  [W("ابوظبي|ابو ظبي|abu dhabi"), "أبوظبي"], [W("دبي|dubai"), "دبي"], [W("الشارقه|sharjah"), "الشارقة"],
+  [W("عجمان|ajman"), "عجمان"], [W("العين|al ain"), "العين"], [W("راس الخيمه|rak"), "رأس الخيمة"],
+  [W("الفجيره|fujairah"), "الفجيرة"], [W("ام القيوين|uaq"), "أم القيوين"],
+];
+const AREA_WORD = /(?:منطقه|حي|area)\s+([\p{L}]{3,20}(?:\s[\p{L}]{3,20})?)/iu;
+
+const DIETS: Array<[RegExp, string]> = [
+  [W("حساسيه (من )?(ال)?مكسرات|nut allergy|nuts"), "حساسية مكسرات"],
+  [W("حساسيه (من )?(ال)?فول سوداني|peanut"), "حساسية فول سوداني"],
+  [W("حساسيه (من )?(ال)?(جلوتين|قمح)|بدون جلوتين|gluten"), "بدون جلوتين"],
+  [W("حساسيه (من )?(ال)?(لاكتوز|حليب|الالبان)|بدون حليب|lactose|dairy free"), "بدون لاكتوز"],
+  [W("حساسيه (من )?(ال)?(بيض)|egg allergy"), "حساسية بيض"],
+  [W("حساسيه (من )?(ال)?(سمك|روبيان|ماكولات بحريه)|seafood allergy|shellfish"), "حساسية مأكولات بحرية"],
+  [W("نباتي(ين|ه)?|vegan|vegetarian|بدون لحم"), "نباتي"],
+  [W("بدون سكر|سكري|sugar free|diabetic"), "بدون سكر"],
+  [W("كيتو|keto"), "كيتو"],
+  [W("حساسيه|allergy|allergic"), "عنده حساسية"],
+];
+
+const latinDigits = (t: string) => t.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06F0));
+
+/** What this one message says about what the customer wants. Pure. */
 export function extractFacts(text: string): LeadFacts {
-  const n = normalizeArabic(text ?? "");
+  // «للخميس», «للبرشاء»: the ل swallows the ا of ال, so it is put back for the patterns to find.
+  const n = normalizeArabic(text ?? "").replace(/(^|\s)لل(?=\p{L}{2})/gu, "$1ل ال");
+  // The clock needs the colon in «8:30», which the normaliser turns into a space.
+  const lightly = latinDigits(text ?? "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[ً-ْـ]/g, "").toLowerCase();
   const f: LeadFacts = {};
 
-  if (LICENCE_MAINLAND.test(n)) f.licence = "mainland";
-  else if (LICENCE_FREEZONE.test(n)) f.licence = "freezone";
+  for (const [re, mode] of MODES) if (re.test(n)) { f.licence = mode; break; }
+  for (const [re, name] of OCCASIONS) if (re.test(n)) { f.activity = name; break; }
 
-  for (const [re, name] of ACTIVITIES) if (re.test(n)) { f.activity = name; break; }
+  const party = PARTY.exec(n), table = PARTY_TBL.exec(n);
+  const count = party ? Number(party[1]) : table ? Number(table[3]) : PARTY_WORD.test(n) ? 2 : PARTY_ONE.test(n) ? 1 : 0;
+  if (count >= 1 && count <= 200) f.size = count === 1 ? "شخص واحد" : count === 2 ? "شخصين" : `${count} أشخاص`;
 
-  const invoices = INVOICES.exec(n);
-  if (invoices) f.size = `${invoices[1]}${invoices[2] ? `–${invoices[2]}` : ""} فاتورة بالشهر`;
-  else {
-    const revenue = REVENUE.exec(n);
-    if (revenue) f.size = `إيراد نحو ${revenue[1]} ${revenue[2]}`;
+  let day: string | undefined;
+  for (const [re, name] of DAYS) if (re.test(n)) { day = name; break; }
+  let clock: string | undefined;
+  for (const m of lightly.matchAll(CLOCK)) {
+    const [, marker, hh, mm, period] = m;
+    const h = Number(hh);
+    if (!(marker || period) || h < 1 || h > 24) continue;
+    // A count right after it is people, not a time: «الساعه 8 4 اشخاص» keeps the 8.
+    clock = `${h}${mm ? `:${mm}` : ""}${period ? ` ${PERIOD[period] ?? period}` : ""}`;
+    break;
   }
+  if (day || clock) f.staff = [day, clock].filter(Boolean).join(" ").slice(0, 40);
 
-  const staff = STAFF.exec(n);
-  if (staff) f.staff = `${staff[1]} موظف`;
+  for (const [re, name] of AREAS) if (re.test(n)) { f.taxStatus = name; break; }
+  if (!f.taxStatus) { const a = AREA_WORD.exec(n); if (a) f.taxStatus = a[1]!.slice(0, 40); }
 
-  if (TAX_NO.test(n)) f.taxStatus = "غير مسجل في الضريبة";
-  else if (TAX_YES.test(n)) f.taxStatus = "مسجل في الضريبة";
+  const diets: string[] = [];
+  for (const [re, name] of DIETS) if (re.test(n) && !(name === "عنده حساسية" && diets.some((d) => d.startsWith("حساسية")))) diets.push(name);
+  if (diets.length) f.accountant = diets.join("، ").slice(0, 80);
 
-  if (ACC_NONE.test(n)) f.accountant = "بلا محاسب";
-  else if (ACC_HAS.test(n)) f.accountant = "عنده محاسب";
-  else if (ACC_FIRM.test(n)) f.accountant = "مع مكتب محاسبة";
-
-  for (const [re, name] of PAINS) if (re.test(n)) { f.pain = name; break; }
+  for (const [re, name] of NEEDS) if (re.test(n)) { f.pain = name; break; }
   for (const [re, name] of OBJECTIONS) if (re.test(n)) { f.objection = name; break; }
   if (AGREED_STRONG.test(n) || (AGREED_SOFT.test(n) && !/[؟?]/.test(text ?? "") && !ASKING.test(n))) f.agreed = true;
 
@@ -152,24 +211,24 @@ export function extractFacts(text: string): LeadFacts {
 // ── Stages ────────────────────────────────────────────────────────
 
 export const STAGES = [
-  { n: 1, name: "فتح",     goal: "أن يرد. جملة تخصّه وسؤال سهل، لا عرض." },
-  { n: 2, name: "استكشاف", goal: "أن تعرف رخصته ونشاطه وحجمه ووجعه — سؤال واحد فقط." },
-  { n: 3, name: "تشخيص",   goal: "أن يسمّي هو المشكلة بلسانه." },
-  { n: 4, name: "قيمة",    goal: "أن يفهم تكلفة بقاء الوضع كما هو. لا سعر بعد." },
-  { n: 5, name: "عرض",     goal: "عرض واحد يناسب ما قاله، ثم السعر إن طلبه، ثم اصمت." },
-  { n: 6, name: "اعتراض",  goal: "افهم سبب اعتراضه، ردّ واحد وسؤال. لا تدافع ولا تخفّض." },
-  { n: 7, name: "إغلاق",   goal: "وافق. لا تبِع من جديد — خطوة محددة بزمن وسلّم لبشري باسم وموعد." },
+  { n: 1, name: "ترحيب",   goal: "أن يقول وش يبغى. ترحيب قصير وسؤال سهل، لا قائمة خدمات." },
+  { n: 2, name: "فهم الطلب", goal: "أن تعرف: طلب أو دور أو حجز، وما ينقص منه — سؤال واحد فقط." },
+  { n: 3, name: "التفاصيل", goal: "أكمل الناقص الوحيد (العدد، الوقت، المنطقة) أو أكّد ما عندك." },
+  { n: 4, name: "الخطوة",   goal: "جاوب سؤاله من المعلومات كما هي، ثم رابط واحد يناسبه: المنيو أو الدور أو الحجز." },
+  { n: 5, name: "الطلب",    goal: "يبغى يطلب أو يحجز الحين: الرابط المناسب وتأكيد التفاصيل في سطر، ثم اصمت." },
+  { n: 6, name: "اعتراض",   goal: "افهم اعتراضه، ردّ واحد وبديل موجود فعلاً. لا تخفّض ولا تخترع عرضاً." },
+  { n: 7, name: "تأكيد",    goal: "وافق. لا تعرض شيئاً جديداً — أكّد التفاصيل في سطر، وسلّم لشخص من المحل إن احتاج." },
 ] as const;
 
 export type Known = Pick<LeadCard, "licence" | "activity" | "size" | "pain" | "agreedAt">;
 
 /**
- * Where the sale is after this message. Pure.
+ * Where the conversation is after this message. Pure.
  *
- * Mostly monotonic — a customer does not un-learn that they have a problem —
- * with one exception: an objection is a moment, not a level. Stage 6 lasts
- * for the message that raised it and the reply to it, then the sale is back
- * where it was.
+ * Mostly monotonic — a customer does not un-say that they want a table for
+ * four — with one exception: an objection is a moment, not a level. Stage 6
+ * lasts for the message that raised it and the reply to it, then the
+ * conversation is back where it was.
  */
 export function nextStage(prev: number, known: Known, intent: Intent, turns: number, now: LeadFacts): number {
   if (known.agreedAt || now.agreed) return 7;
@@ -189,31 +248,36 @@ export function nextStage(prev: number, known: Known, intent: Intent, turns: num
 
 // ── The card in the prompt ────────────────────────────────────────
 
-const LICENCE_AR = { mainland: "مِين لاند", freezone: "فري زون" } as const;
+export const MODE_AR: Record<Mode, string> = {
+  delivery: "توصيل", pickup: "استلام", dinein: "في المحل", booking: "حجز", queue: "دور", preorder: "طلب مسبق",
+};
 
-/** The card as the employee reads it. Pure. */
+/** The card as the host reads it. Pure. */
 export function cardText(c: LeadCard): string {
   const known: string[] = [];
-  if (c.licence)    known.push(`الرخصة: ${LICENCE_AR[c.licence as keyof typeof LICENCE_AR] ?? c.licence}`);
-  if (c.activity)   known.push(`النشاط: ${c.activity}`);
-  if (c.size)       known.push(`الحجم: ${c.size}`);
-  if (c.staff)      known.push(`الموظفون: ${c.staff}`);
-  if (c.taxStatus)  known.push(`الضريبة: ${c.taxStatus}`);
-  if (c.accountant) known.push(`المحاسب: ${c.accountant}`);
-  if (c.pain)       known.push(`وجعه: ${c.pain}`);
+  if (c.licence)    known.push(`يبغى: ${MODE_AR[c.licence as Mode] ?? c.licence}`);
+  if (c.size)       known.push(`العدد: ${c.size}`);
+  if (c.staff)      known.push(`الوقت: ${c.staff}`);
+  if (c.taxStatus)  known.push(`المنطقة: ${c.taxStatus}`);
+  if (c.activity)   known.push(`المناسبة: ${c.activity}`);
+  if (c.accountant) known.push(`الأكل: ${c.accountant}`);
+  if (c.pain)       known.push(`سأل: ${c.pain}`);
 
+  // Only what this kind of request needs: a delivery has no party size, a queue has no area.
   const missing: string[] = [];
-  if (!c.licence)  missing.push("الرخصة");
-  if (!c.activity) missing.push("النشاط");
-  if (!c.size)     missing.push("الحجم");
-  if (!c.pain)     missing.push("ما يقلقه");
+  const mode = c.licence as Mode | null;
+  if (!mode) missing.push("طلب ولا دور ولا حجز");
+  if ((mode === "booking" || mode === "queue" || mode === "dinein") && !c.size) missing.push("العدد");
+  if ((mode === "booking" || mode === "preorder") && !c.staff) missing.push("الوقت");
+  if (mode === "delivery" && !c.taxStatus) missing.push("المنطقة");
 
   const stage = STAGES[Math.min(7, Math.max(1, c.stage)) - 1]!;
   const lines = [
-    "بطاقة العميل — من كلامه هو، لا تسأل عمّا فيها:",
+    "بطاقة الزبون — من كلامه هو، لا تسأل عمّا فيها:",
     known.length ? `- ${known.join(" · ")}` : "- لا تعرف عنه شيئاً بعد.",
   ];
   if (missing.length && c.stage < 5) lines.push(`- لم تعرف بعد: ${missing.join("، ")} — اسأل عن واحدة فقط إن ناسبت الرسالة.`);
+  if (c.accountant) lines.push("- ذكر حساسية أو نظام أكل: لا تطمئنه عن المكونات من عندك — ما هو مكتوب فقط، والباقي للمحل.");
   lines.push(`المرحلة الآن: ${stage.n} — ${stage.name}. هدف هذه الرسالة: ${stage.goal}`);
   if (c.stage === 6 && c.objection) lines.push(`اعترض للتو: «${c.objection}».`);
   return lines.join("\n");
@@ -225,7 +289,7 @@ export interface CardUpdate {
   card: LeadCard;
   /** Facts this message added that the card did not have. */
   learnt: string[];
-  /** The stage crossed a line the owner should hear about: 5 (hot) or 7 (agreed). */
+  /** The stage crossed a line the owner should hear about: 5 (wants to order or book) or 7 (agreed). */
   reached: 5 | 7 | null;
 }
 
@@ -276,7 +340,7 @@ export async function updateCard(userId: number, phone: string, text: string, in
   }).returning();
 
   if (learnt.length || reached) {
-    logger.info({ userId, phone, stage, learnt, reached }, "بطاقة العميل حُدِّثت");
+    logger.info({ userId, phone, stage, learnt, reached }, "بطاقة الزبون حُدِّثت");
   }
   return { card: card!, learnt, reached };
 }

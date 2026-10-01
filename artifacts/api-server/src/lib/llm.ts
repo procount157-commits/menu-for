@@ -341,7 +341,7 @@ const EXTRA_MODELS: Record<string, string[]> = {
 //     restaurant entries in the knowledge base and applied them to the wrong
 //     customer, which is worse than being slow.
 //   openrouter/dots-studio/dots-3-note-preview:free — 7.7s and writes
-//     "الم registrered" and "ضريبةporate tax".
+//     words half in one script and half in another ("الم registrered").
 
 /**
  * Ask a model, and keep asking until one answers.

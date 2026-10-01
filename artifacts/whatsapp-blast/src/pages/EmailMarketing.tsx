@@ -348,7 +348,7 @@ function Sequences() {
     <div className="space-y-4">
       <div className="flex justify-between items-center flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">سلّم رسائل بمواعيد: تتوقف فور أن يردّ، ولا تُرسل لمن ارتدّ بريده أو ألغى.</p>
-        <div className="flex gap-2"><button onClick={() => seed.mutate()} className={ghost}><Sparkles className="w-3.5 h-3.5" /> القوالب الجاهزة (AML)</button>
+        <div className="flex gap-2"><button onClick={() => seed.mutate()} className={ghost}><Sparkles className="w-3.5 h-3.5" /> القوالب الجاهزة</button>
           <button onClick={() => setEdit({ name: "", steps: [{ afterHours: 0, subject: "", html: "" }], stopOnReply: true, stopOnOpen: false })} className={primary}><Plus className="w-3.5 h-3.5" /> تسلسل جديد</button></div>
       </div>
       {edit && (
@@ -372,7 +372,7 @@ function Sequences() {
         </div>
       )}
       <div className={cn(card, "divide-y divide-card-border")}>
-        {seqs.length === 0 && <p className="p-6 text-sm text-muted-foreground text-center">لا تسلسلات بعد — اضغط «القوالب الجاهزة» لتثبيت تسلسل AML.</p>}
+        {seqs.length === 0 && <p className="p-6 text-sm text-muted-foreground text-center">لا تسلسلات بعد — اضغط «القوالب الجاهزة» لتثبيت تسلسل التعريف بمنيو فور يو.</p>}
         {seqs.map((s) => (
           <div key={s.id} className="p-3.5 flex items-center gap-3 flex-wrap">
             <button onClick={() => setEdit({ ...s })} className="font-semibold text-sm hover:text-primary">{s.name}</button>
@@ -417,7 +417,7 @@ function Templates() {
         <EmailEditor value={edit.html} subject={edit.subject} onChange={(html) => setEdit({ ...edit, html })} minHeight={320} />
         <div className="flex gap-2"><button onClick={() => save.mutate(edit)} className={primary}>احفظ</button><button onClick={() => setEdit(null)} className={ghost}>إلغاء</button><PreviewButton subject={edit.subject} html={edit.html} /></div>
       </div>}
-      {rows.length === 0 && <div className={cn(card, "p-6 text-sm text-muted-foreground text-center")}>لا قوالب — «القوالب الجاهزة» في تبويب المتابعة تثبّت قوالب AML.</div>}
+      {rows.length === 0 && <div className={cn(card, "p-6 text-sm text-muted-foreground text-center")}>لا قوالب — «القوالب الجاهزة» في تبويب المتابعة تثبّت قوالب منيو فور يو.</div>}
       {/* The gallery: each template as it arrives, small; click for the full view. */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         {shown.map((t) => (
@@ -525,13 +525,13 @@ function SettingsTab() {
         <p className="text-sm font-semibold">المُرسِل</p>
         <div className="grid md:grid-cols-3 gap-3">
           <div><label className="text-xs font-semibold block mb-1.5">الطريقة</label><select className={input} value={f.provider} onChange={(e) => setF({ ...f, provider: e.target.value })}><option value="smtp">SMTP (Google Workspace / Microsoft 365 / Hostinger / Zoho)</option><option value="resend">Resend API</option><option value="brevo">Brevo API</option></select></div>
-          <L l="اسم المُرسِل" k="fromName" ph="بروكاونت للمحاسبة" /><L l="بريد المُرسِل" k="fromEmail" ph="hello@procount.ae" />
+          <L l="اسم المُرسِل" k="fromName" ph="منيو فور يو" /><L l="بريد المُرسِل" k="fromEmail" ph="hello@example.com" />
         </div>
         {f.provider === "smtp" ? <div className="grid md:grid-cols-4 gap-3"><L l="SMTP host" k="smtpHost" ph="smtp.gmail.com" /><L l="المنفذ" k="smtpPort" type="number" /><L l="المستخدم" k="smtpUser" /><L l="كلمة المرور / App password" k="smtpPass" type="password" /></div>
           : <L l="API key" k="apiKey" type="password" />}
         <div className="grid md:grid-cols-4 gap-3"><L l="Reply-To (اختياري)" k="replyTo" /><L l="حصة الساعة" k="hourlyCap" type="number" /><L l="حصة اليوم" k="dailyCap" type="number" />
           <label className="text-xs flex items-center gap-2 pt-6"><input type="checkbox" checked={!!f.tracking} onChange={(e) => setF({ ...f, tracking: e.target.checked })} /> تتبّع الفتح والنقر</label></div>
-        <div><label className="text-xs font-semibold block mb-1.5">التوقيع (HTML)</label><textarea className={cn(input, "min-h-[5rem] text-xs")} value={f.signature ?? ""} onChange={(e) => setF({ ...f, signature: e.target.value })} placeholder="{{sender}}<br>بروكاونت للمحاسبة<br>+971 …" /></div>
+        <div><label className="text-xs font-semibold block mb-1.5">التوقيع (HTML)</label><textarea className={cn(input, "min-h-[5rem] text-xs")} value={f.signature ?? ""} onChange={(e) => setF({ ...f, signature: e.target.value })} placeholder="{{sender}}<br>منيو فور يو<br>+971 …" /></div>
         <p className="text-[11px] text-muted-foreground">ابدأ بحصة صغيرة (٤٠ في الساعة، ٣٠٠ في اليوم) لعنوان جديد وارفعها بعد أسبوعين من ارتداد منخفض. الإرسال داخل ساعات العمل فقط.</p>
       </div>
       <div className={cn(card, "p-4 space-y-3")}>
@@ -545,13 +545,13 @@ function SettingsTab() {
         </div>
         <p className="text-[11px] text-muted-foreground">رأس بلون الشركة وشعارها، الرسالة في بطاقة بيضاء، وتذييل فيه العنوان والموقع والهاتف ورابط إلغاء الاشتراك — يُطبَّق على كل رسالة تلقائياً. الشعار رابط صورة PNG على موقعكم (https).</p>
         {(f.layout ?? "branded") === "branded" && (<>
-          <div className="grid md:grid-cols-3 gap-3"><L l="اسم العلامة" k="brandName" ph="PRO COUNT" /><L l="السطر تحت الاسم" k="brandTagline" ph="Accounting · Tax · AML Compliance" /><L l="رابط الشعار (PNG)" k="logoUrl" ph="https://www.pro-count.ae/apple-touch-icon.png" /></div>
-          <div className="grid md:grid-cols-3 gap-3"><L l="الموقع" k="website" ph="www.pro-count.ae" /><L l="الهاتف" k="phone" ph="+971 54 232 8336" /><L l="العنوان" k="address" ph="Abu Dhabi, United Arab Emirates" /></div>
+          <div className="grid md:grid-cols-3 gap-3"><L l="اسم العلامة" k="brandName" ph="MENU FOR YOU" /><L l="السطر تحت الاسم" k="brandTagline" ph="Digital menu · Queue · Bookings" /><L l="رابط الشعار (PNG)" k="logoUrl" ph="https://…/logo.png" /></div>
+          <div className="grid md:grid-cols-3 gap-3"><L l="الموقع" k="website" ph="www.example.com" /><L l="الهاتف" k="phone" ph="+971 5x xxx xxxx" /><L l="العنوان" k="address" ph="Dubai, United Arab Emirates" /></div>
           <div className="flex gap-4 flex-wrap items-center">
             {([["brandColor", "لون الرأس", "#111c33"], ["brandAccent", "لون الأزرار والروابط", "#0284c7"]] as const).map(([k, l, d]) => (
               <label key={k} className="text-xs flex items-center gap-2">{l}<input type="color" value={f[k] || d} onChange={(e) => setF({ ...f, [k]: e.target.value })} className="w-9 h-7 rounded border border-card-border bg-transparent" /><code className="text-[10px] text-muted-foreground" dir="ltr">{f[k] || d}</code></label>
             ))}
-            <PreviewButton subject="Preview — Pro Count" html={`<p>Hello {{first_name|there}},</p><p>This is how every email from {{sender}} looks: your header, the message in a card, and your details in the footer.</p><div class="note">A highlighted box for the one point that matters.</div><p class="cta"><a href="https://${(f.website || "www.pro-count.ae").replace(/^https?:\/\//, "")}">Book a free consultation</a></p><p>Best regards,<br>The team</p>`} />
+            <PreviewButton subject="Preview — Menu For You" html={`<p>Hello {{first_name|there}},</p><p>This is how every email from {{sender}} looks: your header, the message in a card, and your details in the footer.</p><div class="note">A highlighted box for the one point that matters.</div><p class="cta"><a href="https://${(f.website || "www.example.com").replace(/^https?:\/\//, "")}">See a demo menu</a></p><p>Best regards,<br>The team</p>`} />
             <span className="text-[10px] text-muted-foreground">احفظ أولاً ثم عاين.</span>
           </div>
         </>)}

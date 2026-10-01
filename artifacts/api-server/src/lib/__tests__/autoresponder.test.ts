@@ -21,9 +21,9 @@ for (const t of [
 console.log("\n— بشر حقيقيون: يجب ألّا يُصنَّفوا آليين —");
 for (const t of [
   "السلام عليكم، كم سعر الخدمة؟",
-  "ابغى اسجل شركتي بالضريبه",
+  "ابغى احجز طاولة لاربعة الليلة",
   "مرحبا",
-  "وش الاوراق المطلوبه؟",
+  "عندكم توصيل للبرشاء؟",
   "اوك تمام ارسل لي التفاصيل",
 ] as const) {
   const v = detectAutoresponder(t, { secondsSinceOurMessage: 900 });
@@ -32,7 +32,7 @@ for (const t of [
 
 console.log("\n— الحالات الحدّية —");
 // "Welcome to X" from a person who also asks something is a human.
-const mixed = detectAutoresponder("Welcome to our office! How can I help you today with your tax?", { secondsSinceOurMessage: 600 });
+const mixed = detectAutoresponder("Welcome to our salon! Can I book a haircut for today?", { secondsSinceOurMessage: 600 });
 check("قالب + سؤال بعد وقت = بشر", !mixed.isAuto, `${mixed.confidence}`);
 // Speed alone must never be enough — an eager human replies fast too.
 const fastHuman = detectAutoresponder("ايه تمام ابغى اعرف اكثر", { secondsSinceOurMessage: 2 });

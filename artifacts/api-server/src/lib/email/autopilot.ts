@@ -132,16 +132,17 @@ export async function refreshStageLists(userId: number, parent: { id: number; na
 }
 
 // ── سلمى: which campaign for which list ───────────────────────────
-// The firm's campaign library (A–I in its knowledge base), by sector.
+// Menu For You's campaign library, by the shop's vertical. "مطاعم ومقاهي" is
+// the label lists carried before cafés got their own; it still gets the
+// restaurant campaign. Anything else — a list of mixed shops, a sector we do
+// not sell to — gets the general introduction.
 const CAMPAIGNS: Array<{ sectors: string[]; goal: string }> = [
-  { sectors: ["عقارات"], goal: "حملة AML للعقارات: وسطاء ووكالات العقارات من فئات DNFBP — الحديث عن العناية الواجبة بالعملاء والمستفيد الحقيقي وتقييم المخاطر والجاهزية للتفتيش، لا التسجيل في goAML وحده. الدعوة: نراجع جاهزيتكم لـ AML." },
-  { sectors: ["ذهب ومجوهرات"], goal: "حملة الذهب والمجوهرات: التزامات DPMS ومعرفة العميل والمعاملات النقدية، مع محاسبة المخزون وتكلفة الجرام والهامش. الدعوة: نقيّم التزامات DPMS لديكم." },
-  { sectors: ["مقاولات", "مواد بناء"], goal: "حملة تكاليف المقاولات: هل كل مشروع رابح فعلاً؟ تكلفة المشروع والعمالة والمواد والمقاولين من الباطن والميزانية مقابل الفعلي. الدعوة: نناقش حجم عملكم المحاسبي." },
-  { sectors: ["مطاعم ومقاهي", "أغذية"], goal: "حملة محاسبة المطاعم: المبيعات ليست ربحاً — تكلفة الطعام والهدر والمخزون وربحية كل فرع. الدعوة: استشارة قصيرة عن ربحية فروعكم." },
-  { sectors: ["استشارات", "قانونية", "تقنية", "تسويق وإعلان"], goal: "حملة الشركات القائمة على المشاريع: ربحية كل مشروع وكل عميل وتوزيع تكلفة الموظفين، مع ضريبة الشركات وVAT. الدعوة: نناقش احتياجاتكم." },
-  { sectors: ["محاسبة وتدقيق", "خدمات الشركات"], goal: "حملة مسؤول امتثال خارجي (MLRO): المحاسبون المستقلون من فئات DNFBP بحسب إرشادات 2026 — إطار AML والسياسات والتدريب والجاهزية للتفتيش. الدعوة: تقييم امتثال AML." },
+  { sectors: ["مطاعم", "مطاعم ومقاهي"], goal: "حملة المطاعم: زحمة الباب وقت العشاء، ناس يملّون ويمشون، طلبات بالتلفون تنكتب وتنعاد، منيو مطبوع قديم. منيو فور يو: صف رقمي على QR الباب يرسل «جاء دورك» على واتساب، طلب على واتساب محسوب من المنيو، حجز طاولة بتذكير. الدعوة: «شوف منيو تجريبي»." },
+  { sectors: ["كافيهات"], goal: "حملة الكافيهات: زحمة الصبح عند الكاونتر، الناس ما يعرفون طلب مين جاهز، منيو يتغيّر كل موسم. منيو فور يو: الطلب من الـ QR برقم، واتساب لما يجهز، منيو يتعدّل من الجوال بالصور والخيارات. الدعوة: «شوف منيو تجريبي»." },
+  { sectors: ["حلويات"], goal: "حملة الحلويات: الطلبات المسبقة (صواني، كيك) بتاريخ استلام تضيع في محادثات الواتساب، وضغط المواسم. منيو فور يو: طلب مسبق بتاريخ من المنيو، كل الطلبات مرتبة باليوم، تذكير قبل الاستلام. الدعوة: «شوف منيو تجريبي»." },
+  { sectors: ["تجميل وصالونات"], goal: "حملة الصالونات: المواعيد بالتلفون والواتساب، مواعيد تضيع، زبونات بدون موعد ينتظرن في الاستقبال. منيو فور يو: الخدمات بمدتها وسعرها، حجز موعد بتذكير «جاية / ألغي»، صف رقمي للزبونات بدون موعد. الدعوة: عرض ١٠ دقايق." },
 ];
-const DEFAULT_GOAL = "حملة ضريبة الشركات والمحاسبة الخارجية للشركات الصغيرة والمتوسطة: الإقرار خلال تسعة أشهر من نهاية الفترة الضريبية، والسجلات، ومتى تكون الاستعانة بمحاسبة خارجية منطقية. الدعوة: نراجع وضعكم الضريبي.";
+const DEFAULT_GOAL = "حملة التعريف العامة بمنيو فور يو للمحلات: رابط وQR واحد يفتح منيو أنيق بدون تطبيق، الطلب يوصل على واتساب المحل، صف انتظار رقمي يرسل «جاء دورك»، حجوزات وطلبات مسبقة، فروع تحت حساب واحد، ومضيّف واتساب يرد من المنيو. الدعوة: «شوف منيو تجريبي».";
 
 /** The sector most of the list is in, and the campaign for it. */
 export async function campaignFor(listId: number): Promise<{ sector: string | null; goal: string }> {
@@ -214,7 +215,7 @@ export async function runAutopilot(userId: number, opts: { force?: boolean } = {
           followAfterHours: cfg.followAfterHours, agentRole: "email", sourceListId: list.id,
         });
         done.waves++;
-        await activity(userId, "email_strategist", "wave", `خطّطت موجة لـ ${n} شركة من «${list.name}»${plan.sector ? ` (قطاع ${plan.sector})` : ""} — ${plan.goal.split(":")[0]}. سلّمتها لنورة لتكتبها.`, { listId: list.id, missionId: m.id });
+        await activity(userId, "email_strategist", "wave", `خطّطت موجة لـ ${n} محل من «${list.name}»${plan.sector ? ` (قطاع ${plan.sector})` : ""} — ${plan.goal.split(":")[0]}. سلّمتها لنورة لتكتبها.`, { listId: list.id, missionId: m.id });
       }
     }
 
@@ -229,8 +230,8 @@ export async function runAutopilot(userId: number, opts: { force?: boolean } = {
         if (!n) continue;
         const plan = await campaignFor(list.id);
         const goal = sl.stage === "clicked"
-          ? `متابعة لمن نقر رابطاً في رسالتنا — اهتمام واضح. رسالة قصيرة باسم شركته تبني على ما نقر عليه وتدعوه مباشرة لمكالمة قصيرة أو تقييم مجاني. السياق: ${plan.goal}`
-          : `متابعة لمن فتح رسالتنا ولم يرد. زاوية ألم جديدة من قطاعه لم تُذكر من قبل، وسؤال تأهيل واحد يسهل الرد عليه. السياق: ${plan.goal}`;
+          ? `متابعة لمن نقر رابطاً في رسالتنا — اهتمام واضح. رسالة قصيرة باسم محله تبني على ما نقر عليه وتدعوه مباشرة لعرض ١٠ دقايق أو تجربة مجانية. السياق: ${plan.goal}`
+          : `متابعة لمن فتح رسالتنا ولم يرد. مشكلة جديدة من يوم محله لم تُذكر من قبل، وسؤال واحد يسهل الرد عليه. السياق: ${plan.goal}`;
         const m = await createMission(userId, {
           name: `${list.name} — متابعة ${STAGES[sl.stage as Stage]}`.slice(0, 160),
           goal, filter, language: cfg.language, requireApproval, followAfterHours: cfg.followAfterHours,

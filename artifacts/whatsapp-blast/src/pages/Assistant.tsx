@@ -87,7 +87,7 @@ export default function Assistant() {
         </button>
         <button
           onClick={() => interview.mutate()} disabled={interview.isPending}
-          title="عشرة أسئلة من مديرة المبيعات، تكتب منها ملف الشركة وقاعدة المعرفة"
+          title="عشرة أسئلة من رئيسة الفريق، تكتب منها ملف المحل وقاعدة المعرفة"
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm border border-primary/40 text-primary hover:bg-primary/10"
         >
           🎤 مقابلة التأهيل

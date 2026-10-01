@@ -128,7 +128,7 @@ export default function BrowserDesk() {
           <span className="text-sm">{who?.avatar} <b>{who?.name}</b></span>
           <input value={url} onChange={(e) => setUrl(e.target.value)} dir="ltr"
                  onKeyDown={(e) => { if (e.key === "Enter" && url.trim()) read.mutate(); }}
-                 placeholder="procount.ae" className={cn(input, "flex-1 min-w-[180px] font-mono text-xs")} />
+                 placeholder="example-restaurant.ae" className={cn(input, "flex-1 min-w-[180px] font-mono text-xs")} />
           <button onClick={() => read.mutate()} disabled={!url.trim() || read.isPending || !role} className={ghost}>
             {read.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />} افتح
           </button>

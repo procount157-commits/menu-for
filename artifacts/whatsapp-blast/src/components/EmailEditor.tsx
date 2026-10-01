@@ -17,7 +17,8 @@ const FIELDS: Array<[string, string]> = [
   ["{{city}}", "City / المدينة"],
   ["{{sender}}", "Sender / المرسل"],
 ];
-const WA = "https://wa.me/971542328336";
+// The owner's own sales number goes here once; until then the button asks for a link.
+const WA = "https://wa.me/";
 
 /** Keep what email can carry, drop what the browser's editing adds. */
 function clean(html: string): string {
@@ -57,11 +58,11 @@ export function EmailEditor({ value, onChange, subject, minHeight = 320, compact
   const cmd = (c: string, arg?: string) => { ref.current?.focus(); document.execCommand(c, false, arg); emit(); };
   const insertHtml = (html: string) => { ref.current?.focus(); document.execCommand("insertHTML", false, html); emit(); };
 
-  const addLink = () => { const url = prompt("Link (https://…)", "https://www.pro-count.ae"); if (url) cmd("createLink", url); };
+  const addLink = () => { const url = prompt("Link (https://…)", "https://"); if (url) cmd("createLink", url); };
   const addButton = () => {
-    const label = prompt(rtl ? "نص الزر" : "Button text", rtl ? "احجز استشارة مجانية" : "Book a free consultation");
+    const label = prompt(rtl ? "نص الزر" : "Button text", rtl ? "شوف منيو تجريبي" : "See a demo menu");
     if (!label) return;
-    const url = prompt(rtl ? "الرابط — واتساب افتراضياً" : "Link — WhatsApp by default", `${WA}?text=${encodeURIComponent(rtl ? `مرحباً بروكاونت، أرغب في ${label}` : `Hello Pro Count, I would like to ${label.charAt(0).toLowerCase()}${label.slice(1)}`)}`);
+    const url = prompt(rtl ? "الرابط — واتساب افتراضياً" : "Link — WhatsApp by default", `${WA}?text=${encodeURIComponent(rtl ? `هلا منيو فور يو، أبغى ${label}` : `Hello Menu For You, I would like to ${label.charAt(0).toLowerCase()}${label.slice(1)}`)}`);
     if (!url) return;
     insertHtml(`<p class="cta"><a href="${url.replace(/"/g, "&quot;")}">${label}</a></p><p><br></p>`);
   };

@@ -13,15 +13,15 @@ check("first name skips a title", firstName("المهندس خالد العلي"
 
 // ── Tracking ─────────────────────────────────────────────────────
 const t = { base: "https://site.example", token: "tok123", secret: "s", pixel: true, links: true };
-const html = '<p><a href="https://procount.example/aml">AML</a> <a href="mailto:x@y.z">mail</a> <a href="#top">top</a></p>';
+const html = '<p><a href="https://menu.example/demo">Demo</a> <a href="mailto:x@y.z">mail</a> <a href="#top">top</a></p>';
 const rw = rewriteLinks(html, t);
-check("http links go through the redirect", rw.includes("https://site.example/t/e/tok123/c?u=https%3A%2F%2Fprocount.example%2Faml&s="));
-check("...signed", rw.includes(`&s=${signUrl("s", "tok123", "https://procount.example/aml")}`));
+check("http links go through the redirect", rw.includes("https://site.example/t/e/tok123/c?u=https%3A%2F%2Fmenu.example%2Fdemo&s="));
+check("...signed", rw.includes(`&s=${signUrl("s", "tok123", "https://menu.example/demo")}`));
 check("mailto and anchors are left alone", rw.includes('href="mailto:x@y.z"') && rw.includes('href="#top"'));
 check("no base, no rewriting", rewriteLinks(html, { ...t, base: "" }) === html);
 check("the pixel points at the token", pixelTag(t).includes("/t/e/tok123.gif"));
 check("no pixel without a base", pixelTag({ ...t, base: "" }) === "");
-const r = renderEmail("<p>مرحباً {{name}}</p>", { name: "سارة" }, t, { base: t.base, token: t.token, fromName: "بروكاونت", fromEmail: "hello@procount.example" });
+const r = renderEmail("<p>مرحباً {{name}}</p>", { name: "سارة" }, t, { base: t.base, token: t.token, fromName: "منيو فور يو", fromEmail: "hello@menu.example" });
 check("the render carries the footer and the pixel", r.html.includes("إلغاء الاشتراك") && r.html.includes("tok123.gif") && r.html.includes("سارة"));
 check("...and a text part", r.text.startsWith("مرحباً سارة"));
 check("html to text keeps links readable", htmlToText('<p>see <a href="https://a.b">this</a><br>now</p>') === "see this (https://a.b)\nnow");

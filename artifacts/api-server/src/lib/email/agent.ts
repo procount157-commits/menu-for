@@ -1,7 +1,7 @@
 // ── نورة: the email agent ─────────────────────────────────────────
 // An employee of her own, because the owner asked for one to train: she
 // holds knowledge the owner gives her — about the service, about each
-// sector, about how the firm talks — each item tagged with the sector it
+// vertical, about how the team talks — each item tagged with the sector it
 // applies to, and she brings the right part of it to whatever she writes.
 // She writes the campaign for a target the owner picks, and the follow-ups
 // for the two audiences a campaign leaves behind (opened and did not reply;
@@ -105,7 +105,7 @@ async function voice(userId: number) {
       `اسمك ${agent.name}${agent.title ? `، ${agent.title}` : ""}.`,
       agent.persona ?? "",
       profile?.name ? `تعملين لدى ${profile.name}${profile.industry ? ` — ${profile.industry}` : ""}.` : "",
-      profile?.description ? `عن الشركة: ${profile.description}` : "",
+      profile?.description ? `عن النشاط: ${profile.description}` : "",
       profile?.guardrails ? `ما لا يُقال أبداً: ${profile.guardrails}` : "",
       skillsPreamble(skills),
     ].filter(Boolean).join("\n"),
@@ -126,7 +126,7 @@ export async function teach(userId: number, text: string, topic: string | null =
   const out = await complete([
     { role: "system", content: [
       "أنت تحفظين معرفة علّمك إياها صاحب العمل لتستخدميها في كتابة البريد التسويقي.",
-      "استخرجي من النص الحقائق المفيدة للبيع: ما نقدّمه، لمن، ما يقلق كل قطاع، الالتزامات والمواعيد كما وردت حرفياً، أسلوبنا، ما لا يُقال.",
+      "استخرجي من النص الحقائق المفيدة للبيع: ما نقدّمه، لمن، ما يزعج كل نوع من المحلات، الأسعار والباقات والميزات كما وردت حرفياً، أسلوبنا، ما لا يُقال.",
       "كل حقيقة في سطر مستقل مكتفٍ بذاته، بهذا الشكل بالضبط:",
       "حقيقة: <الحقيقة> | القطاع: <اسم القطاع أو عام>",
       "لا تخترعي شيئاً ليس في النص. انقلي الأرقام والمواعيد كما هي. من ٣ إلى ٢٠ سطراً.",
@@ -230,15 +230,15 @@ export async function writeCampaign(userId: number, input: { filter: SegmentFilt
       head,
       "",
       knows,
-      facts.length ? `من قاعدة معرفة الشركة:\n${facts.map((f) => `- ${f.entry.title}: ${f.entry.content.slice(0, 400)}`).join("\n")}` : "",
-      docs.length ? `من مستندات الشركة التي رفعها صاحب العمل:\n${docs.map((d) => `[${d.title}]\n${d.text}`).join("\n\n")}` : "",
+      facts.length ? `من قاعدة المعرفة:\n${facts.map((f) => `- ${f.entry.title}: ${f.entry.content.slice(0, 400)}`).join("\n")}` : "",
+      docs.length ? `من المستندات التي رفعها صاحب المنصة:\n${docs.map((d) => `[${d.title}]\n${d.text}`).join("\n\n")}` : "",
       "",
       "المطلوب: حملة بريد لجمهور محدد. اكتبي بهذا الشكل بالضبط ولا شيء خارجه:",
       "[عنوان] <العنوان الأول>",
       "[عنوان] <عنوان ثانٍ بزاوية مختلفة تماماً — سنختبرهما على شريحة>",
       "[الرسالة]",
-      "<نص الرسالة: فقرات قصيرة مفصولة بسطر فارغ، يبدأ بـ «{{first_name|…}}،» أو تحية باسم الشركة، وينتهي بطلب واحد، ثم سطر الزر، ثم التوقيع>",
-      "[زر] <نص زر الدعوة: ٢ إلى ٥ كلمات بلغة الرسالة، مثل «Review your AML readiness» أو «احجزوا استشارة مجانية»> — سطر مستقل قبل التوقيع في الرسالة وفي كل متابعة",
+      "<نص الرسالة: فقرات قصيرة مفصولة بسطر فارغ، يبدأ بـ «{{first_name|…}}،» أو تحية باسم المحل، وينتهي بطلب واحد، ثم سطر الزر، ثم التوقيع>",
+      "[زر] <نص زر الدعوة: ٢ إلى ٥ كلمات بلغة الرسالة، مثل «See a demo menu» أو «شوف منيو تجريبي»> — سطر مستقل قبل التوقيع في الرسالة وفي كل متابعة",
       "[/الرسالة]",
       "[متابعة بعد=72 جمهور=دافئ]",
       "عنوان: <عنوان لمن فتح ولم يرد>",
@@ -252,13 +252,14 @@ export async function writeCampaign(userId: number, input: { filter: SegmentFilt
       "",
       `اللغة: ${LANG[input.language ?? "ar"] ?? LANG.ar}.`,
       input.tone ? `النبرة: ${input.tone}.` : "",
-      "حقول الشخصنة المتاحة فقط: {{first_name}} {{company}} {{city}} {{sender}} — مع بديل: {{company|شركتكم}}.",
-      "اسم شركة المستلم {{company|شركتكم}} في أحد العنوانين على الأقل وفي السطر الأول، والتوقيع «بروكاونت للمحاسبة» في آخر الرسالة وكل متابعة.",
-      "لا رقماً أو غرامة أو مهلة أو سعراً ليس في معرفتك أعلاه — سيُراجع حارس الجودة كل رقم ويوقف الرسالة. لا HTML، نص فقط.",
+      "حقول الشخصنة المتاحة فقط: {{first_name}} {{company}} {{city}} {{sender}} — مع بديل: {{company|محلكم}}.",
+      "اسم المحل المستلم {{company|محلكم}} في أحد العنوانين على الأقل وفي السطر الأول، والتوقيع «منيو فور يو» في آخر الرسالة وكل متابعة.",
+      "الأسعار ومدة التجربة ورابط المنيو التجريبي ورقم التواصل تبقى بين أقواس كما هي — [السعر الشهري] [مدة التجربة] [رابط المنيو التجريبي] — إلا إن كانت مكتوبة في معرفتك أعلاه.",
+      "لا رقماً ولا نسبة ولا سعراً ولا عدد محلات ليس في معرفتك أعلاه — سيُراجع حارس الجودة كل رقم ويوقف الرسالة. لا HTML، نص فقط.",
     ].filter(Boolean).join("\n") },
     { role: "user", content: [
       `الهدف: ${input.goal}`,
-      `الجمهور: ${audience.description} — ${n} شركة يمكن مراسلتها.`,
+      `الجمهور: ${audience.description} — ${n} محل يمكن مراسلته.`,
       sample.length ? `أمثلة منهم: ${sample.slice(0, 8).join("؛ ")}` : "",
       input.notes ? `ملاحظات صاحب العمل: ${input.notes}` : "",
     ].filter(Boolean).join("\n") },

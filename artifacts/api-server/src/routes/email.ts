@@ -699,7 +699,7 @@ router.get("/templates/:id/render", async (req, res) => {
   if (!t) return res.status(404).send("not found");
   const s = await getSettings(userId);
   const en = directionOf(t.html) === "ltr";
-  const vars = en ? { name: "Khalid Al Ali", first_name: "Khalid", company: "Al Noor Real Estate", city: "Dubai" } : { name: "خالد العلي", first_name: "خالد", company: "شركة النور العقارية", city: "دبي" };
+  const vars = en ? { name: "Khalid Al Ali", first_name: "Khalid", company: "Al Noor Restaurant", city: "Dubai" } : { name: "خالد العلي", first_name: "خالد", company: "مطعم النور", city: "دبي" };
   const r = renderEmail(t.html + (s?.signature ? `<div style="margin-top:20px">${s.signature}</div>` : ""), { ...vars, sender: s?.fromName ?? "" },
     { base: "", token: "preview", secret: "x", pixel: false, links: false },
     { base: "", token: "preview", fromName: s?.fromName ?? "", fromEmail: s?.fromEmail ?? "" }, brandOf(s));
@@ -709,14 +709,14 @@ router.get("/templates/:id/render", async (req, res) => {
 router.post("/templates/seed", async (req, res) => res.json(await seedEmailDefaults(req.session.userId!, true)));
 router.post("/preview", async (req, res) => {
   const s = await getSettings(req.session.userId!);
-  // Sample names in the message's own language, so an English email previews with an English company.
+  // Sample names in the message's own language, so an English email previews with an English shop.
   const en = directionOf(String(req.body?.html ?? "")) === "ltr";
   const vars = en
-    ? { name: "Khalid Al Ali", first_name: "Khalid", company: "Al Noor Real Estate", city: "Dubai", industry: "Real Estate", sender: s?.fromName ?? "Pro Count", sender_email: s?.fromEmail ?? "" }
-    : { name: "خالد العلي", first_name: "خالد", company: "شركة النور للمقاولات", city: "دبي", industry: "مقاولات", sender: s?.fromName ?? "بروكاونت", sender_email: s?.fromEmail ?? "" };
+    ? { name: "Khalid Al Ali", first_name: "Khalid", company: "Al Noor Restaurant", city: "Dubai", industry: "Restaurants", sender: s?.fromName ?? "Menu For You", sender_email: s?.fromEmail ?? "" }
+    : { name: "خالد العلي", first_name: "خالد", company: "مطعم النور", city: "دبي", industry: "مطاعم", sender: s?.fromName ?? "منيو فور يو", sender_email: s?.fromEmail ?? "" };
   const r = renderEmail(String(req.body?.html ?? "") + (s?.signature ? `<div style="margin-top:20px">${s.signature}</div>` : ""), vars,
     { base: "", token: "preview", secret: "x", pixel: false, links: false },
-    { base: "", token: "preview", fromName: s?.fromName ?? "بروكاونت", fromEmail: s?.fromEmail ?? "hello@example.com" }, brandOf(s));
+    { base: "", token: "preview", fromName: s?.fromName ?? "منيو فور يو", fromEmail: s?.fromEmail ?? "hello@example.com" }, brandOf(s));
   res.json({ subject: personalize(String(req.body?.subject ?? ""), vars), html: r.html, text: r.text });
 });
 
@@ -785,7 +785,7 @@ router.post("/campaigns/:id/test", async (req, res) => {
   if (!isConfigured(s)) return res.status(400).json({ error: "إعدادات البريد غير مكتملة — اضبط المُرسِل أولاً" });
   const to = String(req.body?.to ?? s!.fromEmail).trim();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return res.status(400).json({ error: "بريد الاستلام غير صالح" });
-  const vars = { name: "خالد العلي", first_name: "خالد", company: "شركة النور للمقاولات", city: "دبي", industry: "", sender: s!.fromName ?? s!.fromEmail!, sender_email: s!.fromEmail! };
+  const vars = { name: "خالد العلي", first_name: "خالد", company: "مطعم النور", city: "دبي", industry: "", sender: s!.fromName ?? s!.fromEmail!, sender_email: s!.fromEmail! };
   const token = newToken();
   const r = renderEmail(c.html + (s!.signature ? `<div style="margin-top:20px">${s!.signature}</div>` : ""), vars,
     { base: "", token, secret: "x", pixel: false, links: false },

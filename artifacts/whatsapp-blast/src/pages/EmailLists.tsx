@@ -152,7 +152,7 @@ export function ListsTab({ onCampaign }: { onCampaign: (listId: number) => void 
 
       {creating && (
         <form onSubmit={(e) => { e.preventDefault(); if (newName.trim()) create.mutate(); }} className={cn(card, "p-3 flex gap-2 items-center")}>
-          <input autoFocus className={input} placeholder="اسم القائمة — مثلاً: وسطاء دبي" value={newName} onChange={(e) => setNewName(e.target.value)} />
+          <input autoFocus className={input} placeholder="اسم القائمة — مثلاً: مطاعم دبي" value={newName} onChange={(e) => setNewName(e.target.value)} />
           <button className={primary} disabled={!newName.trim() || create.isPending}>إنشاء</button>
           <button type="button" onClick={() => setCreating(false)} className={ghost}>إلغاء</button>
         </form>

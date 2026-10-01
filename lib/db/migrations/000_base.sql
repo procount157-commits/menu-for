@@ -4055,10 +4055,38 @@ CREATE INDEX idx_agent_memory ON public.agent_memory USING btree (user_id, role,
 
 
 --
+-- Name: idx_agent_memory_doc; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_agent_memory_doc ON public.agent_memory USING btree (doc_id) WHERE (doc_id IS NOT NULL);
+
+
+--
+-- Name: idx_agent_memory_uniq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_agent_memory_uniq ON public.agent_memory USING btree (user_id, role, kind, md5(content));
+
+
+--
 -- Name: idx_agent_messages; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_agent_messages ON public.agent_messages USING btree (user_id, created_at);
+
+
+--
+-- Name: idx_agent_messages_phone; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_agent_messages_phone ON public.agent_messages USING btree (user_id, phone, created_at DESC);
+
+
+--
+-- Name: idx_agent_messages_to; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_agent_messages_to ON public.agent_messages USING btree (user_id, to_role, read_at);
 
 
 --
@@ -4083,6 +4111,13 @@ CREATE INDEX idx_assistant_threads_user ON public.assistant_threads USING btree 
 
 
 --
+-- Name: idx_auto_reply_agent; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_auto_reply_agent ON public.auto_reply_log USING btree (user_id, agent_role, created_at);
+
+
+--
 -- Name: idx_auto_reply_user; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4101,6 +4136,13 @@ CREATE INDEX idx_bookings_branch ON public.bookings USING btree (branch_id, star
 --
 
 CREATE INDEX idx_bookings_code ON public.bookings USING btree (code);
+
+
+--
+-- Name: idx_bot_employees_role; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_bot_employees_role ON public.bot_employees USING btree (user_id, role);
 
 
 --
@@ -4132,10 +4174,24 @@ CREATE INDEX idx_delib ON public.followup_deliberations USING btree (user_id, cr
 
 
 --
+-- Name: idx_delib_phone; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_delib_phone ON public.followup_deliberations USING btree (user_id, phone, step);
+
+
+--
 -- Name: idx_email_agent_activity; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_email_agent_activity ON public.email_agent_activity USING btree (user_id, created_at);
+
+
+--
+-- Name: idx_email_contacts_sector; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_email_contacts_sector ON public.email_contacts USING btree (user_id, sector);
 
 
 --
@@ -4160,6 +4216,13 @@ CREATE INDEX idx_email_inbound_user ON public.email_inbound USING btree (user_id
 
 
 --
+-- Name: idx_email_knowledge_docs_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_email_knowledge_docs_user ON public.email_knowledge_docs USING btree (user_id, category);
+
+
+--
 -- Name: idx_email_messages_campaign; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4178,6 +4241,20 @@ CREATE INDEX idx_email_messages_contact ON public.email_messages USING btree (co
 --
 
 CREATE INDEX idx_email_messages_queue ON public.email_messages USING btree (user_id, status, created_at);
+
+
+--
+-- Name: idx_email_mission_log; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_email_mission_log ON public.email_mission_log USING btree (mission_id, created_at);
+
+
+--
+-- Name: idx_email_missions_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_email_missions_user ON public.email_missions USING btree (user_id, status);
 
 
 --
@@ -4209,6 +4286,13 @@ CREATE UNIQUE INDEX idx_follow_up_jobs_unique ON public.follow_up_jobs USING btr
 
 
 --
+-- Name: idx_handoffs_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_handoffs_user ON public.agent_handoffs USING btree (user_id, phone, created_at);
+
+
+--
 -- Name: idx_incoming_msgs_dedup; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4230,10 +4314,24 @@ CREATE INDEX idx_lead_cards_stage ON public.lead_cards USING btree (user_id, sta
 
 
 --
+-- Name: idx_lead_sources_intent; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_lead_sources_intent ON public.lead_sources USING btree (user_id, last_intent);
+
+
+--
 -- Name: idx_lead_sources_source; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_lead_sources_source ON public.lead_sources USING btree (user_id, source);
+
+
+--
+-- Name: idx_list_folders_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_list_folders_user ON public.list_folders USING btree (user_id, kind, sort);
 
 
 --
@@ -4370,6 +4468,13 @@ CREATE INDEX idx_segment_score ON public.contact_segments USING btree (user_id, 
 
 
 --
+-- Name: idx_skills_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_skills_name ON public.agent_skills USING btree (user_id, lower((name)::text));
+
+
+--
 -- Name: idx_ticket_join_code; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4412,6 +4517,20 @@ CREATE UNIQUE INDEX uq_branch_slug ON public.branches USING btree (org_id, slug)
 
 
 --
+-- Name: uq_contacts_group_phone; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_contacts_group_phone ON public.contacts USING btree (group_id, phone);
+
+
+--
+-- Name: uq_email_lists_stage; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_email_lists_stage ON public.email_lists USING btree (parent_list_id, stage) WHERE (parent_list_id IS NOT NULL);
+
+
+--
 -- Name: uq_staff_username; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4438,6 +4557,14 @@ CREATE UNIQUE INDEX uq_wa_template ON public.wa_templates USING btree (org_id, k
 
 ALTER TABLE ONLY public.agent_handoffs
     ADD CONSTRAINT agent_handoffs_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: agent_memory agent_memory_doc_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_memory
+    ADD CONSTRAINT agent_memory_doc_id_fkey FOREIGN KEY (doc_id) REFERENCES public.email_knowledge_docs(id) ON DELETE CASCADE;
 
 
 --

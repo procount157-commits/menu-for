@@ -1,93 +1,123 @@
-// ── The ready-made AML outreach for بروكاونت ─────────────────────
-// What a firm selling AML compliance to UAE companies sends: an opening
-// that names the obligation and asks one question, a second that explains
-// what compliance actually involves, and a third that offers a way out of
-// the thread. Installed on the first configured account; re-seeding never
-// overwrites a sequence or template the owner has edited.
+// ── The ready-made Menu For You outreach ──────────────────────────
+// What the platform owner sends to a shop that has never heard of it: an
+// opening that names one problem the shop lives every day and points to a
+// demo menu, a second that shows the queue from the customer's side, and a
+// third that offers a way out of the thread. Installed on the first
+// configured account; re-seeding never overwrites a sequence or template
+// the owner has edited.
 //
-// Everything firm-specific — fees, address, the consultant's name — is a
-// bracketed placeholder the owner fills in. Nothing here states a penalty
-// amount or a deadline: those are the owner's to write from the current
-// rules, not this file's to guess.
+// Everything the owner decides — the price, the trial's length, the demo
+// menu link, the phone — is a bracketed placeholder they fill in. Nothing
+// here states a result («زيادة المبيعات ٣٠٪») or a count of shops: those
+// would be invented, and the guard would stop them anyway.
 
 import { and, eq } from "drizzle-orm";
 import { db, emailSequencesTable, emailTemplatesTable, type EmailStep } from "@workspace/db";
 import { logger } from "../logger";
 
-export const DEFAULT_SEQUENCE_NAME = "الامتثال لمكافحة غسل الأموال — تعريف ومتابعة";
+export const DEFAULT_SEQUENCE_NAME = "منيو فور يو — تعريف ومتابعة";
 
 const P = (s: string) => `<p style="margin:0 0 14px">${s}</p>`;
 const UL = (items: string[]) => `<ul style="margin:0 0 14px;padding-right:22px">${items.map((i) => `<li style="margin:4px 0">${i}</li>`).join("")}</ul>`;
+const ULL = (items: string[]) => `<ul style="margin:0 0 14px;padding-left:22px">${items.map((i) => `<li style="margin:4px 0">${i}</li>`).join("")}</ul>`;
+const SIGN = "{{sender}}<br>منيو فور يو<br>[رقم واتساب المبيعات] · [موقع منيو فور يو]";
 
 const STEP1: EmailStep = {
   afterHours: 0,
-  subject: "{{company|شركتكم}} والتزامات مكافحة غسل الأموال في الإمارات",
+  subject: "{{company|محلكم}}: المنيو والدور وطلبات واتساب في رابط واحد",
   html: [
-    P("السلام عليكم {{first_name|أهلاً بكم}}،"),
-    P("أنا {{sender}} من <b>بروكاونت للمحاسبة</b>. نساعد الشركات في الإمارات على الالتزام بمتطلبات مكافحة غسل الأموال وتمويل الإرهاب دون أن يتحوّل الأمر إلى عبء يومي."),
-    P("إن كان نشاطكم من الأنشطة المصنّفة (عقارات، ذهب ومجوهرات، مدققون ومحاسبون، خدمات الشركات، تجارة أو أنشطة مالية)، فهناك التزامات تسجيل وتعيين مسؤول امتثال وتقييم مخاطر وإجراءات تعرّف على العملاء وإبلاغ عن المعاملات المشبوهة — وعدم الالتزام بها له عواقب تنظيمية ومالية."),
-    P("سؤال واحد يوفّر علينا الاثنين وقتاً: <b>هل لديكم حالياً مسؤول امتثال معيّن وتقييم مخاطر مكتوب؟</b>"),
-    P("إن كانت الإجابة لا، أو لستم متأكدين، فمكالمة عشر دقائق تكفي لنعرف أين تقفون بالضبط."),
-    P("مع التحية،<br>{{sender}}<br>بروكاونت للمحاسبة<br>[رقم الهاتف] · [الموقع الإلكتروني]"),
+    P("السلام عليكم {{first_name|هلا والله}}،"),
+    P("معك {{sender}} من <b>منيو فور يو</b>. نشتغل مع المطاعم والكافيهات ومحلات الحلويات والصالونات على شي واحد: رابط وQR يفتح للزبون منيو أنيق من جواله، بدون تطبيق ولا تسجيل."),
+    P("ومن نفس الصفحة الزبون يطلب ويوصلك الطلب على واتساب مكتوب ومحسوب، أو ياخذ دوره في صف رقمي وتوصله رسالة «جاء دورك»، أو يحجز طاولة أو موعد."),
+    P("سؤال واحد يوفّر علينا الوقت: <b>وقت الزحمة، كيف تنظّمون الناس اللي ينتظرون عند الباب؟</b>"),
+    P("وإذا تحب تشوف الفكرة بنفسك، افتح هالمنيو التجريبي من جوالك: [رابط المنيو التجريبي]"),
+    P(`مع التحية،<br>${SIGN}`),
   ].join(""),
 };
 
 const STEP2: EmailStep = {
   afterHours: 72,
-  subject: "ما الذي يعنيه الامتثال فعلاً — بلا مصطلحات",
+  subject: "الدور من جهة الزبون — بدون ورق ولا أسماء تنصاح",
   html: [
-    P("{{first_name|أهلاً}}،"),
-    P("كتبت لكم قبل أيام عن التزامات مكافحة غسل الأموال. أغلب من نكلّمهم يظنون أن الأمر «سياسة نطبعها ونضعها في الدرج». هو في الواقع خمسة أشياء ملموسة:"),
+    P("{{first_name|هلا}}،"),
+    P("كتبت لكم قبل أيام عن منيو فور يو. أكثر شي يسأل عنه أصحاب المحلات هو صف الانتظار، فهذا شكله بالضبط:"),
     UL([
-      "<b>التسجيل</b> في نظام الإبلاغ الرسمي، وتحديث بياناتكم فيه.",
-      "<b>مسؤول امتثال</b> معيّن باسمه، يعرف ما عليه ومتى.",
-      "<b>تقييم مخاطر</b> مكتوب لنشاطكم وعملائكم ومناطقكم الجغرافية.",
-      "<b>إجراءات التعرّف على العملاء</b> (KYC/CDD) موثّقة ومطبّقة، وسجلات محفوظة للمدة المطلوبة.",
-      "<b>إبلاغ</b> عن المعاملات المشبوهة ضمن المهل، وتدريب للموظفين.",
+      "الزبون يمسح الـ <b>QR</b> عند الباب ويكتب اسمه وكم شخص.",
+      "يشوف <b>كم واحد قدامه</b> والوقت التقريبي، ويتحدّث لحاله.",
+      "الموظف عنده شاشة فيها زر واحد: <b>«التالي»</b>.",
+      "الزبون يوصله واتساب <b>«قرّب دورك»</b> ثم <b>«جاء دورك»</b> — فيقدر ينتظر في سيارته أو في المول.",
+      "ورقمه يبقى عندك، فتقدر بعدين — بموافقته — تشكره أو تطلب تقييمه.",
     ]),
-    P("نحن نبني هذه الخمسة لكم ونشغّلها معكم: التسجيل، السياسات، تعيين مسؤول الامتثال أو تقديم الخدمة بالإنابة، والمراجعة الدورية. [أدرج هنا ما يميّز باقتكم: مدة التنفيذ، ما يشمله السعر، من يتابع بعد التسليم.]"),
-    P("<b>هل أرسل لكم قائمة المستندات التي نحتاجها للبدء؟</b> هي قصيرة."),
-    P("مع التحية،<br>{{sender}}<br>بروكاونت للمحاسبة"),
+    P("نفس الرابط فيه المنيو والطلب على واتساب والحجز، ولكل فرع صفه وشاشته. [أضف هنا ما يميّز باقتك: السعر، مدة التجربة، من يساعدهم في التركيب.]"),
+    P("<b>تحب نجهّز لكم نسخة تجريبية بمنيوكم أنتم؟</b> نحتاج بس صورة المنيو الحالي."),
+    P("مع التحية،<br>{{sender}}<br>منيو فور يو"),
   ].join(""),
 };
 
 const STEP3: EmailStep = {
   afterHours: 168,
-  subject: "آخر رسالة مني عن الامتثال",
+  subject: "آخر رسالة مني",
   html: [
-    P("{{first_name|أهلاً}}،"),
-    P("لن أزعجكم أكثر من هذا. إن لم يكن موضوع مكافحة غسل الأموال أولوية الآن فأتفهم تماماً، وأترك لكم رابط التواصل حين يحين وقته."),
-    P("وإن كان ما يمنعكم هو السعر أو الوقت، فاكتبوا لي كلمة واحدة وسأقترح ترتيباً يناسبكم — نبدأ بالتسجيل وتقييم المخاطر ونؤجّل الباقي."),
-    P("[رابط حجز مكالمة] · [رقم الواتساب]"),
-    P("مع التحية،<br>{{sender}}<br>بروكاونت للمحاسبة"),
+    P("{{first_name|هلا}}،"),
+    P("ما راح أزعجكم أكثر من كذا. إذا الموضوع مو أولوية الحين فأتفهّم تماماً، وأترك لكم الرابط لين يجي وقته."),
+    P("وإذا اللي مانعكم الوقت أو السعر، اكتبوا لي كلمة وحدة وأقترح بداية تناسبكم — مثلاً نبدأ بالمنيو والطلب على واتساب، ونضيف الدور والحجز بعدين."),
+    P("[رابط المنيو التجريبي] · [رقم واتساب المبيعات]"),
+    P("مع التحية،<br>{{sender}}<br>منيو فور يو"),
   ].join(""),
 };
 
 const TEMPLATES: Array<{ name: string; subject: string; html: string; category: string }> = [
-  { name: "AML — الرسالة الأولى", subject: STEP1.subject, html: STEP1.html, category: "AML" },
-  { name: "AML — ما يعنيه الامتثال", subject: STEP2.subject, html: STEP2.html, category: "AML" },
-  { name: "AML — الرسالة الأخيرة", subject: STEP3.subject, html: STEP3.html, category: "AML" },
+  { name: "منيو فور يو — الرسالة الأولى", subject: STEP1.subject, html: STEP1.html, category: "تعريف" },
+  { name: "منيو فور يو — الدور من جهة الزبون", subject: STEP2.subject, html: STEP2.html, category: "تعريف" },
+  { name: "منيو فور يو — الرسالة الأخيرة", subject: STEP3.subject, html: STEP3.html, category: "تعريف" },
   {
-    name: "AML — English opener", category: "AML",
-    subject: "AML compliance obligations for {{company|your company}} in the UAE",
+    name: "Menu For You — English opener", category: "تعريف",
+    subject: "{{company|Your shop}}'s menu, queue and WhatsApp orders — in one link",
     html: [
-      P("Dear {{first_name|Sir/Madam}},"),
-      P("I'm {{sender}} from <b>Pro Count Accounting</b>. We help UAE businesses meet their anti-money-laundering obligations without it becoming a daily burden."),
-      P("If your activity is a designated one — real estate, gold and jewellery, auditing and accounting, corporate services, trading or financial activities — you are expected to register with the reporting authority, appoint a compliance officer, keep a written risk assessment, apply customer due diligence and report suspicious transactions. Non-compliance carries regulatory and financial consequences."),
-      P("One question saves us both time: <b>do you currently have a named compliance officer and a written risk assessment?</b>"),
-      P("If not, or if you are not sure, a ten-minute call is enough to tell exactly where you stand."),
-      P("Kind regards,<br>{{sender}}<br>Pro Count Accounting<br>[phone] · [website]"),
+      P("Hello {{first_name|there}},"),
+      P("I'm {{sender}} from <b>Menu For You</b>. We work with restaurants, cafés, sweets shops and salons on one thing: a link and a QR code that open an elegant menu on the customer's phone — no app, no sign-up."),
+      P("From that same page the customer orders and the order reaches your WhatsApp written out and priced, or takes a place in a digital queue and gets a «جاء دورك» message when it is their turn, or books a table or an appointment."),
+      P("One question saves us both time: <b>on a busy evening, how do you handle the people waiting at the door?</b>"),
+      P("If you would rather see it first, open this demo menu on your phone: [demo menu link]"),
+      P("Kind regards,<br>{{sender}}<br>Menu For You<br>[WhatsApp number] · [website]"),
     ].join(""),
   },
   {
-    name: "التسجيل في ضريبة الشركات", category: "ضرائب",
-    subject: "{{company|شركتكم}} وضريبة الشركات — هل التسجيل مكتمل؟",
+    name: "Menu For You — English follow-up", category: "تعريف",
+    subject: "The queue, from {{company|your}} customer's side",
     html: [
-      P("{{first_name|أهلاً بكم}}،"),
-      P("أنا {{sender}} من بروكاونت للمحاسبة. كثير من الشركات التي نكلّمها إما لم تسجّل بعد في ضريبة الشركات أو سجّلت ولا تعرف ما المطلوب منها بعد التسجيل."),
-      P("سؤال واحد: <b>هل استلمتم شهادة التسجيل، ومن يتابع الإقرار الأول؟</b>"),
-      P("إن كان الجواب غير واضح، فمكالمة قصيرة تكفي لنرتّب لكم الخطوات بالترتيب الصحيح."),
-      P("مع التحية،<br>{{sender}}<br>بروكاونت للمحاسبة"),
+      P("Hello {{first_name|there}},"),
+      P("Following up on my note about Menu For You. The part owners ask about most is the queue:"),
+      ULL([
+        "The customer scans the QR at the door and enters a name and party size.",
+        "They see how many are ahead and roughly how long — live.",
+        "Your host has one button: <b>Next</b>.",
+        "The customer gets a WhatsApp «جاء دورك» and can wait in the car instead of the doorway.",
+      ]),
+      P("Plans start at [monthly price], and you can try it for [trial length]. <b>Shall we set up a demo with your own menu?</b> A photo of your current one is all we need."),
+      P("Kind regards,<br>{{sender}}<br>Menu For You"),
+    ].join(""),
+  },
+  {
+    name: "صالونات — المواعيد", category: "تجميل",
+    subject: "مواعيد {{company|صالونكم}} — بالتلفون ولا من رابط؟",
+    html: [
+      P("{{first_name|هلا والله}}،"),
+      P("معك {{sender}} من منيو فور يو. أغلب الصالونات تاخذ المواعيد بالتلفون والواتساب، وبعدين اليوم كله في دفتر أو في بال وحدة من الموظفات."),
+      P("مع منيو فور يو الزبونة تشوف خدماتكم بمدتها وسعرها، تختار الوقت (والموظفة لو تبون)، ويوصلها تذكير قبل الموعد فيه «جاية / ألغي»."),
+      P("سؤال واحد: <b>كم موعد يضيع عليكم في الأسبوع بسبب ناس ما جوا؟</b> ما نحتاج رقم دقيق — بس عشان نعرف إذا الموضوع يهمكم."),
+      P(`مع التحية،<br>${SIGN}`),
+    ].join(""),
+  },
+  {
+    name: "حلويات — الطلبات المسبقة", category: "حلويات",
+    subject: "طلبات الصواني عند {{company|محلكم}} — مكتوبة ولا ضايعة في المحادثات؟",
+    html: [
+      P("{{first_name|هلا والله}}،"),
+      P("معك {{sender}} من منيو فور يو. صينية كنافة ليوم الخميس الساعة خمس، كيكة ليوم السبت — محلات الحلويات عايشة على الطلبات المسبقة، وأغلبها توصل رسائل متفرقة في الواتساب."),
+      P("مع منيو فور يو الزبون يختار الصينية وتاريخ الاستلام من منيوكم ويرسلها طلب واحد واضح. وأنتم تشوفون كل الطلبات مرتبة باليوم، والزبون يوصله تذكير قبل الاستلام."),
+      P("<b>تحب نوريك شكل قائمة الطلبات المسبقة؟</b> [رابط المنيو التجريبي]"),
+      P(`مع التحية،<br>${SIGN}`),
     ].join(""),
   },
 ];

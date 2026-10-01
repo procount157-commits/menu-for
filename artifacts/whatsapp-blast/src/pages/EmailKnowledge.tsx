@@ -22,10 +22,10 @@ const n = (v?: number | null) => (v ?? 0).toLocaleString("ar-SA");
 const size = (chars: number) => chars > 1000 ? `${n(Math.round(chars / 1000))} ألف حرف` : `${n(chars)} حرف`;
 
 const CAT_HINT: Record<string, string> = {
-  company: "من نحن، الترخيص، الفريق، الفروع، لماذا نحن",
-  services: "الخدمات، الباقات، الأسعار، المدد، ما يشمله كل عرض",
-  sector: "ما يقلق العقارات أو الذهب أو غيرها، ومن هو صاحب القرار",
-  compliance: "قوانين AML، المهل، الغرامات، متطلبات goAML",
+  company: "من نحن، ماذا يفعل منيو فور يو، لمن، كيف يبدأ المحل",
+  services: "الباقات، الأسعار، مدة التجربة، ما تشمله كل باقة",
+  sector: "ما يزعج المطاعم أو الكافيهات أو الحلويات أو الصالونات، ومن يقرر",
+  compliance: "ما لا يُقال، شروط التجربة، الخصوصية وموافقة الزبون على الرسائل",
   faq: "الأسئلة المتكررة والاعتراضات وردودنا عليها",
   style: "رسائل نجحت، العبارات التي نستخدمها والتي لا نستخدمها",
   other: "أي شيء آخر",
@@ -60,7 +60,7 @@ export function KnowledgeTab() {
         <BookOpen className="w-5 h-5 text-primary shrink-0 mt-0.5" />
         <div className="flex-1">
           <p className="font-semibold text-sm">مكتبة المعرفة — كل ما يجب أن تعرفه نورة قبل أن تكتب</p>
-          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">ارفع ملفات الشركة والمجال: بروفايل الشركة، الخدمات والأسعار، قوانين AML، ما يقلق كل قطاع، رسائل نجحت. نورة تقرأ كل مستند وتستخرج منه الحقائق، وحين تكتب حملة أو ترد على عميل تأخذ الحقائق والمقاطع التي تخص الموضوع وقطاع العميل — ولا تذكر رقماً أو سعراً ليس هنا.</p>
+          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">ارفع ملفات منيو فور يو: التعريف، الباقات والأسعار، ما يزعج كل نوع من المحلات، الاعتراضات وردودها، رسائل نجحت. نورة تقرأ كل مستند وتستخرج منه الحقائق، وحين تكتب حملة أو ترد على محل تأخذ الحقائق والمقاطع التي تخص الموضوع وقطاع المحل — ولا تذكر رقماً أو سعراً ليس هنا.</p>
         </div>
       </div>
 
@@ -200,8 +200,8 @@ function Uploader({ cats, sectors, onDone }: { cats: Record<string, string>; sec
         </div>
       ) : (
         <div className="space-y-2">
-          <input className={input} placeholder="عنوان — مثلاً: باقات خدمات AML 2026" value={title} onChange={(e) => setTitle(e.target.value)} />
-          <textarea className={cn(input, "min-h-[10rem] text-xs leading-relaxed")} placeholder="الصق النص هنا: معلومات الشركة، الأسعار، القوانين، رسالة نجحت…" value={text} onChange={(e) => setText(e.target.value)} />
+          <input className={input} placeholder="عنوان — مثلاً: باقات منيو فور يو وأسعارها" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <textarea className={cn(input, "min-h-[10rem] text-xs leading-relaxed")} placeholder="الصق النص هنا: التعريف، الأسعار، الاعتراضات وردودها، رسالة نجحت…" value={text} onChange={(e) => setText(e.target.value)} />
         </div>
       )}
       {files.length > 0 && (
@@ -298,7 +298,7 @@ function LooseFacts({ facts, sectors, onChanged }: { facts: any[]; sectors: stri
     <div className={cn(card, "p-4 space-y-3")}>
       <p className="font-semibold text-sm flex items-center gap-2"><Plus className="w-4 h-4 text-primary" /> معلومة سريعة</p>
       <div className="flex gap-2 flex-wrap">
-        <input className={cn(input, "flex-1 min-w-[14rem]")} placeholder="مثلاً: نقدّم فحص امتثال مجاني أول مرة لشركات الوساطة" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && text.trim()) add.mutate(); }} />
+        <input className={cn(input, "flex-1 min-w-[14rem]")} placeholder="مثلاً: نجهّز للمحل نسخة تجريبية بمنيوه قبل ما يشترك" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && text.trim()) add.mutate(); }} />
         <select className={cn(input, "w-40 text-xs")} value={topic} onChange={(e) => setTopic(e.target.value)}><option value="">عامة</option>{sectors.map((x) => <option key={x} value={x}>{x}</option>)}</select>
         <button onClick={() => add.mutate()} disabled={!text.trim() || add.isPending} className={primary}><Save className="w-3.5 h-3.5" /> احفظ</button>
       </div>
@@ -337,8 +337,8 @@ function CompanyCard() {
       </div>
       {edit ? (
         <div className="space-y-2">
-          <input className={input} placeholder="اسم الشركة — بروكاونت للمحاسبة" value={p.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
-          <input className={input} placeholder="المجال — محاسبة وامتثال AML" value={p.industry} onChange={(e) => setEdit({ ...edit, industry: e.target.value })} />
+          <input className={input} placeholder="الاسم — منيو فور يو" value={p.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
+          <input className={input} placeholder="المجال — منيو رقمي وصف انتظار وحجوزات للمحلات" value={p.industry} onChange={(e) => setEdit({ ...edit, industry: e.target.value })} />
           <textarea className={cn(input, "min-h-[6rem] text-xs")} placeholder="من نحن وماذا نقدّم ولمن — في فقرة" value={p.description} onChange={(e) => setEdit({ ...edit, description: e.target.value })} />
           <textarea className={cn(input, "min-h-[4rem] text-xs")} placeholder="ما لا يُقال أبداً — مثلاً: لا نعد بنتيجة تفتيش، لا نذكر أسعاراً قبل معرفة الحجم" value={p.guardrails} onChange={(e) => setEdit({ ...edit, guardrails: e.target.value })} />
           <div className="flex gap-2"><button onClick={() => save.mutate()} disabled={save.isPending} className={primary}><Save className="w-3.5 h-3.5" /> احفظ</button><button onClick={() => setEdit(null)} className={ghost}>إلغاء</button></div>
@@ -364,7 +364,7 @@ function AskNora({ sectors }: { sectors: string[] }) {
     <div className={cn(card, "p-4 space-y-2.5")}>
       <p className="font-semibold text-sm flex items-center gap-2"><MessageCircleQuestion className="w-4 h-4 text-primary" /> اختبر نورة</p>
       <p className="text-[11px] text-muted-foreground">اسألها ما سيسأله العميل — تجيب مما في المكتبة فقط، وتقول إن لم تعرف.</p>
-      <textarea className={cn(input, "min-h-[4rem] text-xs")} placeholder="كم سعر باقة الامتثال لشركة وساطة صغيرة؟" value={q} onChange={(e) => setQ(e.target.value)} />
+      <textarea className={cn(input, "min-h-[4rem] text-xs")} placeholder="كم سعر الباقة لمطعم بفرعين؟" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="flex gap-2">
         <select className={cn(input, "text-xs")} value={sector} onChange={(e) => setSector(e.target.value)}><option value="">بلا قطاع</option>{sectors.map((x) => <option key={x} value={x}>{x}</option>)}</select>
         <button onClick={() => ask.mutate()} disabled={!q.trim() || ask.isPending} className={primary}>{ask.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} اسألها</button>

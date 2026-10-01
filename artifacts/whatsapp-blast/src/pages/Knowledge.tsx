@@ -123,7 +123,7 @@ export default function Knowledge() {
         <div className="min-w-0">
           <p className="text-sm font-semibold">🎤 مقابلة التأهيل</p>
           <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-            بدل أن تكتب الملف وقاعدة المعرفة بيدك: مديرة المبيعات تسألك عشرة أسئلة، واحداً في كل مرة، وتكتب هي الملف والمدخلات من إجاباتك. عشر دقائق بدل يوم.
+            بدل أن تكتب الملف وقاعدة المعرفة بيدك: رئيسة الفريق تسألك عشرة أسئلة، واحداً في كل مرة، وتكتب هي الملف والمدخلات من إجاباتك. عشر دقائق بدل يوم.
           </p>
         </div>
         <button onClick={() => startInterview.mutate()} disabled={startInterview.isPending}

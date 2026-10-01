@@ -287,13 +287,13 @@ function Builder({ form, setForm, onDone }: { form: Form; setForm: (f: Form | nu
           <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 mb-3 space-y-2">
             <p className="text-xs text-muted-foreground">صف ما تريده من الرسالة — تكتبها نورة بصوت شركتك وبما تعرفه عن قطاع الجمهور، مع عنوانين لاختبارهما. لا يُرسل شيء.</p>
             <div className="flex gap-2">
-              <input className={input} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="مثلاً: عرض فحص امتثال AML مجاني لشركات الوساطة العقارية قبل التفتيش" onKeyDown={(e) => { if (e.key === "Enter") void write(); }} />
+              <input className={input} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="مثلاً: دعوة المطاعم في دبي لفتح منيو تجريبي وتجربة صف الانتظار" onKeyDown={(e) => { if (e.key === "Enter") void write(); }} />
               <button onClick={write} disabled={busy === "write"} className={primary}>{busy === "write" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} اكتبي</button>
             </div>
           </div>
         )}
         <div className="space-y-2">
-          <div><label className="text-[11px] font-semibold block mb-1">العنوان / Subject</label><input className={input} value={form.subject} onChange={(e) => set({ subject: e.target.value })} placeholder="{{company|Your company}} — is your AML framework inspection-ready?" /></div>
+          <div><label className="text-[11px] font-semibold block mb-1">العنوان / Subject</label><input className={input} value={form.subject} onChange={(e) => set({ subject: e.target.value })} placeholder="{{company|Your shop}} — menu, queue and WhatsApp orders in one link" /></div>
           <EmailEditor value={form.html} subject={form.subject} onChange={(html) => set({ html })} minHeight={340} />
           <p className="text-[10px] text-muted-foreground">التوقيع ورابط إلغاء الاشتراك وتصميم الشركة تُضاف تلقائياً. الزر يفتح واتساب برسالة جاهزة.</p>
         </div>
@@ -391,7 +391,7 @@ function CreatorPanel() {
   if (!open) return (
     <button onClick={() => setOpen(true)} className={cn(card, "w-full p-3.5 flex items-center gap-3 text-right hover:border-primary/50 transition-colors")}>
       <span className="text-2xl">🧩</span>
-      <div className="flex-1"><p className="text-sm font-semibold">طارق — منشئ الحملات</p><p className="text-[11px] text-muted-foreground">اختر الخدمة والجمهور واللغة، ويبني حملة كاملة: عنوانين للاختبار، رسالة أولى، ومتابعتين — بأسلوب قوالب بروكاونت، وتنتظر موافقتك.</p></div>
+      <div className="flex-1"><p className="text-sm font-semibold">طارق — منشئ الحملات</p><p className="text-[11px] text-muted-foreground">اختر الزاوية والجمهور واللغة، ويبني حملة كاملة: عنوانين للاختبار، رسالة أولى، ومتابعتين — بأسلوب قوالب منيو فور يو، وتنتظر موافقتك.</p></div>
       <span className={primary}><Sparkles className="w-3.5 h-3.5" /> أنشئ حملة</span>
     </button>
   );
@@ -399,7 +399,7 @@ function CreatorPanel() {
     <div className={cn(card, "p-4 space-y-3 border-primary/40")}>
       <div className="flex items-center gap-2"><span className="text-xl">🧩</span><p className="font-semibold text-sm">طارق ينشئ حملة</p><button onClick={() => setOpen(false)} className="mr-auto text-muted-foreground"><X className="w-4 h-4" /></button></div>
       <div className="grid md:grid-cols-3 gap-3">
-        <label className="text-[11px] text-muted-foreground">الخدمة<select className={cn(input, "mt-1")} value={f.service} onChange={(e) => setF({ ...f, service: e.target.value })}><option value="">اختر…</option>{services.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}</select></label>
+        <label className="text-[11px] text-muted-foreground">الزاوية<select className={cn(input, "mt-1")} value={f.service} onChange={(e) => setF({ ...f, service: e.target.value })}><option value="">اختر…</option>{services.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}</select></label>
         <label className="text-[11px] text-muted-foreground">اللغة<select className={cn(input, "mt-1")} value={f.language} onChange={(e) => setF({ ...f, language: e.target.value })}><option value="en">English</option><option value="ar">العربية</option><option value="both">الاثنتان</option></select></label>
         <label className="text-[11px] text-muted-foreground">حجم الموجة<input type="number" className={cn(input, "mt-1")} value={f.take} onChange={(e) => setF({ ...f, take: Math.max(10, Number(e.target.value) || 10) })} /></label>
       </div>

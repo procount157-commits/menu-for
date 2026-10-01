@@ -6,7 +6,8 @@ const NOW = new Date("2026-09-29T00:00:00Z");
 const past = new Date("2026-09-01T00:00:00Z"), future = new Date("2026-12-01T00:00:00Z");
 
 check("free has the free limits", effectiveLimits("free", null, false, NOW).contacts === 200);
-check("pro is unlimited", effectiveLimits("pro", future, false, NOW).contacts === -1);
+check("pro has its own contact ceiling", effectiveLimits("pro", future, false, NOW).contacts === 5000);
+check("business is unlimited", effectiveLimits("business", future, false, NOW).contacts === -1 && effectiveLimits("business", future, false, NOW).campaigns === -1);
 check("an admin is unlimited whatever the plan", effectiveLimits("free", null, true, NOW).campaigns === -1);
 const lapsed = effectiveLimits("pro", past, false, NOW);
 check("a lapsed pro plan is expired", lapsed.expired);

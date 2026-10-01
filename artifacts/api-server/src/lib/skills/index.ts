@@ -37,6 +37,9 @@ export const LIBRARY: SkillDef[] = [
 // so a grant the owner revoked or an edit they made stays with the skill.
 export const RENAMED: Record<string, string> = {
   "التفاوض": NEGOTIATION_SKILL.name,
+  // Flow Hub's names, from when the team sold accounting.
+  "التفاوض والاعتراضات": NEGOTIATION_SKILL.name,
+  "تشخيص وضع العميل المحاسبي": DISCOVERY_SKILL.name,
 };
 
 /**
@@ -44,8 +47,8 @@ export const RENAMED: Record<string, string> = {
  *
  * The two dialect skills go to everyone who writes to a customer, because
  * sounding foreign costs the same whoever is speaking. The rest are matched to
- * the job: سام gets de-escalation and not negotiation, because a support agent
- * who negotiates during a complaint makes it worse.
+ * the job: سام gets de-escalation and not the objections table, because a
+ * host who handles "فيه خصم؟" during a complaint makes it worse.
  */
 // Everyone who writes to a customer carries the same two writing skills. How
 // long a message is and whose dialect it is in are not role-specific, and the
