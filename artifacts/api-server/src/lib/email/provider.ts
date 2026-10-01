@@ -49,7 +49,8 @@ function smtpTransport(s: EmailSettings): Transporter {
   let t = transports.get(key);
   if (!t) {
     t = nodemailer.createTransport({
-      host: s.smtpHost!, port: s.smtpPort ?? 587, secure: !!s.smtpSecure,
+      // 465 is TLS from the first byte; the settings page has no switch for it, so the port decides.
+      host: s.smtpHost!, port: s.smtpPort ?? 587, secure: !!s.smtpSecure || s.smtpPort === 465,
       auth: { user: s.smtpUser!, pass: s.smtpPass! },
       pool: true, maxConnections: 2, maxMessages: 50,
       connectionTimeout: 20_000, socketTimeout: 30_000,
