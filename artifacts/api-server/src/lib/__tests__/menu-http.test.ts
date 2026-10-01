@@ -190,6 +190,15 @@ check("…and the owner stays themselves there", r.json.displayName === "owner a
 r = await anon.get(`/api/public/m/alpha-${tag}/al-ain`);
 check("the second branch has its own menu address", r.status === 200 && r.json.branch.slug === "al-ain" && r.json.branches.length === 3);
 
+// ── Offers reach only those who agreed ───────────────────────────
+r = await A.post("/api/customers/to-list");
+check("no opted-in customers yet: no list", r.status === 400);
+await new Client().post(`/api/public/queues/${qA.id}/join`, { name: "منى", phone: "0507778888", marketingOptIn: true });
+r = await A.post("/api/customers/to-list");
+check("opted-in customers become a campaign list", r.status === 200 && r.json.added === 1 && r.json.total === 1, r.json);
+r = await A.post("/api/customers/to-list");
+check("…and running it again does not duplicate them", r.status === 200 && r.json.added === 0, r.json);
+
 // ── Plan limits ──────────────────────────────────────────────────
 await db.update(usersTable).set({ plan: "basic" }).where(like(usersTable.phone, `9990072${tag}%`));
 r = await B.post("/api/branches", { name: "فرع ثاني" });

@@ -69,6 +69,27 @@ router.get("/customers-export.csv", requireAuth, withTenant(OWNER, async (_req, 
   res.send("﻿" + lines.join("\n"));
 }));
 
+/**
+ * The customers who agreed to offers, as a Flow Hub contact list in the
+ * current branch's account — the only door from the menu side into a
+ * campaign, so a campaign can reach nobody who did not tick «أرسلوا لي العروض».
+ * Re-running tops the same list up.
+ */
+router.post("/customers/to-list", requireAuth, withTenant(OWNER, async (_req, res, t) => {
+  const { contactGroupsTable } = await import("@workspace/db");
+  const { saveToGroup, saveToNewGroup } = await import("../lib/contact-save");
+  const rows = await db.select({ phone: customersTable.phone, name: customersTable.name }).from(customersTable)
+    .where(and(eq(customersTable.orgId, t.org.id), eq(customersTable.marketingOptIn, true)));
+  const entries = rows.filter((r) => !r.phone.includes("@")).map((r) => ({ phone: r.phone, name: r.name }));
+  if (!entries.length) return res.status(400).json({ error: "لا يوجد زبائن وافقوا على العروض بعد" });
+  const name = `زبائن ${t.org.name} — وافقوا على العروض`;
+  const [existing] = await db.select().from(contactGroupsTable).where(and(eq(contactGroupsTable.userId, t.waUserId), eq(contactGroupsTable.name, name))).limit(1);
+  const r = existing
+    ? await saveToGroup(t.waUserId, existing.id, entries, { allowOtherLists: true })
+    : await saveToNewGroup(t.waUserId, name, "من منيو فور يو: كل من وافق على استلام العروض", entries, { allowOtherLists: true });
+  res.json({ added: r.added, total: entries.length, groupId: existing?.id ?? r.groups?.[0]?.id ?? null });
+}));
+
 // ── WhatsApp templates and what was sent ──────────────────────────
 
 router.get("/wa-templates", requireAuth, withTenant(OWNER, async (_req, res, t) => {

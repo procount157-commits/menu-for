@@ -140,6 +140,20 @@ await sweep();
 const [old] = await db.select().from(queueTicketsTable).where(eq(queueTicketsTable.id, fresh.id));
 check("a ticket from an earlier day is closed", old!.status === "left");
 
+// ── Retention ────────────────────────────────────────────────────
+const { forgetOldPhones } = await import("../queue/engine");
+const { touchCustomer } = await import("../customers");
+const c4 = (await queueCtx(ctx.queue.id))!;
+const oldA = await join(c4, { name: "قديم", phone: "971500005555", source: "staff" });
+const oldB = await join(c4, { name: "موافق", phone: "971500006666", source: "staff", marketingOptIn: true });
+await touchCustomer(shop.org.id, "971500006666", { optIn: true });
+await db.update(queueTicketsTable).set({ joinedAt: new Date(Date.now() - 40 * 24 * 3_600_000) }).where(inArray(queueTicketsTable.id, [oldA.id, oldB.id]));
+await forgetOldPhones(new Date(), true);
+const [ra] = await db.select().from(queueTicketsTable).where(eq(queueTicketsTable.id, oldA.id));
+const [rb] = await db.select().from(queueTicketsTable).where(eq(queueTicketsTable.id, oldB.id));
+check("a ticket's phone is dropped after 30 days", ra!.phone === null);
+check("…unless the customer agreed to hear from the shop", rb!.phone === "971500006666");
+
 await cleanup("q");
 console.log(`\n${pass}/${total} مرّ`);
 process.exit(pass === total ? 0 : 1);

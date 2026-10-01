@@ -449,7 +449,25 @@ export async function sweep(now = new Date()): Promise<{ noShows: number; closed
     closed++;
   }
   for (const id of touched) publish(`queue:${id}`);
+  await forgetOldPhones(now);
   return { noShows, closed };
+}
+
+// A ticket's phone is kept 30 days — long enough for the review request and
+// the reports — then dropped, unless the customer agreed to hear from the
+// shop, in which case it lives on the customer row they consented to.
+const PHONE_RETENTION_DAYS = 30;
+let lastForget = 0;
+
+export async function forgetOldPhones(now = new Date(), force = false): Promise<number> {
+  if (!force && now.getTime() - lastForget < 6 * 3_600_000) return 0;
+  lastForget = now.getTime();
+  const before = new Date(now.getTime() - PHONE_RETENTION_DAYS * 24 * 3_600_000);
+  const r = await db.execute(sql`
+    UPDATE queue_tickets t SET phone = NULL
+    WHERE t.phone IS NOT NULL AND t.joined_at < ${before}
+      AND NOT EXISTS (SELECT 1 FROM customers c WHERE c.org_id = t.org_id AND c.phone = t.phone AND c.marketing_opt_in)`);
+  return Number((r as any).rowCount ?? 0);
 }
 
 export function startQueueSweeper() {
