@@ -10,7 +10,7 @@
 // it is renewed. Admins are never limited.
 
 import { eq, inArray, sql } from "drizzle-orm";
-import { db, usersTable, contactGroupsTable, contactsTable, campaignsTable, PLAN_LIMITS } from "@workspace/db";
+import { db, pool, usersTable, contactGroupsTable, contactsTable, campaignsTable, PLAN_LIMITS } from "@workspace/db";
 
 export type PlanName = keyof typeof PLAN_LIMITS;
 
@@ -39,15 +39,17 @@ export function effectiveLimits(plan: string, expiresAt: Date | null, isAdmin: b
 }
 
 export async function planStatus(userId: number): Promise<PlanStatus> {
+  // A branch with its own number is a service account; the plan is its owner's.
+  const ownerId = await planHolder(userId);
   const [u] = await db.select({ plan: usersTable.plan, expiresAt: usersTable.planExpiresAt, isAdmin: usersTable.isAdmin })
-    .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    .from(usersTable).where(eq(usersTable.id, ownerId)).limit(1);
   const plan = ((u?.plan ?? "free") in PLAN_LIMITS ? u?.plan ?? "free" : "free") as PlanName;
   const e = effectiveLimits(plan, u?.expiresAt ?? null, !!u?.isAdmin);
   return { plan, expired: e.expired, expiresAt: u?.expiresAt ?? null, isAdmin: !!u?.isAdmin,
     limits: { contacts: e.contacts, campaigns: e.campaigns, chatbots: e.chatbots } };
 }
 
-const AR: Record<PlanName, string> = { free: PLAN_LIMITS.free.name, basic: PLAN_LIMITS.basic.name, pro: PLAN_LIMITS.pro.name };
+const AR = Object.fromEntries(Object.entries(PLAN_LIMITS).map(([k, v]) => [k, v.name])) as Record<PlanName, string>;
 
 /** Sending — campaigns and follow-ups — needs a plan that has not lapsed. */
 export async function assertCanSend(userId: number): Promise<void> {
@@ -69,9 +71,50 @@ export async function assertCanAddContacts(userId: number, adding: number): Prom
 export async function assertCanCreateCampaign(userId: number): Promise<void> {
   const p = await planStatus(userId);
   if (p.limits.campaigns < 0) return;
+  if (p.limits.campaigns === 0) throw new PlanError("الحملات الجماعية متاحة في خطة الأعمال — رقّ الخطة لتفعيلها.");
   const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(campaignsTable).where(eq(campaignsTable.userId, userId));
   if (Number(n) >= p.limits.campaigns) {
     throw new PlanError(`خطة ${AR[p.expired ? "free" : p.plan]} تسمح بـ${p.limits.campaigns} حملات ولديك ${n}. احذف حملة قديمة أو رقّ الخطة.`);
+  }
+}
+
+/** The account whose plan applies: the org owner for a branch service account. */
+async function planHolder(userId: number): Promise<number> {
+  const { rows } = await pool.query<{ owner: number | null }>(
+    `SELECT o.owner_user_id AS owner FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = $1 AND u.kind = 'branch'`, [userId]);
+  return rows[0]?.owner ?? userId;
+}
+
+export type MenuFeature = "queue" | "booking" | "notify" | "marketing" | "display" | "branchNumbers";
+export type MenuLimit = "branches" | "items" | "staff";
+
+/** Menu For You's side of the plan, for an org owner (or any account in the org). */
+export async function menuPlan(userId: number) {
+  const p = await planStatus(userId);
+  const known = (p.plan in PLAN_LIMITS ? p.plan : "free") as PlanName;
+  const l = PLAN_LIMITS[p.isAdmin ? "business" : p.expired ? "free" : known];
+  return {
+    plan: p.plan, planName: AR[p.plan], expired: p.expired, expiresAt: p.expiresAt,
+    limits: { branches: l.branches as number, items: l.items as number, staff: l.staff as number },
+    features: { queue: l.queue as boolean, booking: l.booking as boolean, notify: l.notify as boolean, marketing: l.marketing as boolean, display: l.display as boolean, branchNumbers: l.branchNumbers as boolean },
+  };
+}
+
+const FEATURE_AR: Record<MenuFeature, string> = {
+  queue: "الصف الرقمي", booking: "الحجوزات", notify: "إشعارات واتساب", marketing: "الحملات", display: "شاشة العرض", branchNumbers: "رقم واتساب لكل فرع",
+};
+
+export async function assertFeature(userId: number, f: MenuFeature): Promise<void> {
+  const m = await menuPlan(userId);
+  if (!m.features[f]) throw new PlanError(`${FEATURE_AR[f]} غير متاح في خطة ${m.planName} — رقّ الخطة لتفعيله.`);
+}
+
+export async function assertWithinLimit(userId: number, what: MenuLimit, have: number): Promise<void> {
+  const m = await menuPlan(userId);
+  const max = m.limits[what];
+  if (max >= 0 && have >= max) {
+    const label = { branches: "فروع", items: "أصناف", staff: "موظفين" }[what];
+    throw new PlanError(`خطة ${m.planName} تسمح بـ${max} ${label} — رقّ الخطة لإضافة المزيد.`);
   }
 }
 

@@ -31,6 +31,7 @@ import { notify, esc } from "./telegram";
 import { say } from "./agent-comms";
 import { assertCanSend } from "./plans";
 import { provisionOnConnect } from "./provision";
+import { isClaimed } from "./inbound-claims";
 
 // How often the worker looks for due jobs.
 const TICK_MS = 60_000;
@@ -509,6 +510,9 @@ async function announceStage(userId: number, phone: string, reached: 5 | 7, text
 
 export async function handleInbound(ev: { userId: number; phone: string; text: string; message: unknown }) {
   const { userId, phone, text } = ev;
+  // A queue code, an order confirmation or «كم قدامي» is answered by the
+  // menu side (lib/notify/inbound.ts); the agent must not also reply to it.
+  if (await isClaimed(userId, phone, text)) return;
   const ref = extractReferral(ev.message);
   const source = await recordLead(userId, phone, ref);
   const first = await isFirstContact(userId, phone);

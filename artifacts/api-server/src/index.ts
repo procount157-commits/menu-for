@@ -3,6 +3,11 @@ import { logger } from "./lib/logger";
 import { restoreAllSessions, getActiveUserIds, getStatus, initWhatsApp, startWakeDetector } from "./lib/whatsapp";
 import { resumeRunningCampaigns } from "./routes/campaigns";
 import { startFollowUpEngine } from "./lib/follow-up-engine";
+import { startMenuInbound } from "./lib/notify/inbound";
+import { startNotifyWorker } from "./lib/notify/outbox";
+import { startQueueSweeper } from "./lib/queue/engine";
+import { startBookingReminders } from "./lib/booking/service";
+import { startLifecycle } from "./lib/notify/lifecycle";
 import { startMonitorAgent } from "./lib/monitor-agent";
 import { startRoutineScheduler } from "./lib/agent-routines";
 import { startOpsAgent } from "./lib/ops-agent";
@@ -121,7 +126,14 @@ function startListening() {
 
     // Resume any campaigns that were running before the server restarted
     void resumeRunningCampaigns();
+    // Before the follow-up engine: its inbound hook must find a queue code
+    // already claimed, or the agent would answer it too.
+    startMenuInbound();
     startFollowUpEngine();
+    startNotifyWorker();
+    startQueueSweeper();
+    startBookingReminders();
+    startLifecycle();
     startMonitorAgent();
     startRoutineScheduler();
     startOpsAgent();

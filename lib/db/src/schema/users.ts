@@ -35,6 +35,12 @@ export const usersTable = pgTable("users", {
 
   // ── Usage limits (set by admin) ───────────────────────────────────
   dailyMessageLimit: integer("daily_message_limit"),
+
+  // ── Menu For You ──────────────────────────────────────────────────
+  // owner: a person who signs in · branch: a service account that only holds
+  // a branch's own WhatsApp number and its Flow Hub data, never signed in to.
+  kind:  varchar("kind", { length: 10 }).default("owner").notNull(),
+  orgId: integer("org_id"),
 });
 
 export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true });
@@ -44,7 +50,10 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 
 // ── Plan limits reference ─────────────────────────────────────────
 export const PLAN_LIMITS = {
-  free:  { name: "مجاني",   contacts: 200,  campaigns: 5,   chatbots: 1  },
-  basic: { name: "أساسي",   contacts: 2000, campaigns: 30,  chatbots: 5  },
-  pro:   { name: "احترافي", contacts: -1,   campaigns: -1,  chatbots: -1 },
+  // contacts / campaigns / chatbots are Flow Hub's; the rest are Menu For You's.
+  // -1 = unlimited, 0 = not in this plan.
+  free:     { name: "تجريبي",  contacts: 200,  campaigns: 0,  chatbots: 1,  branches: 1,  items: 30, staff: 2,  queue: true,  booking: false, notify: false, marketing: false, display: false, branchNumbers: false },
+  basic:    { name: "أساسي",   contacts: 500,  campaigns: 0,  chatbots: 1,  branches: 1,  items: -1, staff: 3,  queue: false, booking: false, notify: false, marketing: false, display: false, branchNumbers: false },
+  pro:      { name: "احترافي", contacts: 5000, campaigns: 0,  chatbots: 5,  branches: 3,  items: -1, staff: 10, queue: true,  booking: true,  notify: true,  marketing: false, display: false, branchNumbers: false },
+  business: { name: "أعمال",   contacts: -1,   campaigns: -1, chatbots: -1, branches: -1, items: -1, staff: -1, queue: true,  booking: true,  notify: true,  marketing: true,  display: true,  branchNumbers: true },
 } as const;

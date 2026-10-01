@@ -7,6 +7,8 @@ import { eq } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 import { logger } from "../lib/logger";
 import { checkCoupon, redeemCoupon, CouponError } from "../lib/coupons";
+import { attachOwner, signedInUser } from "../lib/tenancy/context";
+import { staffTable } from "@workspace/db";
 
 const router = Router();
 
@@ -61,6 +63,7 @@ router.post("/register", async (req, res) => {
 
   req.session.userId = user.id;
   req.session.isAdmin = user.isAdmin;
+  await attachOwner(req, user.id);
 
   // The invitation is also the plan: a code carries the days and the tier
   // the owner sold, so a new account starts on what was agreed.
@@ -103,14 +106,20 @@ router.post("/login", async (req, res) => {
   if (user.status === "suspended") {
     return res.status(403).json({ error: "هذا الحساب موقوف. تواصل مع المدير." });
   }
+  // A branch's own-number account holds a WhatsApp session, not a person.
+  if (user.kind === "branch") {
+    return res.status(401).json({ error: "رقم الهاتف أو كلمة المرور غير صحيحة" });
+  }
 
   const valid = await bcrypt.compare(String(password), user.passwordHash);
   if (!valid) {
     return res.status(401).json({ error: "رقم الهاتف أو كلمة المرور غير صحيحة" });
   }
 
+  await new Promise<void>((ok, fail) => req.session.regenerate((e) => (e ? fail(e) : ok())));
   req.session.userId = user.id;
   req.session.isAdmin = user.isAdmin;
+  await attachOwner(req, user.id);
 
   // Track last login time
   db.update(usersTable).set({ lastLoginAt: new Date() }).where(eq(usersTable.id, user.id)).catch(() => {});
@@ -141,8 +150,10 @@ router.get("/direct/:token", async (req, res) => {
   if (!user) return res.status(404).json({ error: "الرابط غير صحيح أو منتهي الصلاحية" });
   if (user.status === "suspended") return res.status(403).json({ error: "هذا الحساب موقوف" });
 
+  if (user.kind === "branch") return res.status(404).json({ error: "الرابط غير صحيح أو منتهي الصلاحية" });
   req.session.userId  = user.id;
   req.session.isAdmin = user.isAdmin;
+  await attachOwner(req, user.id);
 
   logger.info({ userId: user.id }, "Direct token login");
 
@@ -166,26 +177,33 @@ router.post("/direct/regenerate/:userId", requireAuth, async (req, res) => {
 });
 
 // Get current user
+// The person signed in — never the branch service account the session's
+// userId may point at, and for staff the member of staff. isAdmin is synced
+// from the person's own row only, so a staff session on the owner's branch
+// can never inherit the owner's admin flag.
 router.get("/me", requireAuth, async (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   res.setHeader("Pragma", "no-cache");
-  const [user] = await db.select({
-    id: usersTable.id,
-    phone: usersTable.phone,
-    displayName: usersTable.displayName,
-    isAdmin: usersTable.isAdmin,
-    status: usersTable.status,
-    createdAt: usersTable.createdAt,
-  }).from(usersTable).where(eq(usersTable.id, req.session.userId!));
 
+  if (req.session.staffId) {
+    const [st] = await db.select().from(staffTable).where(eq(staffTable.id, req.session.staffId)).limit(1);
+    if (!st || !st.isActive) { req.session.destroy(() => {}); return res.status(401).json({ error: "انتهت صلاحية الدخول" }); }
+    req.session.isAdmin = false;
+    return res.json({ id: req.session.userId, phone: st.username, displayName: st.name, isAdmin: false, status: "active", role: req.session.role ?? "staff", staffId: st.id });
+  }
+
+  const user = await signedInUser(req);
   if (!user) return res.status(404).json({ error: "المستخدم غير موجود" });
 
   // Keep session in sync with DB (e.g. if admin was upgraded after login)
-  if (req.session.isAdmin !== user.isAdmin) {
+  if (!req.session.impersonatorId && req.session.isAdmin !== user.isAdmin) {
     req.session.isAdmin = user.isAdmin;
   }
 
-  res.json(user);
+  res.json({
+    id: user.id, phone: user.phone, displayName: user.displayName, isAdmin: req.session.impersonatorId ? false : user.isAdmin,
+    status: user.status, createdAt: user.createdAt, role: "owner", impersonating: !!req.session.impersonatorId,
+  });
 });
 
 // ── Bootstrap admin (one-time setup, requires BOOTSTRAP_SECRET env var) ───────

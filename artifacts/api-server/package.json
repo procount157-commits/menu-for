@@ -38,7 +38,8 @@
     "qrcode": "^1.5.4",
     "sharp": "^0.35.2",
     "unpdf": "^1.8.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "@workspace/menu-shared": "workspace:*"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",

@@ -28,12 +28,31 @@ import foldersRouter from "./folders";
 import aiRouter from "./ai";
 import settingsRouter from "./settings";
 import diagnosticsRouter from "./diagnostics";
+import menuPublicRouter from "./menu-public";
+import tenancyRouter from "./tenancy";
+import menuAdminRouter from "./menu-admin";
+import queueAdminRouter from "./queue-admin";
+import ordersBookingsRouter from "./orders-bookings";
+import shopAdminRouter from "./shop-admin";
+import adminOrgsRouter from "./admin-orgs";
+import { staffGuard } from "../lib/tenancy/context";
 
 const router: IRouter = Router();
+
+// Staff sessions reach only the queue, orders and bookings — default deny,
+// ahead of every route below, Flow Hub's included.
+router.use(staffGuard);
 
 router.use(healthRouter);
 router.use(publicRouter);       // public routes — no auth required
 router.use("/auth", authRouter);
+router.use("/public", menuPublicRouter); // the menu, queue, orders, bookings — no sign-up
+router.use(tenancyRouter);
+router.use("/menu", menuAdminRouter);
+router.use(queueAdminRouter);
+router.use(ordersBookingsRouter);
+router.use(shopAdminRouter);
+router.use("/admin/orgs", adminOrgsRouter);
 router.use("/admin", adminRouter);
 router.use("/whatsapp", whatsappRouter);
 router.use("/contacts", contactsRouter);
