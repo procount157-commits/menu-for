@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 import { randomBytes } from "node:crypto";
 import { and, desc, eq, inArray, sql, gte } from "drizzle-orm";
 import {
-  db, emailSettingsTable, emailContactsTable, emailListsTable, emailListMembersTable,
+  db, listFoldersTable, emailSettingsTable, emailContactsTable, emailListsTable, emailListMembersTable,
   emailTemplatesTable, emailCampaignsTable, emailSequencesTable, emailSequenceJobsTable,
   emailMessagesTable, emailEventsTable, emailInboundTable, emailSegmentsTable, emailMissionsTable,
   botEmployeesTable, agentMemoryTable, type EmailStep,
@@ -210,7 +210,7 @@ router.post("/contacts/bulk", async (req, res) => {
       await addTo(l.id); return res.json({ done: ids.length, list: l });
     }
     case "newList": {
-      const [l] = await db.insert(emailListsTable).values({ userId, name: String(b.name ?? "قائمة").slice(0, 160), description: b.description ?? null }).returning();
+      const [l] = await db.insert(emailListsTable).values({ userId, name: String(b.name ?? "قائمة").slice(0, 160), description: b.description ?? null, folderId: Number(b.folderId) || null }).returning();
       await addTo(l!.id); return res.json({ done: ids.length, list: l });
     }
     case "setSector": {
@@ -366,18 +366,95 @@ router.delete("/missions/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
-router.get("/lists", async (req, res) => {
+// ── Lists ─────────────────────────────────────────────────────────
+// Each list with what is in it, in one query: how many, how many can be
+// written to, how many unsubscribed or bounced, with a WhatsApp number,
+// reached, opened, replied, its main sector and when it was last written to.
+async function listStats(userId: number, listId?: number) {
+  const r = await db.execute(sql`
+    SELECT l.id, l.name, l.description, l.folder_id AS "folderId", l.created_at AS "createdAt",
+      count(c.id)::int AS count,
+      (count(c.id) FILTER (WHERE c.status = 'active' AND coalesce(c.mx_ok, true)))::int AS sendable,
+      (count(c.id) FILTER (WHERE c.status IN ('unsubscribed','complained')))::int AS unsubscribed,
+      (count(c.id) FILTER (WHERE c.status = 'bounced' OR c.mx_ok = false))::int AS bounced,
+      (count(c.id) FILTER (WHERE c.phone IS NOT NULL))::int AS "withPhone",
+      (count(c.id) FILTER (WHERE c.last_sent_at IS NOT NULL))::int AS reached,
+      (count(c.id) FILTER (WHERE c.last_opened_at IS NOT NULL))::int AS opened,
+      (count(c.id) FILTER (WHERE c.last_replied_at IS NOT NULL))::int AS replied,
+      mode() WITHIN GROUP (ORDER BY c.sector) AS sector,
+      max(c.last_sent_at) AS "lastSentAt"
+    FROM email_lists l
+    LEFT JOIN email_list_members m ON m.list_id = l.id
+    LEFT JOIN email_contacts c ON c.id = m.contact_id
+    WHERE l.user_id = ${userId} ${listId ? sql`AND l.id = ${listId}` : sql``}
+    GROUP BY l.id
+    ORDER BY l.created_at DESC`);
+  return r.rows as any[];
+}
+
+router.get("/lists", async (req, res) => res.json(await listStats(req.session.userId!)));
+
+router.get("/lists/:id", async (req, res) => {
   const userId = req.session.userId!;
-  const lists = await db.select({
-    l: emailListsTable,
-    n: sql<number>`(select count(*) from email_list_members m where m.list_id = ${emailListsTable.id})`,
-  }).from(emailListsTable).where(eq(emailListsTable.userId, userId)).orderBy(desc(emailListsTable.createdAt));
-  res.json(lists.map((r) => ({ ...r.l, count: Number(r.n) })));
+  const [l] = await listStats(userId, Number(req.params.id));
+  if (!l) return res.status(404).json({ error: "القائمة غير موجودة" });
+  const f = { listIds: [l.id] };
+  const [fac, campaigns] = await Promise.all([
+    facets(userId, f),
+    db.select({ id: emailCampaignsTable.id, name: emailCampaignsTable.name, status: emailCampaignsTable.status, sentCount: emailCampaignsTable.sentCount, openCount: emailCampaignsTable.openCount, replyCount: emailCampaignsTable.replyCount, createdAt: emailCampaignsTable.createdAt })
+      .from(emailCampaignsTable).where(and(eq(emailCampaignsTable.userId, userId), eq(emailCampaignsTable.listId, l.id))).orderBy(desc(emailCampaignsTable.createdAt)).limit(10),
+  ]);
+  res.json({ list: l, facets: fac, campaigns });
 });
 
 router.post("/lists", async (req, res) => {
-  const [l] = await db.insert(emailListsTable).values({ userId: req.session.userId!, name: String(req.body?.name ?? "قائمة").slice(0, 160), description: req.body?.description ?? null, folderId: Number(req.body?.folderId) || null }).returning();
+  const name = String(req.body?.name ?? "").trim().slice(0, 160);
+  if (!name) return res.status(400).json({ error: "اكتب اسم القائمة" });
+  const [l] = await db.insert(emailListsTable).values({ userId: req.session.userId!, name, description: req.body?.description ?? null, folderId: Number(req.body?.folderId) || null }).returning();
   res.status(201).json(l);
+});
+
+router.patch("/lists/:id", async (req, res) => {
+  const set: Record<string, unknown> = {};
+  if (typeof req.body?.name === "string" && req.body.name.trim()) set["name"] = req.body.name.trim().slice(0, 160);
+  if (req.body?.description !== undefined) set["description"] = req.body.description ? String(req.body.description).slice(0, 500) : null;
+  if (!Object.keys(set).length) return res.status(400).json({ error: "لا تغيير" });
+  const [l] = await db.update(emailListsTable).set(set).where(and(eq(emailListsTable.id, Number(req.params.id)), eq(emailListsTable.userId, req.session.userId!))).returning();
+  if (!l) return res.status(404).json({ error: "القائمة غير موجودة" });
+  res.json(l);
+});
+
+/** Take contacts out of a list; they stay in the audience and in other lists. */
+router.post("/lists/:id/remove", async (req, res) => {
+  const userId = req.session.userId!;
+  const listId = Number(req.params.id);
+  const [l] = await db.select().from(emailListsTable).where(and(eq(emailListsTable.id, listId), eq(emailListsTable.userId, userId))).limit(1);
+  if (!l) return res.status(404).json({ error: "القائمة غير موجودة" });
+  const ids: number[] = (Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter(Boolean);
+  if (!ids.length) return res.status(400).json({ error: "لم تختر أحداً" });
+  let removed = 0;
+  for (let i = 0; i < ids.length; i += 1000) {
+    const r = await db.delete(emailListMembersTable).where(and(eq(emailListMembersTable.listId, listId), inArray(emailListMembersTable.contactId, ids.slice(i, i + 1000)))).returning({ id: emailListMembersTable.contactId });
+    removed += r.length;
+  }
+  res.json({ removed });
+});
+
+/** The list as a CSV the owner can open in Excel. */
+router.get("/lists/:id/export", async (req, res) => {
+  const userId = req.session.userId!;
+  const listId = Number(req.params.id);
+  const [l] = await db.select().from(emailListsTable).where(and(eq(emailListsTable.id, listId), eq(emailListsTable.userId, userId))).limit(1);
+  if (!l) return res.status(404).json({ error: "القائمة غير موجودة" });
+  const rows = await db.select({ c: emailContactsTable }).from(emailListMembersTable)
+    .innerJoin(emailContactsTable, eq(emailContactsTable.id, emailListMembersTable.contactId))
+    .where(eq(emailListMembersTable.listId, listId)).orderBy(emailContactsTable.company);
+  const cell = (v: unknown) => { const t = v === null || v === undefined ? "" : String(v instanceof Date ? v.toISOString().slice(0, 10) : v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const head = ["email", "company", "name", "phone", "sector", "city", "status", "last_sent", "last_opened", "last_replied"];
+  const body = rows.map(({ c }) => [c.email, c.company, c.name, c.phone, c.sector, c.city, c.status, c.lastSentAt, c.lastOpenedAt, c.lastRepliedAt].map(cell).join(","));
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(l.name)}.csv`);
+  res.send("\uFEFF" + [head.join(","), ...body].join("\n"));
 });
 /** A list goes; with `?contacts=1` its addresses go too (those in no other list). */
 router.delete("/lists/:id", async (req, res) => {
@@ -462,9 +539,24 @@ router.post("/contacts/import", upload.single("file"), async (req, res) => {
   // The list, and the split.
   const listName = String(body.listName ?? (fileName ? fileName.replace(/\.[a-z]+$/i, "") : `استيراد ${new Date().toISOString().slice(0, 10)}`)).slice(0, 160);
   let listId = Number(body.listId) || null;
-  if (!listId) {
-    const [l] = await db.insert(emailListsTable).values({ userId, name: listName, description: `${report.kept} جهة اتصال — ${source}` }).returning();
-    listId = l!.id;
+  let reused: string | null = null;
+  let folder: { id: number; name: string } | null = null;
+  if (listId) {
+    const [own] = await db.select({ id: emailListsTable.id }).from(emailListsTable).where(and(eq(emailListsTable.id, listId), eq(emailListsTable.userId, userId))).limit(1);
+    if (!own) return res.status(404).json({ error: "القائمة غير موجودة" });
+  } else {
+    // The same file again tops up the list it made before, rather than a
+    // second list with the same name beside it.
+    const [same] = await db.select().from(emailListsTable).where(and(eq(emailListsTable.userId, userId), eq(emailListsTable.name, listName))).limit(1);
+    if (same) { listId = same.id; reused = same.name; }
+    else {
+      // A new list goes into the folder chosen, or its sector's folder — the
+      // owner's own folder when one reads as that sector.
+      const folderId = Number(body.folderId) || null;
+      folder = folderId ? { id: folderId, name: "" } : await folderForSector(userId, "email", sectorOverride ?? listSector(listName, fileName, report.rows.slice(0, 300).map((r) => r.company))).catch(() => null);
+      const [l] = await db.insert(emailListsTable).values({ userId, name: listName, description: source, folderId: folder?.id ?? null }).returning();
+      listId = l!.id;
+    }
   }
   const addAll = async (lid: number, rows: ImportRow[]) => {
     const members = rows.map((r) => ids.get(r.email)).filter((x): x is number => !!x);
@@ -477,8 +569,10 @@ router.post("/contacts/import", upload.single("file"), async (req, res) => {
   const splitField = body.splitBy === "industry" || body.splitBy === "city" ? body.splitBy : null;
   const subLists: Array<{ id: number; name: string; count: number }> = [];
   if (splitField) {
+    // The sub-lists sit in the same folder as the list they came from.
+    const [parent] = await db.select({ folderId: emailListsTable.folderId }).from(emailListsTable).where(eq(emailListsTable.id, listId)).limit(1);
     for (const [k, rows] of splitBy(report.rows, splitField)) {
-      const [l] = await db.insert(emailListsTable).values({ userId, name: `${listName} — ${k}`.slice(0, 160), description: `فرع من «${listName}» حسب ${splitField === "industry" ? "النشاط" : "المدينة"}` }).returning();
+      const [l] = await db.insert(emailListsTable).values({ userId, name: `${listName} — ${k}`.slice(0, 160), description: `فرع من «${listName}» حسب ${splitField === "industry" ? "النشاط" : "المدينة"}`, folderId: parent?.folderId ?? null }).returning();
       await addAll(l!.id, rows);
       subLists.push({ id: l!.id, name: l!.name, count: rows.length });
     }
@@ -512,7 +606,7 @@ router.post("/contacts/import", upload.single("file"), async (req, res) => {
   res.json({
     file: fileName || null, columns, total: report.total, kept: report.kept, inserted, alreadyKnown: report.kept - inserted,
     invalid: report.invalid, duplicates: report.duplicates, roleAddresses: report.roleAddresses, mxBad,
-    list: { id: listId, name: listName }, subLists, enrolled, sample: report.sample,
+    list: { id: listId, name: listName }, addedTo: reused, folder: folder?.name || null, subLists, enrolled, sample: report.sample,
     whatsapp, sheets: parsed?.sheets ?? null, byCountry: parsed?.byCountry ?? null,
   });
 });
@@ -591,17 +685,30 @@ router.post("/preview", async (req, res) => {
 
 // ── Campaigns ─────────────────────────────────────────────────────
 router.get("/campaigns", async (req, res) => {
-  const rows = await db.select({ c: emailCampaignsTable, list: sql<string | null>`coalesce(${emailListsTable.name}, ${emailSegmentsTable.name})` }).from(emailCampaignsTable)
+  const userId = req.session.userId!;
+  const rows = await db.select({ c: emailCampaignsTable, list: sql<string | null>`coalesce(${emailListsTable.name}, ${emailSegmentsTable.name})`, filter: emailSegmentsTable.filter,
+    queued: sql<number>`(select count(*) from email_messages m where m.campaign_id = ${emailCampaignsTable.id} and m.status in ('queued','ab_hold'))`,
+    members: sql<number>`(select count(*) from email_list_members m join email_contacts c on c.id = m.contact_id where m.list_id = ${emailCampaignsTable.listId} and c.status = 'active' and coalesce(c.mx_ok, true))` }).from(emailCampaignsTable)
     .leftJoin(emailListsTable, eq(emailListsTable.id, emailCampaignsTable.listId))
     .leftJoin(emailSegmentsTable, eq(emailSegmentsTable.id, emailCampaignsTable.segmentId))
-    .where(eq(emailCampaignsTable.userId, req.session.userId!)).orderBy(desc(emailCampaignsTable.createdAt));
-  res.json(rows.map((r) => ({ ...r.c, listName: r.list })));
+    .where(eq(emailCampaignsTable.userId, userId)).orderBy(desc(emailCampaignsTable.createdAt));
+  // Who it will reach: a list's writable members, or a saved audience counted now.
+  res.json(await Promise.all(rows.map(async (r) => ({ ...r.c, listName: r.list, queued: Number(r.queued),
+    audience: r.c.segmentId ? await countSegment(userId, (r.filter ?? {}) as any, true) : Number(r.members) }))));
 });
 router.post("/campaigns", async (req, res) => {
   const { name, listId, subject, html, scheduledAt, subjectB, abPct, abWaitHours } = req.body ?? {};
   if (!name || !subject || !html) return res.status(400).json({ error: "الاسم والعنوان والمحتوى مطلوبة" });
   // A saved segment, or a filter picked on the spot (saved as a segment).
   let segmentId = Number(req.body?.segmentId) || null;
+  // A folder: every list in it, resolved when the campaign starts.
+  const folderId = Number(req.body?.folderId) || null;
+  if (!segmentId && folderId && !listId) {
+    const [fo] = await db.select().from(listFoldersTable).where(and(eq(listFoldersTable.id, folderId), eq(listFoldersTable.userId, req.session.userId!), eq(listFoldersTable.kind, "email"))).limit(1);
+    if (!fo) return res.status(404).json({ error: "المجلد غير موجود" });
+    const [sg] = await db.insert(emailSegmentsTable).values({ userId: req.session.userId!, name: `مجلد ${fo.name}`.slice(0, 160), filter: { folderIds: [fo.id] } }).returning();
+    segmentId = sg!.id;
+  }
   if (!segmentId && req.body?.filter && !listId) {
     const f = cleanFilter(req.body.filter);
     const [sg] = await db.insert(emailSegmentsTable).values({ userId: req.session.userId!, name: `${String(name).slice(0, 100)} — ${describeSegment(f)}`.slice(0, 160), filter: f }).returning();
@@ -632,6 +739,35 @@ router.post("/campaigns/:id/start", async (req, res) => {
     res.json(await startCampaign(req.session.userId!, Number(req.params.id)));
   } catch (err: any) { if (planErrorToResponse(err, res)) return; res.status(400).json({ error: String(err?.message ?? err) }); }
 });
+/** The campaign as it will arrive, sent to the owner's own address (or `to`) — personalised for the first contact in its audience. */
+router.post("/campaigns/:id/test", async (req, res) => {
+  const userId = req.session.userId!;
+  const [c] = await db.select().from(emailCampaignsTable).where(and(eq(emailCampaignsTable.id, Number(req.params.id)), eq(emailCampaignsTable.userId, userId))).limit(1);
+  if (!c) return res.status(404).json({ error: "الحملة غير موجودة" });
+  const s = await getSettings(userId);
+  if (!isConfigured(s)) return res.status(400).json({ error: "إعدادات البريد غير مكتملة — اضبط المُرسِل أولاً" });
+  const to = String(req.body?.to ?? s!.fromEmail).trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return res.status(400).json({ error: "بريد الاستلام غير صالح" });
+  const vars = { name: "خالد العلي", first_name: "خالد", company: "شركة النور للمقاولات", city: "دبي", industry: "", sender: s!.fromName ?? s!.fromEmail!, sender_email: s!.fromEmail! };
+  const token = newToken();
+  const r = renderEmail(c.html + (s!.signature ? `<div style="margin-top:20px">${s!.signature}</div>` : ""), vars,
+    { base: "", token, secret: "x", pixel: false, links: false },
+    { base: "", token, fromName: s!.fromName ?? s!.fromEmail!, fromEmail: s!.fromEmail! });
+  try {
+    await sendEmail(s!, { to, subject: `[تجربة] ${personalize(c.subject, vars)}`, html: r.html, text: r.text, messageId: messageIdFor(token, s!.fromEmail!), unsubscribeUrl: null });
+    res.json({ ok: true, to });
+  } catch (err: any) { res.status(400).json({ error: String(err?.message ?? err) }); }
+});
+
+/** A copy of a campaign as a new draft — same audience, same content, nothing sent. */
+router.post("/campaigns/:id/duplicate", async (req, res) => {
+  const userId = req.session.userId!;
+  const [c] = await db.select().from(emailCampaignsTable).where(and(eq(emailCampaignsTable.id, Number(req.params.id)), eq(emailCampaignsTable.userId, userId))).limit(1);
+  if (!c) return res.status(404).json({ error: "الحملة غير موجودة" });
+  const [d] = await db.insert(emailCampaignsTable).values({ userId, name: `${c.name} (نسخة)`.slice(0, 160), listId: c.listId, segmentId: c.segmentId, subject: c.subject, html: c.html, subjectB: c.subjectB, abPct: c.abPct, abWaitHours: c.abWaitHours, status: "draft" }).returning();
+  res.status(201).json(d);
+});
+
 router.post("/campaigns/:id/pause", async (req, res) => { await pauseCampaign(req.session.userId!, Number(req.params.id), "إيقاف يدوي"); res.json({ ok: true }); });
 router.delete("/campaigns/:id", async (req, res) => {
   await db.delete(emailCampaignsTable).where(and(eq(emailCampaignsTable.id, Number(req.params.id)), eq(emailCampaignsTable.userId, req.session.userId!)));

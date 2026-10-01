@@ -183,6 +183,7 @@ function AuthenticatedRoutes() {
           <Route path="/inbox"          component={WaInbox} />
           <Route path="/extractor"      component={WaExtractor} />
           <Route path="/wa-link"        component={WaLinkGenerator} />
+          <Route path="/email/:tab/:id" component={EmailMarketing} />
           <Route path="/email/:tab?"    component={EmailMarketing} />
           <Route path="/arena"          component={SalesArena} />
           <Route path="/settings"       component={Settings} />

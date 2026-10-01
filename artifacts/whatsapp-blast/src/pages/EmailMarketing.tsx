@@ -10,11 +10,13 @@ import { Link, useRoute, useLocation } from "wouter";
 import { toast } from "sonner";
 import {
   Mail, Upload, Users, Megaphone, ListOrdered, FileText, Inbox, Settings2, Loader2, Play, Pause,
-  CheckCircle2, AlertTriangle, Eye, MousePointerClick, Reply, ShieldAlert, RefreshCw, Trash2, Plus, Send, Sparkles, Rocket,
+  CheckCircle2, AlertTriangle, Eye, MousePointerClick, Reply, ShieldAlert, RefreshCw, Trash2, Plus, Send, Sparkles, Rocket, FolderOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, input } from "@/components/AgentPanel";
 import { AudienceTab, AgentTab, MissionsTab, type Filter } from "./EmailAgent";
+import { ListsTab, ListDetail } from "./EmailLists";
+import { Campaigns } from "./EmailCampaigns";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const card = "bg-card border border-card-border rounded-xl";
@@ -30,11 +32,12 @@ const pct = (n?: number | null) => (n === null || n === undefined ? "—" : `${n
 
 const TABS = [
   { key: "overview",  label: "النظرة العامة", icon: Mail },
-  { key: "import",    label: "رفع Excel",      icon: Upload },
+  { key: "lists",     label: "القوائم",        icon: FolderOpen },
   { key: "contacts",  label: "الجمهور",        icon: Users },
+  { key: "campaigns", label: "الحملات",         icon: Megaphone },
+  { key: "import",    label: "رفع Excel",      icon: Upload },
   { key: "agent",     label: "نورة",           icon: Sparkles },
   { key: "missions",  label: "المهام",         icon: Rocket },
-  { key: "campaigns", label: "الحملات",         icon: Megaphone },
   { key: "sequences", label: "المتابعة",        icon: ListOrdered },
   { key: "templates", label: "القوالب",         icon: FileText },
   { key: "inbox",     label: "الوارد",          icon: Inbox },
@@ -50,14 +53,20 @@ const EVENT_AR: Record<string, { label: string; cls: string }> = {
 
 export default function EmailMarketing() {
   const [, params] = useRoute("/email/:tab?");
+  const [, deep] = useRoute("/email/:tab/:id");
   const [, navigate] = useLocation();
-  const tab = (TABS.find((t) => t.key === params?.tab)?.key ?? "overview") as Tab;
+  const tab = (TABS.find((t) => t.key === (deep?.tab ?? params?.tab))?.key ?? "overview") as Tab;
+  const listId = tab === "lists" && deep?.id ? Number(deep.id) : null;
+  // A list's "campaign" button opens the builder on that list.
+  const [campaignFor, setCampaignFor] = useState<number | null>(null);
+  const toCampaign = (id: number) => { setCampaignFor(id); navigate("/email/campaigns"); };
+  const toWrite = (f: Filter) => { setWriteFor(f); navigate("/email/agent"); };
   const { data: ov } = useQuery<any>({ queryKey: ["email-overview"], queryFn: () => api("/api/email/overview"), refetchInterval: 10_000 });
   // The audience the owner handed to نورة from the audience tab.
   const [writeFor, setWriteFor] = useState<Filter | null>(null);
 
   return (
-    <div className="p-6 space-y-5 max-w-6xl">
+    <div className="p-6 space-y-5 max-w-[96rem]">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><Mail className="w-6 h-6 text-primary" /> التسويق بالبريد</h1>
@@ -81,10 +90,11 @@ export default function EmailMarketing() {
 
       {tab === "overview"  && <Overview ov={ov} />}
       {tab === "import"    && <Import />}
-      {tab === "contacts"  && <AudienceTab onWrite={(f) => { setWriteFor(f); navigate("/email/agent"); }} />}
+      {tab === "lists"     && (listId ? <ListDetail id={listId} onCampaign={toCampaign} onWrite={toWrite} /> : <ListsTab onCampaign={toCampaign} />)}
+      {tab === "contacts"  && <AudienceTab onWrite={toWrite} />}
       {tab === "agent"     && <AgentTab initialFilter={writeFor} onMissionCreated={() => navigate("/email/missions")} />}
       {tab === "missions"  && <MissionsTab />}
-      {tab === "campaigns" && <Campaigns />}
+      {tab === "campaigns" && <Campaigns initialListId={campaignFor} onUsedInitial={() => setCampaignFor(null)} />}
       {tab === "sequences" && <Sequences />}
       {tab === "templates" && <Templates />}
       {tab === "inbox"     && <InboxTab />}
@@ -292,102 +302,9 @@ function Import() {
               ? <li className="text-yellow-400">أرقام واتساب لم تُحفظ: {result.whatsapp.error}</li>
               : <li>واتساب: حُفظ <b className="text-foreground">{result.whatsapp.added}</b> رقم جوال باسم الشركة في {result.whatsapp.groups.map((g: any) => <Link key={g.id} href={`/contacts/${g.id}`} className="text-primary underline mx-0.5">{g.name}</Link>)}{result.whatsapp.skippedLandline ? ` · ${result.whatsapp.skippedLandline} أرضي تُرك` : ""}{result.whatsapp.verifying ? " · يجري التحقق على واتساب" : ""}.</li>)}
           </ul>
-          <div className="flex gap-2 mt-3"><Link href="/email/overview" className={ghost}>راقب الإرسال</Link><Link href="/email/contacts" className={ghost}>جهات الاتصال</Link></div>
+          <div className="flex gap-2 mt-3"><Link href="/email/overview" className={ghost}>راقب الإرسال</Link>{result.list?.id && <Link href={`/email/lists/${result.list.id}`} className={ghost}>افتح القائمة</Link>}<Link href="/email/contacts" className={ghost}>جهات الاتصال</Link></div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Campaigns ─────────────────────────────────────────────────────
-function Campaigns() {
-  const qc = useQueryClient();
-  const [open, setOpen] = useState<number | null>(null);
-  const [form, setForm] = useState<{ name: string; listId: string; subject: string; html: string; subjectB?: string; abPct?: number; abWaitHours?: number } | null>(null);
-  const { data: segs = [] } = useQuery<any[]>({ queryKey: ["email-segments"], queryFn: () => api("/api/email/segments") });
-  const { data: rows = [] } = useQuery<any[]>({ queryKey: ["email-campaigns"], queryFn: () => api("/api/email/campaigns"), refetchInterval: 10_000 });
-  const { data: lists = [] } = useQuery<any[]>({ queryKey: ["email-lists"], queryFn: () => api("/api/email/lists") });
-  const { data: templates = [] } = useQuery<any[]>({ queryKey: ["email-templates"], queryFn: () => api("/api/email/templates") });
-  const inv = () => qc.invalidateQueries({ queryKey: ["email-campaigns"] });
-  const create = useMutation({ mutationFn: (b: any) => api("/api/email/campaigns", { method: "POST", body: JSON.stringify(b) }), onSuccess: () => { setForm(null); inv(); toast.success("أُنشئت كمسودة"); }, onError: (e: Error) => toast.error(e.message) });
-  const start = useMutation({ mutationFn: (id: number) => api(`/api/email/campaigns/${id}/start`, { method: "POST" }), onSuccess: (d: any) => { inv(); toast.success(`في الطابور ${d.queued} رسالة`); }, onError: (e: Error) => toast.error(e.message) });
-  const pause = useMutation({ mutationFn: (id: number) => api(`/api/email/campaigns/${id}/pause`, { method: "POST" }), onSuccess: inv });
-  const del = useMutation({ mutationFn: (id: number) => api(`/api/email/campaigns/${id}`, { method: "DELETE" }), onSuccess: inv });
-  const ST: Record<string, string> = { draft: "مسودة", scheduled: "مجدولة", sending: "تُرسل", paused: "متوقفة", completed: "اكتملت" };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center"><p className="text-sm text-muted-foreground">رسالة واحدة لقائمة كاملة، بحصة الساعة واليوم وساعات العمل. للمتابعة المتدرّجة استخدم «المتابعة».</p>
-        <button onClick={() => setForm({ name: "", listId: String(lists[0]?.id ?? ""), subject: "", html: "" })} className={primary}><Plus className="w-3.5 h-3.5" /> حملة جديدة</button></div>
-      {form && (
-        <div className={cn(card, "p-4 space-y-3")}>
-          <div className="grid md:grid-cols-3 gap-3">
-            <div><label className="text-xs font-semibold block mb-1.5">الاسم</label><input className={input} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-            <div><label className="text-xs font-semibold block mb-1.5">إلى من</label><select className={input} value={form.listId} onChange={(e) => setForm({ ...form, listId: e.target.value })}>
-              <optgroup label="قوائم">{lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.count})</option>)}</optgroup>
-              {segs.length > 0 && <optgroup label="جماهير محفوظة">{segs.map((sg) => <option key={`s${sg.id}`} value={`s${sg.id}`}>{sg.name} ({sg.sendable})</option>)}</optgroup>}
-            </select></div>
-            <div><label className="text-xs font-semibold block mb-1.5">من قالب</label><select className={input} defaultValue="" onChange={(e) => { const t = templates.find((x) => String(x.id) === e.target.value); if (t) setForm({ ...form, subject: t.subject, html: t.html, name: form.name || t.name }); }}><option value="">—</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
-          </div>
-          <div><label className="text-xs font-semibold block mb-1.5">العنوان</label><input className={input} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="{{company}} و…" /></div>
-          <div className="grid md:grid-cols-[1fr_8rem_8rem] gap-3">
-            <div><label className="text-xs font-semibold block mb-1.5">عنوان بديل للاختبار (اختياري)</label><input className={input} value={form.subjectB ?? ""} onChange={(e) => setForm({ ...form, subjectB: e.target.value })} placeholder="يُرسل لنصف شريحة الاختبار" /></div>
-            <div><label className="text-xs font-semibold block mb-1.5">شريحة الاختبار %</label><input type="number" className={input} value={form.abPct ?? 20} onChange={(e) => setForm({ ...form, abPct: Number(e.target.value) })} /></div>
-            <div><label className="text-xs font-semibold block mb-1.5">انتظار (ساعات)</label><input type="number" className={input} value={form.abWaitHours ?? 4} onChange={(e) => setForm({ ...form, abWaitHours: Number(e.target.value) })} /></div>
-          </div>
-          {form.subjectB && <p className="text-[11px] text-muted-foreground">نصف الشريحة يأخذ العنوان الأول والنصف الآخر البديل؛ بعد الانتظار يُرسل الباقي بالعنوان الذي فُتح أكثر. لا اختبار لقائمة أقل من ٤٠.</p>}
-          <div><label className="text-xs font-semibold block mb-1.5">المحتوى (HTML — تُقبل {"{{name}} {{first_name}} {{company}} {{city}} {{sender}}"})</label><textarea className={ta} value={form.html} onChange={(e) => setForm({ ...form, html: e.target.value })} /></div>
-          <div className="flex gap-2"><button onClick={() => create.mutate(String(form.listId).startsWith("s") ? { ...form, listId: null, segmentId: Number(String(form.listId).slice(1)) } : { ...form, listId: Number(form.listId) })} disabled={create.isPending} className={primary}>احفظ كمسودة</button><button onClick={() => setForm(null)} className={ghost}>إلغاء</button><PreviewButton subject={form.subject} html={form.html} /></div>
-        </div>
-      )}
-      <div className={cn(card, "divide-y divide-card-border")}>
-        {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground text-center">لا حملات بعد.</p>}
-        {rows.map((c) => (
-          <div key={c.id} className="p-3.5">
-            <div className="flex items-center gap-3 flex-wrap">
-              <button onClick={() => setOpen(open === c.id ? null : c.id)} className="font-semibold text-sm hover:text-primary">{c.name}</button>
-              <span className={cn("text-[10px] px-2 py-0.5 rounded border", c.status === "sending" ? "border-primary/40 text-primary" : "border-card-border text-muted-foreground")}>{ST[c.status] ?? c.status}</span>
-              <span className="text-[11px] text-muted-foreground">{c.listName ?? "بلا قائمة"} · أُرسل {c.sentCount} · فُتح {c.openCount} · نقر {c.clickCount} · ردّ {c.replyCount} · ارتدّ {c.bounceCount}</span>
-              <div className="mr-auto flex gap-1.5">
-                {["draft", "paused", "scheduled"].includes(c.status) && <button onClick={() => start.mutate(c.id)} className={ghost}><Play className="w-3 h-3" /> ابدأ</button>}
-                {c.status === "sending" && <button onClick={() => pause.mutate(c.id)} className={ghost}><Pause className="w-3 h-3" /> أوقف</button>}
-                <button onClick={() => confirm("حذف الحملة؟") && del.mutate(c.id)} className={ghost}><Trash2 className="w-3 h-3" /></button>
-              </div>
-            </div>
-            {c.pauseReason && <p className="text-[11px] text-yellow-400 mt-1">{c.pauseReason}</p>}
-            {open === c.id && <CampaignDetail id={c.id} />}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function CampaignDetail({ id }: { id: number }) {
-  const { data } = useQuery<any>({ queryKey: ["email-campaign", id], queryFn: () => api(`/api/email/campaigns/${id}`), refetchInterval: 10_000 });
-  if (!data) return <Loader2 className="w-4 h-4 animate-spin mt-2 text-muted-foreground" />;
-  const f = data.funnel ?? {};
-  const total = (f.sent ?? 0) + (f.queued ?? 0) + (f.failed ?? 0);
-  return (
-    <div className="mt-3 space-y-3">
-      <div className="grid grid-cols-3 md:grid-cols-7 gap-2">
-        {[["في الطابور", f.queued], ["أُرسل", f.sent], ["فُتح", f.opened], ["نقر", f.clicked], ["ردّ", f.replied], ["ارتدّ", f.bounced], ["فشل", f.failed]].map(([l, v]) => (
-          <div key={String(l)} className="rounded-lg border border-card-border p-2"><p className="text-[10px] text-muted-foreground">{l}</p><p className="text-lg font-bold leading-none mt-1">{v ?? 0}</p></div>
-        ))}
-      </div>
-      {total > 0 && <div className="h-2 rounded-full bg-muted overflow-hidden" dir="ltr"><div className="h-full bg-primary" style={{ width: `${Math.round(((f.sent ?? 0) / total) * 100)}%` }} /></div>}
-      {data.ab && (
-        <div className="rounded-lg border border-card-border p-3 text-xs space-y-1">
-          <p className="font-semibold">اختبار العنوان {data.ab.winner ? `— الفائز ${data.ab.winner}` : f.held ? `— ${f.held} ينتظرون الحسم` : ""}</p>
-          {(data.ab.variants ?? []).map((v: any) => (
-            <p key={v.variant} className={cn(data.ab.winner === v.variant && "text-primary")}>
-              {v.variant}: «{v.variant === "B" ? data.campaign.subjectB : data.campaign.subject}» — أُرسل {v.sent} · فتح {v.sent ? Math.round((v.opened / v.sent) * 100) : 0}% · رد {v.replied}
-            </p>
-          ))}
-        </div>
-      )}
-      <div className="max-h-72 overflow-y-auto"><table className="w-full text-[11px]"><thead className="sticky top-0 bg-card text-muted-foreground"><tr><th className="text-right p-1.5">إلى</th><th className="text-right p-1.5">الشركة</th><th className="text-right p-1.5">الحالة</th><th className="text-right p-1.5">أُرسل</th><th className="text-right p-1.5"><Eye className="w-3 h-3 inline" /></th><th className="text-right p-1.5"><MousePointerClick className="w-3 h-3 inline" /></th><th className="text-right p-1.5"><Reply className="w-3 h-3 inline" /></th></tr></thead>
-        <tbody>{(data.recipients ?? []).map((r: any) => <tr key={r.id} className="border-t border-card-border"><td className="p-1.5 font-mono" dir="ltr">{r.toEmail}</td><td className="p-1.5">{r.company ?? r.name ?? ""}</td><td className={cn("p-1.5", r.status === "bounced" || r.status === "failed" ? "text-red-400" : "")}>{r.status}{r.error ? ` — ${String(r.error).slice(0, 60)}` : ""}</td><td className="p-1.5 text-muted-foreground">{ago(r.sentAt)}</td><td className="p-1.5">{r.openCount || ""}</td><td className="p-1.5">{r.clickCount || ""}</td><td className="p-1.5">{r.repliedAt ? "✓" : ""}</td></tr>)}</tbody></table></div>
     </div>
   );
 }

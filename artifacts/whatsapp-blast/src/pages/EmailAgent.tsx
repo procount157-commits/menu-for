@@ -35,7 +35,7 @@ const ago = (d?: string | Date | null) => {
   if (m < 1) return "الآن"; if (m < 60) return `${m}د`; const h = Math.round(m / 60); return h < 24 ? `${h}س` : `${Math.round(h / 24)}ي`;
 };
 
-export type Filter = { sectors?: string[]; cities?: string[]; engagement?: string[]; statuses?: string[]; listIds?: number[]; q?: string; hasPhone?: boolean };
+export type Filter = { sectors?: string[]; cities?: string[]; engagement?: string[]; statuses?: string[]; listIds?: number[]; folderIds?: number[]; q?: string; hasPhone?: boolean };
 const toggle = (arr: string[] | undefined, v: string) => { const s = new Set(arr ?? []); s.has(v) ? s.delete(v) : s.add(v); return [...s]; };
 const describe = (f: Filter) => [f.sectors?.join(" و"), f.cities?.length ? `في ${f.cities.join("، ")}` : "", f.hasPhone ? "لهم واتساب" : ""].filter(Boolean).join(" · ") || "كل جهات الاتصال";
 

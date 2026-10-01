@@ -5,7 +5,7 @@
 // table, the counts beside each filter, campaigns, sequences and missions.
 
 import { and, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
-import { db, emailContactsTable, emailListMembersTable, type SegmentFilter } from "@workspace/db";
+import { db, emailContactsTable, emailListMembersTable, emailListsTable, type SegmentFilter } from "@workspace/db";
 import { UNCLASSIFIED } from "./sector";
 
 export const ENGAGEMENT: Record<string, string> = {
@@ -32,6 +32,11 @@ export function conditions(userId: number, f: SegmentFilter = {}): SQL[] {
   if (f.hasPhone) out.push(isNotNull(c.phone));
   if (f.listIds?.length) {
     out.push(inArray(c.id, db.select({ id: emailListMembersTable.contactId }).from(emailListMembersTable).where(inArray(emailListMembersTable.listId, f.listIds))));
+  }
+  if (f.folderIds?.length) {
+    out.push(inArray(c.id, db.select({ id: emailListMembersTable.contactId }).from(emailListMembersTable)
+      .innerJoin(emailListsTable, eq(emailListsTable.id, emailListMembersTable.listId))
+      .where(and(eq(emailListsTable.userId, userId), inArray(emailListsTable.folderId, f.folderIds)))));
   }
   if (f.q?.trim()) {
     const q = `%${f.q.trim()}%`;
@@ -60,6 +65,7 @@ export function cleanFilter(raw: any): SegmentFilter {
   const eng = (arr(raw?.engagement) ?? []).filter((k) => k in ENGAGEMENT);
   if (eng.length) f.engagement = eng;
   if (Array.isArray(raw?.listIds) && raw.listIds.length) f.listIds = raw.listIds.map(Number).filter(Boolean).slice(0, 50);
+  if (Array.isArray(raw?.folderIds) && raw.folderIds.length) f.folderIds = raw.folderIds.map(Number).filter(Boolean).slice(0, 20);
   if (typeof raw?.q === "string" && raw.q.trim()) f.q = raw.q.trim().slice(0, 100);
   if (raw?.hasPhone === true || raw?.hasPhone === "true") f.hasPhone = true;
   return f;
@@ -117,6 +123,8 @@ export function describe(f: SegmentFilter): string {
   if (f.cities?.length) parts.push(`في ${f.cities.join("، ")}`);
   if (f.engagement?.length) parts.push(f.engagement.map((k) => ENGAGEMENT[k] ?? k).join(" أو "));
   if (f.hasPhone) parts.push("لهم رقم واتساب");
+  if (f.listIds?.length) parts.push(f.listIds.length === 1 ? "قائمة واحدة" : `${f.listIds.length} قوائم`);
+  if (f.folderIds?.length) parts.push(f.folderIds.length === 1 ? "مجلد واحد" : `${f.folderIds.length} مجلدات`);
   if (f.q) parts.push(`«${f.q}»`);
   return parts.join(" · ") || "كل جهات الاتصال";
 }

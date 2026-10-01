@@ -262,6 +262,8 @@ export interface SegmentFilter {
   sectors?: string[];
   cities?: string[];
   listIds?: number[];
+  /** Every list in these folders, resolved when used — a list added to the folder later is included. */
+  folderIds?: number[];
   statuses?: string[];
   /** never_sent | sent_no_open | opened_no_reply | clicked | replied */
   engagement?: string[];

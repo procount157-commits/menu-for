@@ -500,6 +500,33 @@ A file uploaded while a folder is open lands in it; otherwise a new list goes
 straight into its sector's folder. The folder counts are taken from the lists
 the page shows, so they always agree with it.
 
+**Email lists** (`pages/EmailLists.tsx`, the «القوائم» tab) work like the
+number lists: folders down the side, a card per list, and a page per list at
+`/email/lists/:id`. A card shows how many addresses there are, how many can
+still be written to, how many have a WhatsApp number, how many were reached,
+opened and replied, and a bar of sendable against unsubscribed and bounced.
+All of that comes from one query (`listStats` in `routes/email.ts`). A file
+dropped on the tab becomes one list in one step, filed in the open folder or
+its sector's folder; the same file again tops up that list. The list page
+filters its members by engagement and status. From there the owner can take
+contacts out of the list (they stay in the audience), stop or restart them,
+export to CSV, enrol the list in a follow-up, or start a campaign or a
+نورة draft for it.
+
+**Campaigns** (`pages/EmailCampaigns.tsx`) are built in three steps on one
+screen:
+1. Who it goes to: a list, a whole folder (an audience with `folderIds`,
+   resolved when the campaign starts, so a list added to the folder later is
+   included), or a saved audience. Each choice shows how many it will reach.
+2. The message: نورة writes it with two subjects to test, or it comes from a
+   template or by hand. Merge fields go in at the cursor, and the email shows
+   beside the editor as it will arrive.
+3. Sending: a subject test, now, at a set time, or saved as a draft.
+
+A test copy goes to the owner's own address first (`/campaigns/:id/test`),
+and a campaign can be copied as a new draft. Each campaign card shows its
+progress against its audience and its open, click, reply and bounce rates.
+
 **Clearing email data** (`lib/email/delete.ts`). The audience can be cleared
 in one step: the ticked rows, everyone the current filter selects, a list on
 its own or with its addresses (those in no other list), or all of it. A bulk
