@@ -134,15 +134,11 @@ app.use("/api", router);
 // anyone who wants hot reload.
 const WEB_ROOT = path.resolve(import.meta.dirname, "../../whatsapp-blast/dist/public");
 if (fs.existsSync(path.join(WEB_ROOT, "index.html"))) {
-  // The public home page is generated HTML (scripts/seo/build-site.mjs),
-  // not the app shell: a crawler gets a page it can read, and so does a
-  // visitor who is not signed in. Someone with a session goes to the app.
-  const STATIC_HOME = path.join(WEB_ROOT, "home", "index.html");
-  app.get("/", (req, res, next) => {
-    if (req.session?.userId || !fs.existsSync(STATIC_HOME)) return next();
-    res.setHeader("Cache-Control", "public, max-age=300");
-    res.sendFile(STATIC_HOME);
-  });
+  // The home page is the app's own landing page (LandingPage.tsx) for every
+  // visitor — the owner's design. The generated pages (scripts/seo/
+  // build-site.mjs) stay for the articles, the country and feature pages;
+  // their plain home is not shown in its place, so /home/ leads to the real one.
+  app.get(["/home", "/home/"], (_req, res) => res.redirect(301, "/"));
 
   app.use(express.static(WEB_ROOT, {
     // Hashed asset filenames can be cached hard; index.html must not be, or a

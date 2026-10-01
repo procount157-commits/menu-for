@@ -8,8 +8,9 @@
 // So the public pages are generated here as plain HTML at build time, one
 // file per URL, from Markdown under artifacts/whatsapp-blast/site/. No
 // framework, no dependencies: a page is a template string and the Markdown
-// parser is sixty lines, which is all these pages need. The server sends the
-// generated home to anonymous visitors and the app shell to signed-in ones.
+// parser is sixty lines, which is all these pages need. The home page itself
+// is the app's own landing page (LandingPage.tsx); the generated home is
+// written but not served in its place.
 //
 // Absolute URLs — canonical, og:url, the sitemap — need the site's domain,
 // which is SITE_URL. Without it the pages still build, with relative links
@@ -185,7 +186,7 @@ const urls = [];
 fs.mkdirSync(OUT, { recursive: true });
 fs.copyFileSync(path.join(SRC, "site.css"), path.join(OUT, "site.css"));
 
-// Pages: home (served at / for anonymous visitors; written under /home/),
+// Pages: home (written under /home/, which redirects to the real landing page),
 // markets, features.
 for (const file of fs.readdirSync(path.join(SRC, "pages")).filter((f) => f.endsWith(".md")).sort()) {
   const { meta, body } = load(path.join(SRC, "pages", file));
