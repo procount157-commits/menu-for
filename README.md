@@ -1,4 +1,65 @@
-# واتساب ماركتر
+# منيو فور يو — Menu For You
+
+منيو رقمي بحركات، طلب على واتساب، صف انتظار رقمي بدون تطبيق، وحجوزات — للمطاعم
+والكافيهات ومحلات الحلويات وصالونات التجميل. مبني فوق **Flow Hub** (نظام واتساب
+والوكلاء والبريد)، وكل ما تحت «The WhatsApp core» أدناه هو توثيق Flow Hub ولا يزال صحيحاً.
+
+The plan this is built to is [PLAN.md](PLAN.md).
+
+## Run it locally
+
+```bash
+docker exec wam-postgres psql -U wam -d postgres -c "CREATE DATABASE menu4u"   # once
+cp .env.example .env            # DATABASE_URL=…/menu4u, SESSION_SECRET, PORT=8090
+~/.local/bin/pnpm install
+(cd lib/db && ~/.local/bin/pnpm run push-force)                       # schema
+for f in lib/db/migrations/*.sql; do docker exec -i wam-postgres psql -q -U wam -d menu4u < "$f"; done
+node --env-file=.env --import tsx artifacts/api-server/src/scripts/seed-demo.ts   # two demo shops
+~/.local/bin/pnpm run build     # typecheck + dashboard + public pages + API
+cd artifacts/api-server && PORT=8090 node --env-file-if-exists=../../.env ./dist/index.mjs
+```
+
+Then: http://localhost:8090 (home), `/login` (owner), `/staff-login` (staff),
+`/bait-shami` (a demo menu). Demo credentials are in the header of
+`artifacts/api-server/src/scripts/seed-demo.ts`. For hot reload, run
+`PORT=5180 pnpm --filter @workspace/menu-web run dev` (public pages, under `/mw/`) or
+`PORT=5173 pnpm --filter @workspace/whatsapp-blast run dev` (dashboard) beside the API.
+
+Tests: `set -a && . ./.env && set +a && ~/.local/bin/pnpm test` — Flow Hub's suites
+plus `menu-shared`, `menu-queue`, `menu-orders` and `menu-http` (two shops trying
+each other's ids; staff refused Flow Hub's routes).
+
+## How it is put together
+
+| | |
+|---|---|
+| `lib/menu-shared` | Pure logic used by the server and both front ends: pricing, the wait estimate, local time and opening hours, booking slots, message codes, shop addresses, templates, vertical vocabulary, the public API types |
+| `lib/db/src/schema/menu.ts` | orgs, branches, staff, menu, offers, queues, tickets, orders, bookings, customers, WhatsApp templates and the notification outbox (migration `100_menu_core.sql`) |
+| `artifacts/api-server/src/lib/tenancy` | Who is asking: the org, the branch, the role. **A branch is one Flow Hub account** (`branches.wa_user_id`); the session's `userId` is always the current branch's, so every Flow Hub screen works per branch. `staffGuard` is default-deny for staff |
+| `lib/queue/engine.ts` | Numbers by `UPDATE … RETURNING` on a per-day counter; «التالي» by `FOR UPDATE SKIP LOCKED`; the wait from today's calls |
+| `lib/orders`, `lib/booking` | Orders priced on the server; bookings under a per-branch advisory lock |
+| `lib/notify` | The transactional lane (`outbox.ts`): replies in a thread the customer opened, or numbers they typed and agreed to; each kind has a shelf life. `inbound.ts` matches «رمز 7F3K» to a ticket, order or booking and answers «كم قدامي». `lifecycle.ts`: review requests and win-backs |
+| `lib/menu` | The public menu payload, image processing (WebP × 3 + blur), menu → agent knowledge, Excel/photo import, and `web.ts`, which serves the public pages with Open Graph tags and inlined data |
+| `artifacts/menu-web` | The public pages: `/{shop}`, `/{shop}/{branch}`, `/t/…` ticket, `/o/…` order, `/b/…` booking, `/d/…` TV. ~83 KB JS gzipped |
+| `artifacts/whatsapp-blast/src/pages/shop` | The dashboard's shop screens; staff and managers get their own shell |
+
+Every public path is decided by the server: a first path segment that is a shop's
+slug is its menu, anything else is the dashboard. Reserved words live in
+`lib/menu-shared/src/slug.ts`.
+
+## Deploying
+
+`deploy/deploy.sh` as before (see below). A fresh database is given
+`lib/db/migrations/000_base.sql` (a schema-only dump of a fully migrated database —
+regenerate with `scripts/ops/dump-base-schema.sh` after a schema change), and every
+migration is recorded in `schema_migrations` so each runs once. nginx proxies every
+path to the API, streams unbuffered. Set `SITE_URL` — WhatsApp messages carry links.
+
+---
+
+# The WhatsApp core (from Flow Hub)
+
+## واتساب ماركتر
 
 أداة إرسال جماعي احترافية عبر WhatsApp، بواجهة عربية RTL وثيم أخضر داكن — نظام SaaS متعدد المستخدمين.
 
