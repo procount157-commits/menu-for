@@ -69,8 +69,7 @@ export function JoinSheet({ menu, lang, open, onClose, joinKey, source }: { menu
   const [name, setName] = useState(() => { try { return localStorage.getItem("mfy:name") ?? ""; } catch { return ""; } });
   const [party, setParty] = useState(2);
   const [service, setService] = useState<number | null>(null);
-  const [phone, setPhone] = useState("");
-  const [showPhone, setShowPhone] = useState(false);
+  const [phone, setPhone] = useState(() => { try { return localStorage.getItem("mfy:phone") ?? ""; } catch { return ""; } });
   const [optIn, setOptIn] = useState(false);
   const [busy, setBusy] = useState<"wa" | "plain" | null>(null);
   const services = menu.items.filter((i) => i.kind === "service" && i.available);
@@ -81,7 +80,7 @@ export function JoinSheet({ menu, lang, open, onClose, joinKey, source }: { menu
   const submit = async (withWa: boolean) => {
     if (!name.trim()) { toast(t("namePh", lang)); return; }
     setBusy(withWa ? "wa" : "plain");
-    try { localStorage.setItem("mfy:name", name.trim()); } catch { /* ignore */ }
+    try { localStorage.setItem("mfy:name", name.trim()); if (phone.trim()) localStorage.setItem("mfy:phone", phone.trim()); } catch { /* ignore */ }
     try {
       const r = await api<{ token: string; waLink: string | null }>(`/api/public/queues/${q.id}/join`, {
         json: { name: name.trim(), partySize: q.askPartySize ? party : 1, serviceItemId: service, phone: phone.trim() || null, joinKey, marketingOptIn: optIn, source },
@@ -136,10 +135,11 @@ export function JoinSheet({ menu, lang, open, onClose, joinKey, source }: { menu
                 </div>
               </div>
             )}
-            {showPhone || !hasWa ? (
-              <label className="block animate-fade"><span className="font-semibold text-sm">{t("phone", lang)}</span>
-                <input className="field mt-2 tabular" dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t("phonePh", lang)} autoComplete="tel" /></label>
-            ) : null}
+            {hasWa && (
+              <label className="block"><span className="font-semibold text-sm flex items-center gap-1.5"><Icon name="wa" className="w-4 h-4" style={{ color: "#25D366" }} />{t("waNumber", lang)}</span>
+                <input className="field mt-2 tabular" dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t("phonePh", lang)} autoComplete="tel" />
+                <span className="block text-xs text-muted mt-1.5">{t("waNumberHintQueue", lang)}</span></label>
+            )}
             <label className="flex items-center gap-3 text-sm cursor-pointer select-none">
               <input type="checkbox" checked={optIn} onChange={(e) => setOptIn(e.target.checked)} className="w-5 h-5 accent-[var(--brand)]" />
               {t("offersOptIn", lang)}
@@ -149,16 +149,20 @@ export function JoinSheet({ menu, lang, open, onClose, joinKey, source }: { menu
       </div>
       {!needKey && !q.full && (
         <div className="px-5 pt-3 safe-bottom border-t space-y-2" style={{ borderColor: "var(--line)" }}>
-          {hasWa && (
-            <button disabled={!!busy} onClick={() => submit(true)} className="btn-brand w-full h-14 flex items-center justify-center gap-2.5 text-[16px]" style={{ background: "#25D366", color: "#fff" }}>
-              {busy === "wa" ? <Spinner /> : <Icon name="wa" className="w-5 h-5" />}{t("joinWa", lang)}
+          {phone.trim() || !hasWa ? (
+            // A number typed: the shop's WhatsApp writes to the customer, nothing for them to send.
+            <button disabled={!!busy} onClick={() => submit(false)} className="btn-brand w-full h-14 flex items-center justify-center gap-2.5 text-[16px]">
+              {busy ? <Spinner /> : <Icon name="ticket" className="w-5 h-5" />}{t("joinNow", lang)}
             </button>
-          )}
-          <button disabled={!!busy} onClick={() => submit(false)} className={`${hasWa ? "btn-ghost" : "btn-brand"} w-full h-12 flex items-center justify-center gap-2 text-[15px] font-semibold`}>
-            {busy === "plain" && <Spinner className="w-4 h-4" />}{hasWa ? t("joinNoWa", lang) : t("joinQueue", lang)}
-          </button>
-          {hasWa && !showPhone && (
-            <button onClick={() => setShowPhone(true)} className="w-full text-center text-xs text-muted py-1.5 underline-offset-4 hover:underline">{t("waPhoneOpt", lang)}</button>
+          ) : (
+            <>
+              <button disabled={!!busy} onClick={() => submit(true)} className="btn-brand w-full h-14 flex items-center justify-center gap-2.5 text-[16px]" style={{ background: "#25D366", color: "#fff" }}>
+                {busy === "wa" ? <Spinner /> : <Icon name="wa" className="w-5 h-5" />}{t("joinWa", lang)}
+              </button>
+              <button disabled={!!busy} onClick={() => submit(false)} className="btn-ghost w-full h-12 flex items-center justify-center gap-2 text-[15px] font-semibold">
+                {busy === "plain" && <Spinner className="w-4 h-4" />}{t("joinNoWa", lang)}
+              </button>
+            </>
           )}
         </div>
       )}

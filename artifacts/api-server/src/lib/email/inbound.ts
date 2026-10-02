@@ -19,7 +19,7 @@ import { classify } from "../intent";
 import { retrieve } from "../knowledge";
 import { passages } from "./knowledge-docs";
 import { activity, temperature, TEMP_AR } from "./team";
-import { complete } from "../llm";
+import { completeEmail as complete } from "../llm";
 import { skillsFor, skillsPreamble } from "../agent-skills";
 import { memoryPreamble } from "../agent-memory";
 import { say } from "../agent-comms";

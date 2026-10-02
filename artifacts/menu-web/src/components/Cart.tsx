@@ -40,6 +40,7 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
   const [type, setType] = useState<OrderType>(table && types.includes("dine_in") ? "dine_in" : types.includes("pickup") ? "pickup" : types[0]!);
   const [tableLabel, setTable] = useState(table ?? "");
   const [name, setName] = useState(() => { try { return localStorage.getItem("mfy:name") ?? ""; } catch { return ""; } });
+  const [phone, setPhone] = useState(() => { try { return localStorage.getItem("mfy:phone") ?? ""; } catch { return ""; } });
   const [address, setAddress] = useState("");
   const [notes, setNotes] = useState("");
   const [optIn, setOptIn] = useState(false);
@@ -66,12 +67,12 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
   const submit = async () => {
     if (!ready || busy) return;
     setBusy(true);
-    try { localStorage.setItem("mfy:name", name.trim()); } catch { /* ignore */ }
+    try { localStorage.setItem("mfy:name", name.trim()); if (phone.trim()) localStorage.setItem("mfy:phone", phone.trim()); } catch { /* ignore */ }
     try {
-      const r = await api<{ code: string; token: string; waLink: string | null }>("/api/public/orders", {
+      const r = await api<{ code: string; token: string; status: string; waLink: string | null }>("/api/public/orders", {
         json: {
           slug: menu.org.slug, branch: menu.branch.slug, lang, type,
-          tableLabel: type === "dine_in" ? tableLabel : null, customerName: name.trim() || null,
+          tableLabel: type === "dine_in" ? tableLabel : null, customerName: name.trim() || null, phone: phone.trim() || null,
           address: type === "delivery" ? address : null, notes: notes.trim() || null,
           scheduledFor: type === "preorder" ? time : null, marketingOptIn: optIn,
           lines: p.rows.map((row) => ({ itemId: row.line.itemId, qty: row.line.qty, selections: row.line.selections, note: row.line.note })),
@@ -81,7 +82,9 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
       clearCart();
       onClose();
       go(`/o/${r.token}`);
-      if (r.waLink) setTimeout(() => openWhatsApp(r.waLink!), 120);
+      // With a number typed, the shop's WhatsApp writes to the customer; with
+      // none, the customer sends the order themselves.
+      if (r.status === "pending" && r.waLink) setTimeout(() => openWhatsApp(r.waLink!), 120);
     } catch (e) {
       toast((e as Error).message);
     } finally { setBusy(false); }
@@ -158,6 +161,11 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
             )}
             <label className="block"><span className="font-semibold text-sm">{t("name", lang)}</span>
               <input className="field mt-2" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={t("namePh", lang)} autoComplete="name" /></label>
+            {wa && (
+              <label className="block"><span className="font-semibold text-sm flex items-center gap-1.5"><Icon name="wa" className="w-4 h-4" style={{ color: "#25D366" }} />{t("waNumber", lang)}</span>
+                <input className="field mt-2 tabular" dir="ltr" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t("phonePh", lang)} />
+                <span className="block text-xs text-muted mt-1.5">{t("waNumberHintOrder", lang)}</span></label>
+            )}
             <label className="block"><span className="font-semibold text-sm">{t("notes", lang)}</span>
               <input className="field mt-2" value={notes} maxLength={300} onChange={(e) => setNotes(e.target.value)} /></label>
             <label className="flex items-center gap-3 text-sm cursor-pointer select-none">
@@ -177,7 +185,7 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
             className="btn-brand w-full h-14 flex items-center justify-center gap-2.5 text-[16px]"
             style={{ background: wa ? "#25D366" : undefined, color: wa ? "#fff" : undefined }}>
             {busy ? <Spinner /> : wa ? <Icon name="wa" className="w-5 h-5" /> : <Icon name="check" className="w-5 h-5" />}
-            {wa ? t("sendOnWa", lang) : t("orderNoWa", lang)}
+            {!wa ? t("orderNoWa", lang) : phone.trim() ? t("confirmOrder", lang) : t("sendOnWa", lang)}
           </button>
         </div>
       )}

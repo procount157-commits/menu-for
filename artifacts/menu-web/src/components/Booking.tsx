@@ -17,7 +17,7 @@ export function BookingSheet({ menu, lang, open, onClose }: { menu: PublicMenu; 
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [slot, setSlot] = useState<string | null>(null);
   const [name, setName] = useState(() => { try { return localStorage.getItem("mfy:name") ?? ""; } catch { return ""; } });
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState(() => { try { return localStorage.getItem("mfy:phone") ?? ""; } catch { return ""; } });
   const [notes, setNotes] = useState("");
   const [optIn, setOptIn] = useState(false);
   const [busy, setBusy] = useState<"wa" | "plain" | null>(null);
@@ -38,7 +38,7 @@ export function BookingSheet({ menu, lang, open, onClose }: { menu: PublicMenu; 
   const submit = async (withWa: boolean) => {
     if (!slot || !name.trim()) { toast(!slot ? t("time", lang) : t("namePh", lang)); return; }
     setBusy(withWa ? "wa" : "plain");
-    try { localStorage.setItem("mfy:name", name.trim()); } catch { /* ignore */ }
+    try { localStorage.setItem("mfy:name", name.trim()); if (phone.trim()) localStorage.setItem("mfy:phone", phone.trim()); } catch { /* ignore */ }
     try {
       const r = await api<{ token: string; waLink: string | null }>("/api/public/bookings", {
         json: { slug: menu.org.slug, branch: menu.branch.slug, startsAt: slot, customerName: name.trim(), phone: phone.trim() || null, partySize: party, itemId: b.services ? service : null, notes: notes.trim() || null, marketingOptIn: optIn },
@@ -95,8 +95,9 @@ export function BookingSheet({ menu, lang, open, onClose }: { menu: PublicMenu; 
           <div className="mt-5 space-y-4 animate-rise">
             <label className="block"><span className="font-semibold text-sm">{t("name", lang)}</span>
               <input className="field mt-2" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={t("namePh", lang)} autoComplete="name" /></label>
-            <label className="block"><span className="font-semibold text-sm">{t("phone", lang)}</span>
-              <input className="field mt-2 tabular" dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t("phonePh", lang)} autoComplete="tel" /></label>
+            <label className="block"><span className="font-semibold text-sm flex items-center gap-1.5"><Icon name="wa" className="w-4 h-4" style={{ color: "#25D366" }} />{t("waNumber", lang)}</span>
+              <input className="field mt-2 tabular" dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t("phonePh", lang)} autoComplete="tel" />
+              <span className="block text-xs text-muted mt-1.5">{t("waNumberHintBook", lang)}</span></label>
             <label className="block"><span className="font-semibold text-sm">{t("notes", lang)}</span>
               <input className="field mt-2" value={notes} maxLength={300} onChange={(e) => setNotes(e.target.value)} /></label>
             <label className="flex items-center gap-3 text-sm cursor-pointer select-none">
@@ -108,14 +109,20 @@ export function BookingSheet({ menu, lang, open, onClose }: { menu: PublicMenu; 
       </div>
       {slot && (
         <div className="px-5 pt-3 safe-bottom border-t space-y-2" style={{ borderColor: "var(--line)" }}>
-          {hasWa && (
-            <button disabled={!!busy} onClick={() => submit(true)} className="btn-brand w-full h-14 flex items-center justify-center gap-2.5 text-[16px]" style={{ background: "#25D366", color: "#fff" }}>
-              {busy === "wa" ? <Spinner /> : <Icon name="wa" className="w-5 h-5" />}{t("confirmOnWa", lang)}
+          {phone.trim() || !hasWa ? (
+            <button disabled={!!busy} onClick={() => submit(false)} className="btn-brand w-full h-14 flex items-center justify-center gap-2.5 text-[16px]">
+              {busy ? <Spinner /> : <Icon name="check" className="w-5 h-5" />}{t("confirmBooking", lang)}
             </button>
+          ) : (
+            <>
+              <button disabled={!!busy} onClick={() => submit(true)} className="btn-brand w-full h-14 flex items-center justify-center gap-2.5 text-[16px]" style={{ background: "#25D366", color: "#fff" }}>
+                {busy === "wa" ? <Spinner /> : <Icon name="wa" className="w-5 h-5" />}{t("confirmOnWa", lang)}
+              </button>
+              <button disabled={!!busy} onClick={() => submit(false)} className="btn-ghost w-full h-12 flex items-center justify-center gap-2 font-semibold">
+                {busy === "plain" && <Spinner className="w-4 h-4" />}{t("confirmBooking", lang)}
+              </button>
+            </>
           )}
-          <button disabled={!!busy} onClick={() => submit(false)} className={`${hasWa ? "btn-ghost" : "btn-brand"} w-full h-12 flex items-center justify-center gap-2 font-semibold`}>
-            {busy === "plain" && <Spinner className="w-4 h-4" />}{t("confirmBooking", lang)}
-          </button>
         </div>
       )}
     </Sheet>

@@ -33,7 +33,7 @@ export default function OrderPage({ token, initial }: { token: string; initial: 
       <main className="px-5 max-w-md mx-auto">
         <section className="mt-4 rounded-[28px] p-6 text-center animate-rise" style={{ background: "var(--surface)", boxShadow: "var(--shadow)" }}>
           <p className="text-sm text-muted">{t("orderCode", lang)}</p>
-          <p className="font-display text-6xl mt-2 tabular">#{o.code}</p>
+          <p className="font-display text-6xl mt-2 tabular" dir="ltr">#{o.code}</p>
           <p className="mt-3 text-lg font-semibold" style={{ color: o.status === "cancelled" ? "var(--danger)" : o.status === "ready" ? "var(--ok)" : "var(--text)" }}>{t(`st_${o.status}` as Key, lang)}</p>
           {o.scheduledFor && (
             <p className="text-sm text-muted mt-1">{formatDayLabel(localDate(tz, new Date(o.scheduledFor)), tz, lang)} {formatClock(new Date(o.scheduledFor), tz, lang)}</p>

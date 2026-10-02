@@ -15,8 +15,8 @@
 // With none set, callers fall back to answering from the knowledge base
 // directly, which needs no network at all.
 
-import { and, eq } from "drizzle-orm";
-import { db, llmSettingsTable } from "@workspace/db";
+import { and, asc, eq } from "drizzle-orm";
+import { db, llmSettingsTable, llmKeysTable } from "@workspace/db";
 import { logger } from "./logger";
 import { rank, recordOk, recordFail, type Candidate } from "./llm-health";
 
@@ -123,6 +123,41 @@ export function activeProvider(): Provider {
   if (process.env["ALLOW_POLLINATIONS"] === "true") return "pollinations";
   return "none";
 }
+
+// ── Keys per channel ──────────────────────────────────────────────
+// WhatsApp replies and email writing each get their own keys (llm_keys), so a
+// burst of email drafting cannot leave a customer on WhatsApp unanswered.
+export type LlmChannel = "whatsapp" | "email";
+
+const chCache = new Map<LlmChannel, { at: number; keys: Array<{ provider: Provider; apiKey: string; model: string | null }> }>();
+
+export function invalidateChannelKeys() { chCache.clear(); }
+
+export async function channelKeys(channel: LlmChannel) {
+  const hit = chCache.get(channel);
+  if (hit && Date.now() - hit.at < STORED_TTL_MS) return hit.keys;
+  try {
+    const rows = await db.select().from(llmKeysTable)
+      .where(and(eq(llmKeysTable.channel, channel), eq(llmKeysTable.isActive, true))).orderBy(asc(llmKeysTable.sort), asc(llmKeysTable.id));
+    const keys = rows.map((r) => ({ provider: r.provider as Provider, apiKey: r.apiKey, model: r.model }));
+    chCache.set(channel, { at: Date.now(), keys });
+    return keys;
+  } catch {
+    return hit?.keys ?? [];
+  }
+}
+
+/** One short round-trip with a key, to check it before relying on it. Throws with the provider's own error. */
+export async function testKey(provider: string, apiKey: string, model: string | null): Promise<string> {
+  return callOne(provider, model || OPENAI_COMPATIBLE[provider]?.model || "", apiKey, [{ role: "user", content: "أجب بكلمة واحدة: جاهز" }], 20_000);
+}
+
+export const KEY_PROVIDERS = [...Object.keys(KEYS)];
+
+/** complete(), on the email channel's keys. */
+export const completeEmail = (messages: LlmMessage[], timeoutMs = 20_000) => complete(messages, timeoutMs, { channel: "email" });
+/** complete(), on the WhatsApp channel's keys. */
+export const completeWhatsApp = (messages: LlmMessage[], timeoutMs = 20_000) => complete(messages, timeoutMs, { channel: "whatsapp" });
 
 /** The provider actually in force, stored credentials included. */
 export async function resolveProvider(): Promise<{ provider: Provider; apiKey: string; model: string | null } | null> {
@@ -356,8 +391,13 @@ const EXTRA_MODELS: Record<string, string[]> = {
  * first unless it is in cooldown. pollinations stays last and keyless, so the
  * chain never runs out.
  */
-export async function complete(messages: LlmMessage[], timeoutMs = 20_000): Promise<LlmResult | null> {
-  const resolved = await resolveProvider();
+export async function complete(messages: LlmMessage[], timeoutMs = 20_000, opts: { channel?: LlmChannel } = {}): Promise<LlmResult | null> {
+  // A channel's own keys come first, in the order the admin put them; the
+  // shared key and the environment stay behind them as the fallback, so a
+  // channel with a spent key still answers.
+  // Everything that is not email is the WhatsApp side: the host, the agents.
+  const own = await channelKeys(opts.channel ?? "whatsapp");
+  const resolved = own[0] ?? await resolveProvider();
   if (!resolved || !resolved.apiKey) return null;
   // A stored key has to win over the environment for the whole call, so the
   // per-provider lookups below read through this rather than process.env.
@@ -367,7 +407,8 @@ export async function complete(messages: LlmMessage[], timeoutMs = 20_000): Prom
   const seen = new Set<string>();
   const candidates: Candidate[] = [];
   const add = (provider: string, model: string, apiKey: string) => {
-    const k = `${provider}|${model}`;
+    // Two keys for one provider are two candidates, not one.
+    const k = `${provider}|${model}|${apiKey.slice(-6)}`;
     if (!apiKey && provider !== "pollinations") return;
     if (seen.has(k)) return;
     seen.add(k);
@@ -375,6 +416,11 @@ export async function complete(messages: LlmMessage[], timeoutMs = 20_000): Prom
   };
 
   add(resolved.provider, pinnedModel, resolved.apiKey);
+  for (const k of own.slice(1)) add(k.provider, k.model || OPENAI_COMPATIBLE[k.provider]?.model || "", k.apiKey);
+  if (own.length) {
+    const shared = await resolveProvider();
+    if (shared?.apiKey) add(shared.provider, shared.model || OPENAI_COMPATIBLE[shared.provider]?.model || "", shared.apiKey);
+  }
   for (const id of Object.keys(KEYS)) {
     const key = keyFor(id);
     if (!key) continue;

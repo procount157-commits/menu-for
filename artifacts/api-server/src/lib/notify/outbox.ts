@@ -21,6 +21,15 @@
 //            wrong, so it is dropped rather than sent late
 //   never    to a number that asked to stop, or while WhatsApp is down —
 //            those are recorded as skipped, and the ticket page carries on.
+//   guarded  Flow Hub's operations officer still governs the number: its
+//            throttle stretches the gap, a hold stops typed-in numbers (a
+//            reply in the customer's own thread still goes), and the
+//            typed-in cap never exceeds the warm-up allowance.
+//   staff    the shop's own phones (a new order, a new booking) — no lane
+//            checks, they asked to be told.
+//
+// Every sent notification keeps its WhatsApp id, so receipts.ts can record
+// who received it and who opened it.
 
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db, notificationsTable, unsubscribedPhonesTable, orgsTable, type Org } from "@workspace/db";
@@ -28,13 +37,19 @@ import { getStatus, sendMessage } from "../whatsapp";
 import { logger } from "../logger";
 import { lastInboundAt } from "../customers";
 import { menuPlan } from "../plans";
+import { getControls } from "../ops-agent";
+import { getEffectiveDailyLimit } from "../daily-limit";
 import type { TemplateKey } from "./templates";
 
 export const REPLIED_WINDOW_MS = 24 * 3_600_000;
 /** Per number per day. Replies in a customer's own thread are the safe kind; still bounded. */
 export const REPLIED_DAILY_CAP = Number(process.env["NOTIFY_REPLIED_DAILY_CAP"] ?? 800);
-/** Per number per day for typed-in numbers. Deliberately small until a week of risk scores says otherwise. */
-export const CONSENTED_DAILY_CAP = Number(process.env["NOTIFY_CONSENTED_DAILY_CAP"] ?? 60);
+/**
+ * Per number per day for typed-in numbers. Typing the number is the main way
+ * customers ask to be told, so this is sized for a busy shop — and never
+ * above what the number's warm-up allows that day.
+ */
+export const CONSENTED_DAILY_CAP = Number(process.env["NOTIFY_CONSENTED_DAILY_CAP"] ?? 300);
 
 /** How long a notification is still worth sending, by kind. */
 const SHELF_MS: Partial<Record<TemplateKey, number>> = {
@@ -60,7 +75,7 @@ export interface Enqueue {
   org: Pick<Org, "id" | "ownerUserId">;
   waUserId: number;
   phone: string | null | undefined;
-  kind: TemplateKey;
+  kind: TemplateKey | "alert_order" | "alert_booking" | "alert_rating" | "alert_campaign";
   text: string | null;
   refType?: "ticket" | "order" | "booking" | "customer";
   refId?: number;
@@ -68,6 +83,8 @@ export interface Enqueue {
   consented?: boolean;
   /** Not before. */
   at?: Date;
+  /** One of the shop's own alert phones: no lane checks. */
+  staff?: boolean;
 }
 
 export type Lane = "replied" | "consented" | null;
@@ -83,8 +100,9 @@ export async function enqueue(e: Enqueue): Promise<number | null> {
   if (!e.phone || !e.text) return null;
   const plan = await menuPlan(e.org.ownerUserId);
   const at = e.at ?? new Date();
-  const expiresAt = SHELF_MS[e.kind] ? new Date(at.getTime() + SHELF_MS[e.kind]!) : null;
-  const lane = laneFor(await lastInboundAt(e.org.id, e.phone), !!e.consented, at.getTime());
+  const shelf = SHELF_MS[e.kind as TemplateKey] ?? (e.staff ? 30 * 60_000 : undefined);
+  const expiresAt = shelf ? new Date(at.getTime() + shelf) : null;
+  const lane = e.staff ? "staff" : laneFor(await lastInboundAt(e.org.id, e.phone), !!e.consented, at.getTime());
   const skip = !plan.features.notify ? "plan" : lane === null ? "no_thread" : null;
   const [row] = await db.insert(notificationsTable).values({
     orgId: e.org.id, waUserId: e.waUserId, phone: e.phone, kind: e.kind,
@@ -116,7 +134,7 @@ let kicked = false;
 
 export function kick() { kicked = true; }
 
-async function sentToday(waUserId: number, lane: "replied" | "consented"): Promise<number> {
+export async function sentToday(waUserId: number, lane: "replied" | "consented" | "staff"): Promise<number> {
   const since = new Date(Date.now() - 24 * 3_600_000);
   const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(notificationsTable)
     .where(and(eq(notificationsTable.waUserId, waUserId), eq(notificationsTable.class, lane), eq(notificationsTable.status, "sent"), gte(notificationsTable.sentAt, since)));
@@ -148,15 +166,25 @@ export async function drain(now = new Date()): Promise<number> {
       .where(and(eq(unsubscribedPhonesTable.userId, n.waUserId), eq(unsubscribedPhonesTable.phone, n.phone))).limit(1);
     if (stop) { await mark(n.id, "skipped", "opted_out"); continue; }
 
-    // The lane is decided again now: a typed-in number becomes a reply the
-    // moment the customer writes to us.
-    const lane = laneFor(await lastInboundAt(n.orgId, n.phone), n.class === "consented");
-    if (!lane) { await mark(n.id, "skipped", "no_thread"); continue; }
-    const cap = lane === "replied" ? REPLIED_DAILY_CAP : CONSENTED_DAILY_CAP;
-    if (await sentToday(n.waUserId, lane) >= cap) { await mark(n.id, "skipped", "daily_cap"); continue; }
-    if (lane !== n.class) await db.update(notificationsTable).set({ class: lane }).where(eq(notificationsTable.id, n.id));
+    const controls = await getControls(n.waUserId).catch(() => null);
+    const throttle = Math.max(1, Number(controls?.throttle ?? 1));
+    if (n.class !== "staff") {
+      // The lane is decided again now: a typed-in number becomes a reply the
+      // moment the customer writes to us.
+      const lane = laneFor(await lastInboundAt(n.orgId, n.phone), n.class === "consented");
+      if (!lane) { await mark(n.id, "skipped", "no_thread"); continue; }
+      if (lane === "consented") {
+        // The operations officer's hold stops messages to typed-in numbers;
+        // a reply inside the customer's own thread is not what it guards.
+        if (controls?.holdUntil && controls.holdUntil.getTime() > Date.now()) { await mark(n.id, "skipped", "ops_hold"); continue; }
+        const allowance = await getEffectiveDailyLimit(n.waUserId).catch(() => CONSENTED_DAILY_CAP);
+        const cap = Math.min(CONSENTED_DAILY_CAP, controls?.dailyCeiling ?? Infinity, Math.max(20, allowance));
+        if (await sentToday(n.waUserId, "consented") >= cap) { await mark(n.id, "skipped", "daily_cap"); continue; }
+      } else if (await sentToday(n.waUserId, "replied") >= REPLIED_DAILY_CAP) { await mark(n.id, "skipped", "daily_cap"); continue; }
+      if (lane !== n.class) await db.update(notificationsTable).set({ class: lane }).where(eq(notificationsTable.id, n.id));
+    }
 
-    nextAt.set(n.waUserId, Date.now() + gapMs());
+    nextAt.set(n.waUserId, Date.now() + gapMs() * throttle);
     try {
       const id = await sendMessage(n.waUserId, n.phone, n.text);
       await mark(n.id, "sent", null, id ?? undefined);

@@ -130,13 +130,14 @@ router.post("/orders", limit("order", 20, 10 * 60_000), async (req, res) => {
   const b = req.body ?? {};
   const s = await shop(String(b.slug ?? ""), b.branch ? String(b.branch) : undefined);
   if (!s) return res.status(404).json({ error: "المحل غير موجود" });
+  if (b.phone && !normalisePhone(b.phone, s.org.currency)) return res.status(400).json({ error: "رقم الواتساب غير صحيح" });
   try {
     const o = await createOrder(s.org, s.branch, {
       lines: b.lines, type: b.type, tableLabel: b.tableLabel, customerName: b.customerName,
       phone: b.phone, address: b.address, notes: b.notes, scheduledFor: b.scheduledFor, marketingOptIn: !!b.marketingOptIn,
     });
     const lang = b.lang === "en" ? "en" : (s.org.defaultLang === "en" ? "en" : "ar");
-    res.status(201).json({ code: o.code, token: o.token, subtotal: Number(o.subtotal), waLink: waMeLink(s.branch.waPhone, orderMessage(o, s.org, lang)) });
+    res.status(201).json({ code: o.code, token: o.token, status: o.status, subtotal: Number(o.subtotal), waLink: waMeLink(s.branch.waPhone, orderMessage(o, s.org, lang)) });
   } catch (err) { fail(res, err); }
 });
 

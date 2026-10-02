@@ -515,7 +515,8 @@ export default function CampaignNew() {
   });
 
   const [contactSource, setContactSource] = useState<"group" | "paste">("group");
-  const [contactGroupId, setContactGroupId] = useState("");
+  // ?group= preselects a list (a customer segment or a retarget list made in «واتساب الآلي»).
+  const [contactGroupId, setContactGroupId] = useState(() => new URLSearchParams(window.location.search).get("group") ?? "");
   const [inlineNumbers, setInlineNumbers] = useState("");
 
   const [uploadedMedia, setUploadedMedia] = useState<UploadedMedia | null>(null);

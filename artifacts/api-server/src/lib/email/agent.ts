@@ -14,7 +14,7 @@
 
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db, agentMemoryTable, botEmployeesTable, businessProfileTable, DEFAULT_EMPLOYEES, type SegmentFilter } from "@workspace/db";
-import { complete } from "../llm";
+import { completeEmail as complete } from "../llm";
 import { retrieve } from "../knowledge";
 import { skillsFor, skillsPreamble } from "../agent-skills";
 import { seedSkills } from "../skills";

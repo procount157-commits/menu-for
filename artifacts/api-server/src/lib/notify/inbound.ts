@@ -121,6 +121,9 @@ export async function handleCustomerMessage(waUserId: number, phone: string, tex
       if (rating <= 3) {
         const { notify } = await import("../telegram");
         void notify(org.ownerUserId, `⚠️ تقييم ${rating}/5 من ${phone} — ${org.name}`).catch(() => {});
+        const { alertShop } = await import("./alerts");
+        const b = branches.find((x) => x.isActive) ?? branches[0]!;
+        await alertShop(org, b, "alert_rating", `⚠️ تقييم ${rating}/5 من زبون (${phone}) — تواصل معه قبل ما يكتبها في مكان ثاني.`, { type: "customer" });
       }
       return true;
     }

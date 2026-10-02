@@ -15,7 +15,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import * as XLSX from "xlsx";
 import { db, agentMemoryTable, emailKnowledgeDocsTable, type EmailKnowledgeDoc } from "@workspace/db";
 import { terms, queryWords } from "../knowledge";
-import { complete } from "../llm";
+import { completeEmail as complete } from "../llm";
 import { logger } from "../logger";
 import { brief, ensureEmailAgent, teach, EMAIL_ROLE } from "./agent";
 

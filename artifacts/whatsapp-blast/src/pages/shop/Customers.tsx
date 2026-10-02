@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { Link } from "wouter";
 import { Download, Loader2, Search, Star, Users, Repeat, BellRing, Pencil, Check, X, ShoppingBag, CalendarDays, ListOrdered, UserX, Megaphone } from "lucide-react";
 import { formatMoney } from "@workspace/menu-shared";
 import { get, patch, useShop, inputCls } from "@/lib/shop-api";
@@ -58,6 +59,11 @@ export default function Customers() {
           <h1 className="text-xl font-bold">الزبائن</h1>
           <p className="text-sm text-muted-foreground mt-0.5">كل من انضم للصف أو طلب أو حجز برقم واتساب.</p>
         </div>
+        {owner && (
+          <Link href="/wa-auto" className="inline-flex items-center gap-2 rounded-xl px-4 min-h-10 text-sm font-semibold bg-primary text-primary-foreground hover:brightness-110">
+            <Megaphone className="w-4 h-4" />حملة لشريحة
+          </Link>
+        )}
         {owner && (
           <a href="/api/customers-export.csv" className="inline-flex items-center gap-2 rounded-xl px-4 min-h-10 text-sm font-semibold bg-secondary border border-border hover:bg-secondary/80">
             <Download className="w-4 h-4" />تصدير CSV

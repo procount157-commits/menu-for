@@ -543,7 +543,8 @@ CREATE TABLE public.branches (
     display_token character varying(32) NOT NULL,
     is_active boolean DEFAULT true NOT NULL,
     sort integer DEFAULT 0 NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    alert_phones jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 
@@ -1835,6 +1836,43 @@ CREATE TABLE public.llm_health (
 
 
 --
+-- Name: llm_keys; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.llm_keys (
+    id integer NOT NULL,
+    channel character varying(12) NOT NULL,
+    provider character varying(30) NOT NULL,
+    api_key character varying(400) NOT NULL,
+    model character varying(120),
+    label character varying(80),
+    is_active boolean DEFAULT true NOT NULL,
+    sort integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: llm_keys_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.llm_keys_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: llm_keys_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.llm_keys_id_seq OWNED BY public.llm_keys.id;
+
+
+--
 -- Name: llm_settings; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2172,7 +2210,9 @@ CREATE TABLE public.notifications (
     scheduled_at timestamp with time zone DEFAULT now() NOT NULL,
     sent_at timestamp with time zone,
     wa_message_id character varying(80),
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    delivered_at timestamp with time zone,
+    read_at timestamp with time zone
 );
 
 
@@ -2780,6 +2820,70 @@ CREATE TABLE public.wa_auth_state (
 
 
 --
+-- Name: wa_autopilot; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.wa_autopilot (
+    wa_user_id integer NOT NULL,
+    org_id integer NOT NULL,
+    enabled boolean DEFAULT false NOT NULL,
+    weekday integer DEFAULT 4 NOT NULL,
+    hour integer DEFAULT 17 NOT NULL,
+    audience character varying(20) DEFAULT 'opted_in'::character varying NOT NULL,
+    mode character varying(10) DEFAULT 'approval'::character varying NOT NULL,
+    source character varying(10) DEFAULT 'agent'::character varying NOT NULL,
+    fixed_message text,
+    instructions text,
+    max_recipients integer DEFAULT 300 NOT NULL,
+    rest_days integer DEFAULT 6 NOT NULL,
+    last_run_at timestamp with time zone,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: wa_autopilot_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.wa_autopilot_runs (
+    id integer NOT NULL,
+    wa_user_id integer NOT NULL,
+    org_id integer NOT NULL,
+    kind character varying(20) DEFAULT 'weekly'::character varying NOT NULL,
+    status character varying(20) NOT NULL,
+    campaign_id integer,
+    group_id integer,
+    audience character varying(20),
+    recipients integer DEFAULT 0 NOT NULL,
+    message text,
+    written_by character varying(30),
+    note text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    decided_at timestamp with time zone
+);
+
+
+--
+-- Name: wa_autopilot_runs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.wa_autopilot_runs_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: wa_autopilot_runs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.wa_autopilot_runs_id_seq OWNED BY public.wa_autopilot_runs.id;
+
+
+--
 -- Name: wa_contacts; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3210,6 +3314,13 @@ ALTER TABLE ONLY public.list_folders ALTER COLUMN id SET DEFAULT nextval('public
 
 
 --
+-- Name: llm_keys id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.llm_keys ALTER COLUMN id SET DEFAULT nextval('public.llm_keys_id_seq'::regclass);
+
+
+--
 -- Name: manager_reviews id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3354,6 +3465,13 @@ ALTER TABLE ONLY public.unsubscribed_phones ALTER COLUMN id SET DEFAULT nextval(
 --
 
 ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_id_seq'::regclass);
+
+
+--
+-- Name: wa_autopilot_runs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wa_autopilot_runs ALTER COLUMN id SET DEFAULT nextval('public.wa_autopilot_runs_id_seq'::regclass);
 
 
 --
@@ -3842,6 +3960,14 @@ ALTER TABLE ONLY public.llm_health
 
 
 --
+-- Name: llm_keys llm_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.llm_keys
+    ADD CONSTRAINT llm_keys_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: llm_settings llm_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4103,6 +4229,22 @@ ALTER TABLE ONLY public.users
 
 ALTER TABLE ONLY public.wa_auth_state
     ADD CONSTRAINT wa_auth_state_user_id_key_pk PRIMARY KEY (user_id, key);
+
+
+--
+-- Name: wa_autopilot wa_autopilot_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wa_autopilot
+    ADD CONSTRAINT wa_autopilot_pkey PRIMARY KEY (wa_user_id);
+
+
+--
+-- Name: wa_autopilot_runs wa_autopilot_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wa_autopilot_runs
+    ADD CONSTRAINT wa_autopilot_runs_pkey PRIMARY KEY (id);
 
 
 --
@@ -4448,6 +4590,13 @@ CREATE INDEX idx_list_folders_user ON public.list_folders USING btree (user_id, 
 
 
 --
+-- Name: idx_llm_keys_channel; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_llm_keys_channel ON public.llm_keys USING btree (channel, is_active, sort);
+
+
+--
 -- Name: idx_manager_reviews; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4501,6 +4650,13 @@ CREATE INDEX idx_notifications_due ON public.notifications USING btree (status, 
 --
 
 CREATE INDEX idx_notifications_org ON public.notifications USING btree (org_id, created_at);
+
+
+--
+-- Name: idx_notifications_wa_msg; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_notifications_wa_msg ON public.notifications USING btree (wa_message_id) WHERE (wa_message_id IS NOT NULL);
 
 
 --
@@ -4620,6 +4776,13 @@ CREATE INDEX idx_ticket_queue_status ON public.queue_tickets USING btree (queue_
 --
 
 CREATE INDEX idx_unsubscribed_user ON public.unsubscribed_phones USING btree (user_id);
+
+
+--
+-- Name: idx_wa_autopilot_runs; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wa_autopilot_runs ON public.wa_autopilot_runs USING btree (wa_user_id, created_at DESC);
 
 
 --
@@ -5533,6 +5696,38 @@ ALTER TABLE ONLY public.unsubscribed_phones
 
 ALTER TABLE ONLY public.wa_auth_state
     ADD CONSTRAINT wa_auth_state_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: wa_autopilot wa_autopilot_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wa_autopilot
+    ADD CONSTRAINT wa_autopilot_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: wa_autopilot_runs wa_autopilot_runs_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wa_autopilot_runs
+    ADD CONSTRAINT wa_autopilot_runs_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: wa_autopilot_runs wa_autopilot_runs_wa_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wa_autopilot_runs
+    ADD CONSTRAINT wa_autopilot_runs_wa_user_id_fkey FOREIGN KEY (wa_user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: wa_autopilot wa_autopilot_wa_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wa_autopilot
+    ADD CONSTRAINT wa_autopilot_wa_user_id_fkey FOREIGN KEY (wa_user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --

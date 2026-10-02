@@ -18,7 +18,7 @@ import path from "node:path";
 import bcrypt from "bcryptjs";
 import { eq, inArray } from "drizzle-orm";
 import {
-  db, usersTable, orgsTable, branchesTable, menuCategoriesTable, menuItemsTable, offersTable, staffTable,
+  db, customersTable, usersTable, orgsTable, branchesTable, menuCategoriesTable, menuItemsTable, offersTable, staffTable,
   queuesTable, bookingSettingsTable,
 } from "@workspace/db";
 import { createOrg } from "../lib/tenancy/org";
@@ -64,6 +64,18 @@ async function owner(o: typeof OWNERS[number]) {
 
 const size = [{ name: "الحجم", nameEn: "Size", required: true, min: 1, max: 1, choices: [{ name: "عادي", nameEn: "Regular", priceDelta: 0 }, { name: "كبير", nameEn: "Large", priceDelta: 8 }] }];
 const extras = [{ name: "إضافات", nameEn: "Extras", required: false, min: 0, max: 3, choices: [{ name: "جبنة", nameEn: "Cheese", priceDelta: 3 }, { name: "صوص حار", nameEn: "Hot sauce", priceDelta: 0 }, { name: "بطاطا", nameEn: "Fries", priceDelta: 7 }] }];
+
+// Demo customers, so «الزبائن» and «واتساب الآلي» have people in them: the
+// numbers are made up (050 000 0xxx), most have agreed to offers.
+async function demoCustomers(orgId: number, names: string[]) {
+  const day = 24 * 3_600_000;
+  await db.insert(customersTable).values(names.map((name, i) => ({
+    orgId, phone: `97150000${String(100 + (orgId % 9) * 100 + i).padStart(4, "0")}`, name,
+    marketingOptIn: i % 4 !== 3, optInAt: i % 4 !== 3 ? new Date(Date.now() - (i + 2) * day) : null,
+    visits: 1 + (i % 5), ordersCount: i % 3, bookingsCount: i % 2, totalSpent: String(40 + i * 35),
+    firstSeenAt: new Date(Date.now() - (i % 3 === 0 ? 12 : 70) * day), lastSeenAt: new Date(Date.now() - (i % 5 === 4 ? 45 : i + 1) * day),
+  }))).onConflictDoNothing();
+}
 
 async function restaurant() {
   const u = await owner(OWNERS[0]!);
@@ -226,5 +238,8 @@ await db.insert(usersTable).values({ phone: "500000000", passwordHash: await bcr
 const a = await restaurant();
 const b = await sweets();
 const c = await salon();
+await demoCustomers(a.id, ["خالد", "سارة", "محمد", "نورة", "عبدالله", "ريم", "فيصل", "هدى", "سلطان", "مها", "يوسف", "لطيفة"]);
+await demoCustomers(b.id, ["أم راشد", "منى", "حمد", "شيخة", "علي", "عائشة", "ناصر", "فاطمة"]);
+await demoCustomers(c.id, ["مريم", "هند", "دانة", "العنود", "شهد", "جواهر", "لمى", "روان", "غادة", "أمل"]);
 console.log(`seeded: /${a.slug}, /${b.slug} and /${c.slug}`);
 process.exit(0);

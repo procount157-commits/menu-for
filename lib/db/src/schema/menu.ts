@@ -65,6 +65,8 @@ export const branchesTable = pgTable("branches", {
   // order and queue links work while the session is reconnecting.
   waPhone:      varchar("wa_phone", { length: 20 }),
   hours:        jsonb("hours").$type<WeekHours>().notNull().default({}),
+  // The shop's own phones (owner, manager) told about a new order or booking.
+  alertPhones:  jsonb("alert_phones").$type<string[]>().notNull().default([]),
   displayToken: varchar("display_token", { length: 32 }).notNull(),
   isActive:     boolean("is_active").notNull().default(true),
   sort:         integer("sort").notNull().default(0),
@@ -384,6 +386,8 @@ export const notificationsTable = pgTable("notifications", {
   expiresAt:   timestamp("expires_at", { withTimezone: true }),
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }).defaultNow().notNull(),
   sentAt:      timestamp("sent_at", { withTimezone: true }),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  readAt:      timestamp("read_at", { withTimezone: true }),
   waMessageId: varchar("wa_message_id", { length: 80 }),
   createdAt:   timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [

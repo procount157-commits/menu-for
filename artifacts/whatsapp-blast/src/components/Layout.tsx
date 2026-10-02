@@ -8,7 +8,7 @@ import {
   LayoutDashboard, QrCode, Users, Megaphone, Bot,
   Wifi, WifiOff, Loader2, LogOut, Shield, User, TrendingUp, Download, BarChart3,
   MessageCircle, MessagesSquare, MessageSquare, BookOpen, RefreshCw, Sparkles, Settings2, Activity, Clock, Brain, Users2, Radar, LayoutGrid, Globe, Mail, Target,
-  Store, ListOrdered, ShoppingBag, CalendarDays, UtensilsCrossed, Contact, ChevronDown, ExternalLink, Building2, Undo2 } from "lucide-react";
+  Store, ListOrdered, ShoppingBag, CalendarDays, UtensilsCrossed, Contact, ChevronDown, ExternalLink, Building2, Undo2, Zap } from "lucide-react";
 import { useShopQuery, useSwitchBranch, post } from "@/lib/shop-api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -33,6 +33,7 @@ const NAV: Array<{ title: string; items: NavItem[] }> = [
     { href: "/qr",            label: "QR والمطبوعات",      icon: QrCode },
   ] },
   { title: "واتساب", items: [
+    { href: "/wa-auto",       label: "واتساب الآلي",       icon: Zap },
     { href: "/connect",       label: "ربط الواتساب",      icon: QrCode },
     { href: "/conversations", label: "المحادثات",          icon: MessageSquare },
     { href: "/inbox",         label: "صندوق الوارد",       icon: MessagesSquare },

@@ -7,12 +7,13 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Building2, Copy, ExternalLink, Plus, Loader2, LogIn, Search, ShieldAlert, ShieldCheck, SlidersHorizontal, Store, MessageCircle, Crown } from "lucide-react";
+import { Building2, Copy, ExternalLink, Plus, Loader2, LogIn, Search, ShieldAlert, ShieldCheck, SlidersHorizontal, Store, MessageCircle, Crown, KeyRound } from "lucide-react";
 import { get, patch, post, inputCls, labelCls } from "@/lib/shop-api";
 import { useAuth } from "@/context/AuthContext";
 import { Switch } from "@/components/ui/switch";
 import { Btn, Empty, Stat, errText, n, shortDate } from "@/components/shop/ops/kit";
 import { Modal } from "@/components/shop/ops/Modal";
+import { LlmKeysDialog } from "@/components/shop/LlmKeysDialog";
 import { cn } from "@/lib/utils";
 
 interface OrgRow {
@@ -49,6 +50,7 @@ function Inner() {
   const [edit, setEdit] = useState<OrgRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [keys, setKeys] = useState(false);
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -82,6 +84,7 @@ function Inner() {
         </div>
         <div className="flex flex-wrap gap-2">
           <a href="/admin" className="inline-flex items-center gap-2 rounded-xl px-4 min-h-11 text-sm font-semibold bg-secondary hover:bg-secondary/70">الخطط والكوبونات والطلبات</a>
+          <Btn tone="plain" onClick={() => setKeys(true)}><KeyRound className="w-4 h-4" />مفاتيح الذكاء الاصطناعي</Btn>
           <Btn tone="gold" onClick={() => setCreating(true)}><Plus className="w-4 h-4" />محل جديد</Btn>
         </div>
       </div>
@@ -187,6 +190,7 @@ function Inner() {
         )}
 
       <CreateDialog open={creating} onClose={() => setCreating(false)} onCreated={refresh} />
+      <LlmKeysDialog open={keys} onClose={() => setKeys(false)} />
       <PlanDialog o={edit} onClose={() => setEdit(null)} onSave={async (o, body) => { if (await update(o, body, "حُفظت التغييرات")) setEdit(null); }} saving={!!edit && busy === `${edit.id}`} />
     </div>
   );

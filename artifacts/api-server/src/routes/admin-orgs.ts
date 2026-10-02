@@ -2,7 +2,8 @@
 
 import { Router } from "express";
 import { asc, desc, eq, sql } from "drizzle-orm";
-import { db, orgsTable, branchesTable, usersTable, PLAN_LIMITS } from "@workspace/db";
+import { db, orgsTable, branchesTable, usersTable, llmKeysTable, PLAN_LIMITS } from "@workspace/db";
+import { testKey, invalidateChannelKeys, KEY_PROVIDERS } from "../lib/llm";
 import { requireAdmin } from "../lib/auth";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
@@ -75,6 +76,59 @@ router.post("/", async (req, res) => {
     if (err instanceof TenantError) return res.status(err.status).json({ error: err.message });
     throw err;
   }
+});
+
+// ── Model keys per channel ────────────────────────────────────────
+// The key itself is never returned — only its last four characters.
+
+const mask = (k: string) => `••••${k.slice(-4)}`;
+
+router.get("/llm-keys", async (_req, res) => {
+  const rows = await db.select().from(llmKeysTable).orderBy(asc(llmKeysTable.channel), asc(llmKeysTable.sort), asc(llmKeysTable.id));
+  res.json({
+    providers: KEY_PROVIDERS,
+    keys: rows.map((r) => ({ id: r.id, channel: r.channel, provider: r.provider, model: r.model, label: r.label, isActive: r.isActive, sort: r.sort, key: mask(r.apiKey), createdAt: r.createdAt })),
+  });
+});
+
+router.post("/llm-keys", async (req, res) => {
+  const b = req.body ?? {};
+  const channel = b.channel === "email" ? "email" : b.channel === "whatsapp" ? "whatsapp" : null;
+  const provider = String(b.provider ?? "").trim().toLowerCase();
+  const apiKey = String(b.apiKey ?? "").trim();
+  if (!channel) return res.status(400).json({ error: "اختر القناة: واتساب أو البريد" });
+  if (!KEY_PROVIDERS.includes(provider)) return res.status(400).json({ error: "مزوّد غير مدعوم" });
+  if (apiKey.length < 10) return res.status(400).json({ error: "المفتاح غير صالح" });
+  const model = String(b.model ?? "").trim() || null;
+  // A key that stores but cannot answer is worse than none: check it first.
+  try { await testKey(provider, apiKey, model); }
+  catch (err) { return res.status(400).json({ error: `المفتاح لم يعمل: ${String((err as Error)?.message ?? err).slice(0, 200)}` }); }
+  const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(llmKeysTable).where(eq(llmKeysTable.channel, channel));
+  const [row] = await db.insert(llmKeysTable).values({ channel, provider, apiKey, model, label: String(b.label ?? "").trim().slice(0, 80) || null, sort: n }).returning();
+  invalidateChannelKeys();
+  res.status(201).json({ id: row!.id, channel, provider, model, key: mask(apiKey) });
+});
+
+router.patch("/llm-keys/:id", async (req, res) => {
+  const patch: Record<string, unknown> = {};
+  if (typeof req.body?.isActive === "boolean") patch.isActive = req.body.isActive;
+  if (Number.isInteger(req.body?.sort)) patch.sort = req.body.sort;
+  await db.update(llmKeysTable).set(patch).where(eq(llmKeysTable.id, Number(req.params.id)));
+  invalidateChannelKeys();
+  res.json({ ok: true });
+});
+
+router.post("/llm-keys/:id/test", async (req, res) => {
+  const [k] = await db.select().from(llmKeysTable).where(eq(llmKeysTable.id, Number(req.params.id))).limit(1);
+  if (!k) return res.status(404).json({ error: "المفتاح غير موجود" });
+  try { res.json({ ok: true, reply: (await testKey(k.provider, k.apiKey, k.model)).slice(0, 80) }); }
+  catch (err) { res.json({ ok: false, error: String((err as Error)?.message ?? err).slice(0, 200) }); }
+});
+
+router.delete("/llm-keys/:id", async (req, res) => {
+  await db.delete(llmKeysTable).where(eq(llmKeysTable.id, Number(req.params.id)));
+  invalidateChannelKeys();
+  res.json({ ok: true });
 });
 
 router.get("/platform/stats", async (_req, res) => {

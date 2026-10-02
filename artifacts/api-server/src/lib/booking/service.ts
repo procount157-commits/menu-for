@@ -19,6 +19,7 @@ import { touchCustomer, normalisePhone } from "../customers";
 import { enqueue, cancelQueued } from "../notify/outbox";
 import { renderFor, type TemplateKey } from "../notify/templates";
 import { publicUrl, bookingPath } from "../menu/urls";
+import { alertShop } from "../notify/alerts";
 import { logger } from "../logger";
 
 export class BookingError extends Error {
@@ -118,6 +119,12 @@ export async function createBooking(org: Org, branch: Branch, input: NewBooking,
   if (phone) {
     await touchCustomer(org.id, phone, { name, booking: true, optIn: b.marketingOptIn, branchId: branch.id });
     if (b.status === "confirmed") await notifyBooking(b, "booking_confirmed");
+  }
+  if (!opts.staff) {
+    const when = `${formatDayLabel(localDate(org.timezone, start), org.timezone, "ar")} ${formatClock(start, org.timezone, "ar")}`;
+    await alertShop(org, branch, "alert_booking",
+      `📅 حجز جديد #${b.code}\n${name} — ${svc ? svc.name : `${partySize} أشخاص`}\n${when}${phone ? `\nالزبون: ${phone}` : ""}${b.status === "pending" ? "\nبانتظار تأكيدك من لوحة الحجوزات." : ""}`,
+      { type: "booking", id: b.id });
   }
   return b;
 }

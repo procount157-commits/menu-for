@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 
 interface Tpl { key: string; label: string; marketing: boolean; textAr: string; textEn: string; enabled: boolean; customised: boolean; defaultAr: string; defaultEn: string }
 interface TplResp { templates: Tpl[]; vars: Array<{ key: string; en: string; label: string }>; features: { reviews: boolean; winback: boolean } }
-interface Notif { id: number; phone: string; kind: string; text: string; class: string; status: "queued" | "sent" | "failed" | "skipped"; reason: string | null; createdAt: string; sentAt: string | null }
+interface Notif { id: number; phone: string; kind: string; text: string; class: string; status: "queued" | "sent" | "failed" | "skipped"; reason: string | null; createdAt: string; sentAt: string | null; deliveredAt: string | null; readAt: string | null }
 interface NotifResp { recent: Notif[]; stats: Array<{ status: string; reason: string | null; n: number }> }
 
 const REASON: Record<string, string> = {
@@ -27,7 +27,9 @@ const REASON: Record<string, string> = {
   daily_cap: "وصلنا الحد اليومي",
   plan: "غير متاح في الخطة",
   superseded: "حلّت محلها رسالة أحدث",
+  ops_hold: "إيقاف مؤقت لحماية الرقم",
 };
+const ALERTS: Record<string, string> = { alert_order: "تنبيه المحل: طلب جديد", alert_booking: "تنبيه المحل: حجز جديد", alert_rating: "تنبيه المحل: تقييم", alert_campaign: "تنبيه المحل: الحملة الأسبوعية" };
 const STATUS: Record<Notif["status"], { label: string; cls: string }> = {
   sent: { label: "أُرسلت", cls: "bg-emerald-500/15 text-emerald-300" },
   failed: { label: "فشلت", cls: "bg-red-500/15 text-red-300" },
@@ -266,7 +268,7 @@ function Log() {
   const tpls = useQuery<TplResp>({ queryKey: ["/api/wa-templates"], queryFn: () => get("/api/wa-templates") });
   const [filter, setFilter] = useState<"all" | Notif["status"]>("all");
   const [open, setOpen] = useState<number | null>(null);
-  const label = (k: string) => tpls.data?.templates.find((t) => t.key === k)?.label ?? k;
+  const label = (k: string) => tpls.data?.templates.find((t) => t.key === k)?.label ?? ALERTS[k] ?? k;
 
   if (data.isLoading) return <div className="py-16 grid place-items-center"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
   if (data.error) return <Empty title="تعذّر تحميل السجل" icon={<AlertTriangle />}>{errText(data.error)}</Empty>;
@@ -307,6 +309,9 @@ function Log() {
             <button key={r.id} onClick={() => setOpen(open === r.id ? null : r.id)} className="w-full text-start px-3 py-2.5 hover:bg-secondary/30">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className={cn("text-[11px] rounded-full px-2 py-0.5", STATUS[r.status]?.cls)}>{STATUS[r.status]?.label ?? r.status}</span>
+                {r.status === "sent" && (r.readAt
+                  ? <span className="text-[11px] text-sky-300 flex items-center gap-0.5" title={`فُتحت ${clock(r.readAt, tz)}`}><CheckCheck className="w-3.5 h-3.5" />فُتحت</span>
+                  : r.deliveredAt ? <span className="text-[11px] text-muted-foreground flex items-center gap-0.5"><CheckCheck className="w-3.5 h-3.5" />وصلت</span> : null)}
                 <span className="font-medium">{label(r.kind)}</span>
                 <span className="text-xs text-muted-foreground tabular-nums" dir="ltr">{r.phone}</span>
                 {r.reason && r.status !== "sent" && <span className="text-xs text-amber-300/90 flex items-center gap-1"><CircleSlash className="w-3 h-3" />{REASON[r.reason] ?? r.reason}</span>}

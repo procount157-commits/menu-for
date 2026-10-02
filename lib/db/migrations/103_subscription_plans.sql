@@ -48,12 +48,12 @@ SELECT * FROM (VALUES
    '["Photo menu with sections","WhatsApp ordering","Print-ready QR","Arabic & English","One branch","3 staff"]'::jsonb,
    NULL, NULL, false, 0, 'basic'),
   ('الاحترافية', 'Pro', 199::numeric, 'monthly', 'درهم / شهر',
-   '["كل مميزات الأساسية","صف الانتظار الرقمي","الحجوزات والطلبات المسبقة","إشعارات واتساب «جاء دورك»","المضيف الذكي على واتساب","حتى 3 فروع و10 موظفين"]'::jsonb,
-   '["Everything in Basic","Digital queue","Bookings & pre-orders","WhatsApp \"your turn\" alerts","Smart WhatsApp host","Up to 3 branches, 10 staff"]'::jsonb,
+   '["كل مميزات الأساسية","صف الانتظار الرقمي","الحجوزات والطلبات المسبقة","إشعارات واتساب «جاء دورك»","المضيف الذكي على واتساب","حملة أسبوعية آلية لزبائنك","حتى 3 فروع و10 موظفين"]'::jsonb,
+   '["Everything in Basic","Digital queue","Bookings & pre-orders","WhatsApp \"your turn\" alerts","Smart WhatsApp host","Automatic weekly campaign","Up to 3 branches, 10 staff"]'::jsonb,
    'الأكثر طلباً', 'Most popular', true, 1, 'pro'),
   ('الأعمال', 'Business', 399::numeric, 'monthly', 'درهم / شهر',
-   '["كل مميزات الاحترافية","فروع وموظفون بلا حد","رقم واتساب لكل فرع","الحملات والمتابعات","شاشة «الآن يُخدم»","أولوية في الدعم"]'::jsonb,
-   '["Everything in Pro","Unlimited branches & staff","A WhatsApp number per branch","Campaigns & follow-ups","\"Now serving\" screen","Priority support"]'::jsonb,
+   '["كل مميزات الاحترافية","فروع وموظفون بلا حد","رقم واتساب لكل فرع","حملات بلا حد وإعادة الاستهداف","شاشة «الآن يُخدم»","أولوية في الدعم"]'::jsonb,
+   '["Everything in Pro","Unlimited branches & staff","A WhatsApp number per branch","Unlimited campaigns & retargeting","\"Now serving\" screen","Priority support"]'::jsonb,
    NULL, NULL, false, 2, 'business')
 ) AS v
 WHERE NOT EXISTS (SELECT 1 FROM subscription_plans);

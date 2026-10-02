@@ -54,6 +54,6 @@ export const PLAN_LIMITS = {
   // -1 = unlimited, 0 = not in this plan.
   free:     { name: "تجريبي",  contacts: 200,  campaigns: 0,  chatbots: 1,  branches: 1,  items: 30, staff: 2,  queue: true,  booking: false, notify: false, marketing: false, display: false, branchNumbers: false },
   basic:    { name: "أساسي",   contacts: 500,  campaigns: 0,  chatbots: 1,  branches: 1,  items: -1, staff: 3,  queue: false, booking: false, notify: false, marketing: false, display: false, branchNumbers: false },
-  pro:      { name: "احترافي", contacts: 5000, campaigns: 0,  chatbots: 5,  branches: 3,  items: -1, staff: 10, queue: true,  booking: true,  notify: true,  marketing: false, display: false, branchNumbers: false },
+  pro:      { name: "احترافي", contacts: 5000, campaigns: 60, chatbots: 5,  branches: 3,  items: -1, staff: 10, queue: true,  booking: true,  notify: true,  marketing: true,  display: false, branchNumbers: false },
   business: { name: "أعمال",   contacts: -1,   campaigns: -1, chatbots: -1, branches: -1, items: -1, staff: -1, queue: true,  booking: true,  notify: true,  marketing: true,  display: true,  branchNumbers: true },
 } as const;

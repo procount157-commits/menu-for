@@ -46,6 +46,7 @@ import Bookings from "@/pages/shop/Bookings";
 import Customers from "@/pages/shop/Customers";
 import Messages from "@/pages/shop/Messages";
 import Reports from "@/pages/shop/Reports";
+import WaAuto from "@/pages/shop/WaAuto";
 import AdminOrgs from "@/pages/shop/AdminOrgs";
 import StaffLogin from "@/pages/shop/StaffLogin";
 import StaffLayout from "@/components/shop/StaffLayout";
@@ -250,6 +251,7 @@ function AuthenticatedRoutes() {
           <Route path="/shop"           component={ShopHome} />
           <Route path="/staff"          component={StaffManage} />
           <Route path="/messages"       component={Messages} />
+          <Route path="/wa-auto"        component={WaAuto} />
           <Route path="/qr"             component={QrKit} />
           <Route path="/admin/orgs"     component={AdminOrgs} />
           <Route path="/dashboard"      component={Dashboard} />

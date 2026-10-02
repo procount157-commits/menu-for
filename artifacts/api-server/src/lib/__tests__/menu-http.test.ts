@@ -156,6 +156,10 @@ for (const [what, p] of [
   ["change queue settings", S.patch(`/api/queues/${qA.id}`, { maxWaiting: 1 })],
   ["open the admin pages", S.get("/api/admin/users")],
   ["edit message templates", S.req("PUT", "/api/wa-templates/queue_turn", { textAr: "x" })],
+  ["open the WhatsApp automation", S.get("/api/wa-auto")],
+  ["change the shop's alert phones", S.patch("/api/wa-auto/alerts", { phones: ["0501234567"] })],
+  ["prepare a campaign", S.post("/api/wa-auto/autopilot/run")],
+  ["read the platform's model keys", S.get("/api/admin/orgs/llm-keys")],
 ] as const) {
   const x = await p;
   check(`staff cannot ${what}`, x.status === 403, `${x.status}`);
@@ -173,6 +177,30 @@ r = await M.patch(`/api/org`, { name: "x" });
 check("…but not the shop itself", r.status === 403);
 r = await M.get(`/api/campaigns`);
 check("…nor the campaigns", r.status === 403);
+r = await M.get(`/api/wa-auto`);
+check("…nor the WhatsApp automation", r.status === 403);
+
+// ── WhatsApp, as the owner runs it ───────────────────────────────
+await A.patch(`/api/menu/availability`, { itemId: itemA.id, available: true });
+r = await anon.post(`/api/public/orders`, { slug: `alpha-${tag}`, type: "pickup", customerName: "ريم", phone: "0503334444", lines: [{ itemId: itemA.id, qty: 1 }] });
+check("an order with a typed WhatsApp number is confirmed at once", r.status === 201 && r.json.status === "received", r.json);
+r = await anon.post(`/api/public/orders`, { slug: `alpha-${tag}`, type: "pickup", phone: "12", lines: [{ itemId: itemA.id, qty: 1 }] });
+check("…and a number that is not a phone is refused", r.status === 400);
+r = await A.get("/api/wa-auto");
+check("the owner sees the WhatsApp automation page", r.status === 200 && r.json.segments.length === 4 && r.json.whatsapp.connected === false && r.json.autopilot.enabled === false && !!r.json.protection.lanes, r.status);
+check("…with the customer's confirmation counted", r.json.notifications.funnel.some((f: any) => f.kind === "order_received"), r.json.notifications?.funnel);
+r = await A.patch("/api/wa-auto/alerts", { phones: ["050 123 4567", "nope"] });
+check("alert phones are saved clean", r.status === 200 && r.json.phones.join() === "971501234567", r.json);
+r = await A.patch("/api/wa-auto/autopilot", { enabled: true, weekday: 5, hour: 3, mode: "approval" });
+check("the weekly campaign is switched on within bounds", r.status === 200 && r.json.enabled === true && r.json.weekday === 5 && r.json.hour === 17, r.json);
+r = await A.post("/api/wa-auto/segment-list", { segment: "everyone" });
+check("an unknown segment is refused", r.status === 400);
+r = await A.post("/api/wa-auto/retarget", { campaignId: 999_999_999, who: "unread" });
+check("retargeting another account's campaign finds nothing", r.status === 404);
+r = await B.get("/api/wa-auto");
+check("each owner sees their own automation", r.status === 200 && r.json.autopilot.enabled === false && r.json.alerts.phones.length === 0);
+r = await A.get("/api/admin/orgs/llm-keys");
+check("model keys are the platform admin's only", r.status === 403);
 
 // ── Branches ─────────────────────────────────────────────────────
 r = await A.post("/api/branches", { name: "فرع العين", nameEn: "Al Ain" });
@@ -207,6 +235,12 @@ await A.get("/api/auth/me"); // the session picks up the admin flag
 r = await A.post("/api/admin/orgs", { name: "صالون جديد", nameEn: "New Salon", vertical: "beauty", ownerPhone: `9990073${tag}`, ownerName: "هدى", password: "secret123", plan: "pro", planDays: 30 });
 check("the admin creates a shop with its owner and plan", r.status === 201 && r.json.org.vertical === "beauty" && /new-salon/.test(r.json.org.slug), r.json?.org?.slug ?? r.json);
 const madeSlug = r.json.org.slug;
+r = await A.get("/api/admin/orgs/llm-keys");
+check("the admin sees the model keys per channel, never a whole key", r.status === 200 && Array.isArray(r.json.providers) && r.json.providers.length > 0 && !JSON.stringify(r.json.keys).includes("apiKey"), r.json?.providers);
+r = await A.post("/api/admin/orgs/llm-keys", { channel: "sms", provider: r.json.providers[0], apiKey: "x".repeat(20) });
+check("…a key needs a known channel", r.status === 400);
+r = await A.post("/api/admin/orgs/llm-keys", { channel: "whatsapp", provider: "nobody", apiKey: "x".repeat(20) });
+check("…and a known provider", r.status === 400);
 r = await A.post("/api/admin/orgs", { name: "مكرر", ownerPhone: `9990073${tag}`, password: "secret123" });
 check("the same owner phone twice is refused", r.status === 409);
 const N = new Client();
@@ -230,6 +264,8 @@ r = await B.patch("/api/booking-settings", { enabled: true });
 check("…and has no bookings", r.status === 402);
 r = await B.post("/api/campaigns", { name: "x", message: "x" });
 check("…and no campaigns", r.status === 402 || r.status === 400, `${r.status}`);
+r = await B.patch("/api/wa-auto/autopilot", { enabled: true });
+check("…nor the weekly campaign", r.status === 402 && r.json.plan === true, r.json);
 
 server.close();
 await cleanup("7");

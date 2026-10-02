@@ -15,6 +15,7 @@ import { touchCustomer, normalisePhone } from "../customers";
 import { enqueue, cancelQueued } from "../notify/outbox";
 import { renderFor, type TemplateKey } from "../notify/templates";
 import { publicUrl, orderPath } from "../menu/urls";
+import { alertShop } from "../notify/alerts";
 
 export class OrderError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -87,10 +88,23 @@ export async function createOrder(org: Org, branch: Branch, input: NewOrder): Pr
     phone, address: String(input.address ?? "").trim().slice(0, 300) || null,
     items: priced.lines, subtotal: String(priced.subtotal),
     notes: String(input.notes ?? "").trim().slice(0, 500) || null,
-    scheduledFor, status: "pending", marketingOptIn: !!input.marketingOptIn,
+    // A number typed at checkout makes the order real at once: the customer
+    // gets it on WhatsApp without having to send anything. With no number,
+    // it waits for their WhatsApp message (the wa.me link).
+    scheduledFor, status: phone ? "received" : "pending", marketingOptIn: !!input.marketingOptIn,
   }).returning();
   publish(`orders:${branch.id}`);
+  if (phone) {
+    await touchCustomer(org.id, phone, { name: o!.customerName, order: { total: priced.subtotal, itemIds: priced.lines.map((l) => l.itemId) }, optIn: o!.marketingOptIn, branchId: branch.id });
+    await notifyOrder(o!, "order_received");
+    await alertShop(org, branch, "alert_order", shopAlertText(o!, org), { type: "order", id: o!.id });
+  }
   return o!;
+}
+
+/** What the owner's phone is told about a new order. */
+function shopAlertText(o: Order, org: Pick<Org, "currency" | "timezone">): string {
+  return `🔔 ${orderMessage(o, org, "ar")}${o.phone ? `\nالزبون: ${o.phone}` : ""}`;
 }
 
 export async function orderByToken(token: string): Promise<Order | null> {
@@ -156,6 +170,8 @@ export async function confirmOrderFromWhatsApp(o: Order, phone: string): Promise
       optIn: o.marketingOptIn, branchId: o.branchId,
     });
     await notifyOrder(u!, "order_received");
+    const c = await ctxOf(u!);
+    if (c) await alertShop(c.org, c.branch, "alert_order", shopAlertText(u!, c.org), { type: "order", id: u!.id });
   }
   publish(`orders:${o.branchId}`);
   return u!;
