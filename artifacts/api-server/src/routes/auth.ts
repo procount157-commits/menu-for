@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { db, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 import { logger } from "../lib/logger";
 import { checkCoupon, redeemCoupon, CouponError } from "../lib/coupons";
@@ -83,6 +83,17 @@ router.post("/register", async (req, res) => {
   });
 });
 
+/** Every stored form a typed phone could be in. Exported for the tests. */
+export function loginPhoneForms(clean: string, raw = clean): string[] {
+  const out = [clean, raw];
+  const cc = clean.match(/^(971|966|965|974|973|968|20)(\d{7,10})$/);
+  const local = cc ? cc[2]! : clean.replace(/^0/, "");
+  out.push(local, `0${local}`);
+  if (cc) out.push(clean);
+  else if (/^\d{8,10}$/.test(local)) out.push(`971${local}`);
+  return [...new Set(out.filter(Boolean))];
+}
+
 // Login
 router.post("/login", async (req, res) => {
   const { phone, password } = req.body;
@@ -94,11 +105,11 @@ router.post("/login", async (req, res) => {
   const rawPhone   = String(phone).replace(/[\s\-\+\(\)]/g, "");
   const cleanPhone = rawPhone.replace(/^00/, "");
 
-  // Try cleaned version first, then fall back to raw input (handles special accounts like 00000000)
-  let [user] = await db.select().from(usersTable).where(eq(usersTable.phone, cleanPhone));
-  if (!user && cleanPhone !== rawPhone) {
-    [user] = await db.select().from(usersTable).where(eq(usersTable.phone, rawPhone));
-  }
+  // The same number is typed three ways — 0501234567, 501234567, 971501234567
+  // — and stored in one of them; try each, in the order typed first.
+  const candidates = loginPhoneForms(cleanPhone, rawPhone);
+  const found = await db.select().from(usersTable).where(inArray(usersTable.phone, candidates));
+  let user = candidates.map((c) => found.find((u) => u.phone === c)).find(Boolean);
   if (!user) {
     return res.status(401).json({ error: "رقم الهاتف أو كلمة المرور غير صحيحة" });
   }
