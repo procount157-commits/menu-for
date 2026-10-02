@@ -4,7 +4,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { db, orgsTable, branchesTable, staffTable, usersTable, queuesTable } from "@workspace/db";
-import { slugError, isValidSlug, vocab, VERTICALS } from "@workspace/menu-shared";
+import { slugError, isValidSlug, vocab, VERTICALS, cleanPerms, permsOf, roleForPerms, type StaffPerm } from "@workspace/menu-shared";
 import { requireAuth } from "../lib/auth";
 import {
   tenant, withTenant, switchBranch, tenantErrorToResponse, signedInUser, attachOwner,
@@ -40,6 +40,7 @@ router.get("/tenancy/me", requireAuth, async (req, res) => {
     res.json({
       booking: { enabled: bk.enabled && plan.features.booking },
       role: t.role,
+      perms: t.perms,
       person,
       impersonating: !!req.session.impersonatorId,
       org: t.org,
@@ -223,12 +224,40 @@ router.post("/branches/:id/rotate-display", requireAuth, withTenant(OWNER, async
 
 const USERNAME_RE = /^[a-z0-9._-]{3,40}$/;
 
+/**
+ * What the owner sent: a permission list, or — from before permissions — a
+ * role. The role column is kept in step for anything that still reads it.
+ */
+function permsFromBody(b: Record<string, unknown>): { permissions: StaffPerm[]; role: "manager" | "staff" } | null {
+  if (Array.isArray(b.permissions)) {
+    const permissions = cleanPerms(b.permissions);
+    return { permissions, role: roleForPerms(permissions) === "staff" ? "staff" : "manager" };
+  }
+  if (b.role === "manager" || b.role === "staff") return { permissions: permsOf({ role: b.role }), role: b.role };
+  return null;
+}
+
+// Only the owner hands out «مدير كامل», or changes, resets or removes someone
+// who has it: a full manager runs the shop but does not decide who else does.
+const ADMIN_OWNER_ONLY = "«مدير كامل» يمنحه ويعدّله صاحب المحل فقط";
+async function touchesAdmin(t: { staffId: number | null; org: { id: number } }, id: number, next?: StaffPerm[]): Promise<boolean> {
+  if (!t.staffId) return false;
+  if (next?.includes("admin")) return true;
+  const [cur] = await db.select({ role: staffTable.role, permissions: staffTable.permissions }).from(staffTable)
+    .where(and(eq(staffTable.id, id), eq(staffTable.orgId, t.org.id))).limit(1);
+  return !!cur && permsOf(cur).includes("admin");
+}
+
+const staffOut = {
+  id: staffTable.id, name: staffTable.name, username: staffTable.username, role: staffTable.role, permissions: staffTable.permissions,
+  branchId: staffTable.branchId, isActive: staffTable.isActive,
+};
+const withPerms = <T extends { role: string; permissions: unknown }>(s: T) => ({ ...s, permissions: permsOf(s) });
+
 router.get("/staff", requireAuth, withTenant(OWNER, async (_req, res, t) => {
-  const rows = await db.select({
-    id: staffTable.id, name: staffTable.name, username: staffTable.username, role: staffTable.role,
-    branchId: staffTable.branchId, isActive: staffTable.isActive, lastLoginAt: staffTable.lastLoginAt, createdAt: staffTable.createdAt,
-  }).from(staffTable).where(eq(staffTable.orgId, t.org.id)).orderBy(asc(staffTable.id));
-  res.json({ staff: rows, loginUrl: publicUrl(`/staff-login?shop=${t.org.slug}`), shop: t.org.slug });
+  const rows = await db.select({ ...staffOut, lastLoginAt: staffTable.lastLoginAt, createdAt: staffTable.createdAt })
+    .from(staffTable).where(eq(staffTable.orgId, t.org.id)).orderBy(asc(staffTable.id));
+  res.json({ staff: rows.map(withPerms), loginUrl: publicUrl(`/staff-login?shop=${t.org.slug}`), shop: t.org.slug });
 }));
 
 router.post("/staff", requireAuth, withTenant(OWNER, async (req, res, t) => {
@@ -247,11 +276,14 @@ router.post("/staff", requireAuth, withTenant(OWNER, async (req, res, t) => {
   await assertWithinLimit(t.org.ownerUserId, "staff", n);
   const [dup] = await db.select({ id: staffTable.id }).from(staffTable).where(and(eq(staffTable.orgId, t.org.id), eq(staffTable.username, username))).limit(1);
   if (dup) return res.status(409).json({ error: "اسم الدخول مستخدم" });
+  const access = permsFromBody(b) ?? permsFromBody({ role: "staff" })!;
+  if (!access.permissions.length) return res.status(400).json({ error: "اختر صلاحية واحدة على الأقل" });
+  if (t.staffId && access.permissions.includes("admin")) return res.status(403).json({ error: ADMIN_OWNER_ONLY });
   const [s] = await db.insert(staffTable).values({
     orgId: t.org.id, branchId, name, username, passwordHash: await bcrypt.hash(String(b.password), 10),
-    role: b.role === "manager" ? "manager" : "staff",
-  }).returning({ id: staffTable.id, name: staffTable.name, username: staffTable.username, role: staffTable.role, branchId: staffTable.branchId, isActive: staffTable.isActive });
-  res.status(201).json(s);
+    role: access.role, permissions: access.permissions,
+  }).returning(staffOut);
+  res.status(201).json(withPerms(s!));
 }));
 
 router.patch("/staff/:id", requireAuth, withTenant(OWNER, async (req, res, t) => {
@@ -259,7 +291,13 @@ router.patch("/staff/:id", requireAuth, withTenant(OWNER, async (req, res, t) =>
   const b = req.body ?? {};
   const patch: Record<string, unknown> = {};
   if (typeof b.name === "string" && b.name.trim()) patch.name = b.name.trim().slice(0, 120);
-  if (b.role === "manager" || b.role === "staff") patch.role = b.role;
+  const access = permsFromBody(b);
+  if (await touchesAdmin(t, id, access?.permissions)) return res.status(403).json({ error: ADMIN_OWNER_ONLY });
+  if (access) {
+    if (!access.permissions.length) return res.status(400).json({ error: "اختر صلاحية واحدة على الأقل" });
+    patch.role = access.role;
+    patch.permissions = access.permissions;
+  }
   if ("branchId" in b) patch.branchId = b.branchId ? Number(b.branchId) : null;
   if (typeof b.isActive === "boolean") patch.isActive = b.isActive;
   if (b.password) {
@@ -267,20 +305,21 @@ router.patch("/staff/:id", requireAuth, withTenant(OWNER, async (req, res, t) =>
     patch.passwordHash = await bcrypt.hash(String(b.password), 10);
   }
   const [u] = await db.update(staffTable).set(patch).where(and(eq(staffTable.id, id), eq(staffTable.orgId, t.org.id)))
-    .returning({ id: staffTable.id, name: staffTable.name, username: staffTable.username, role: staffTable.role, branchId: staffTable.branchId, isActive: staffTable.isActive });
+    .returning(staffOut);
   if (!u) return res.status(404).json({ error: "الموظف غير موجود" });
-  res.json(u);
+  res.json(withPerms(u));
 }));
 
 router.delete("/staff/:id", requireAuth, withTenant(OWNER, async (req, res, t) => {
+  if (await touchesAdmin(t, Number(req.params.id))) return res.status(403).json({ error: ADMIN_OWNER_ONLY });
   await db.delete(staffTable).where(and(eq(staffTable.id, Number(req.params.id)), eq(staffTable.orgId, t.org.id)));
   res.json({ ok: true });
 }));
 
 // ── Staff sign-in ─────────────────────────────────────────────────
 // Shop + username + password. The session that results is a staff session:
-// staffGuard (lib/tenancy/context.ts) lets it reach the queue, the orders and
-// the bookings, and nothing else.
+// staffGuard (lib/tenancy/context.ts) lets it reach what the person's
+// permissions open, and nothing else.
 
 router.post("/staff-auth/login", async (req, res) => {
   const shop = String(req.body?.shop ?? "").trim().toLowerCase();
@@ -302,7 +341,7 @@ router.post("/staff-auth/login", async (req, res) => {
   req.session.userId = branch.waUserId;
   req.session.isAdmin = false;
   req.session.staffId = st.id;
-  req.session.role = st.role === "manager" ? "manager" : "staff";
+  req.session.role = roleForPerms(permsOf(st));
   req.session.orgId = org.id;
   req.session.branchId = branch.id;
   await db.update(staffTable).set({ lastLoginAt: new Date() }).where(eq(staffTable.id, st.id));

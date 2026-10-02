@@ -9,22 +9,28 @@ import { toast } from "sonner";
 import { KeyRound, Loader2, MoreHorizontal, Pencil, Plus, ShieldCheck, Trash2, UserCog, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { del, get, patch, post, useShop, inputCls } from "@/lib/shop-api";
+import { PERM_INFO, PERM_PRESETS, STAFF_PERMS, cleanPerms, type StaffPerm } from "@workspace/menu-shared";
 import {
   CopyButton, Empty, Field, Modal, PageHeader, Skel, Toggle, UpgradeNotice, btnGhost, btnPrimary, btnQuiet, iconBtn, isPlanError,
 } from "@/components/shop/setup/kit";
 
 interface Staff {
-  id: number; name: string; username: string; role: "staff" | "manager"; branchId: number | null;
+  id: number; name: string; username: string; role: "staff" | "manager"; permissions: StaffPerm[]; branchId: number | null;
   isActive: boolean; lastLoginAt: string | null; createdAt: string;
 }
 interface StaffResp { staff: Staff[]; loginUrl: string; shop: string }
 
 const KEY = ["/api/staff"];
 
-const ROLES = [
-  { id: "staff" as const, title: "موظف", sub: "شاشة الصف والطلبات والحجوزات لفرعه بس — ما يشوف المنيو ولا الإعدادات." },
-  { id: "manager" as const, title: "مدير فرع", sub: "كل اللي للموظف، ويعدّل المنيو والتوفّر ويشوف الزبائن والتقارير." },
-];
+const COUNTER = PERM_PRESETS[0]!.perms;
+const samePerms = (a: readonly StaffPerm[], b: readonly StaffPerm[]) => a.length === b.length && a.every((p) => b.includes(p));
+
+/** «مدير كامل», a preset's name, or the permissions themselves. */
+function permsLabel(perms: StaffPerm[]): string {
+  const preset = PERM_PRESETS.find((p) => samePerms(p.perms, perms));
+  if (preset) return preset.label;
+  return perms.map((p) => PERM_INFO[p].label).join("، ") || "بدون صلاحيات";
+}
 
 function genPassword() {
   // No look-alikes (0/O, 1/l): it gets read aloud or typed off a phone.
@@ -43,7 +49,7 @@ function lastSeen(iso: string | null) {
   return `آخر دخول قبل ${Math.round(h / 24)} يوم`;
 }
 
-type Draft = { id?: number; name: string; username: string; password: string; role: "staff" | "manager"; branchId: number | null };
+type Draft = { id?: number; name: string; username: string; password: string; permissions: StaffPerm[]; branchId: number | null };
 
 export default function StaffManage() {
   const shop = useShop();
@@ -61,8 +67,8 @@ export default function StaffManage() {
 
   const save = useMutation({
     mutationFn: (d: Draft) => d.id
-      ? patch(`/api/staff/${d.id}`, { name: d.name, role: d.role, branchId: d.branchId })
-      : post("/api/staff", { name: d.name, username: d.username, password: d.password, role: d.role, branchId: d.branchId }),
+      ? patch(`/api/staff/${d.id}`, { name: d.name, permissions: d.permissions, branchId: d.branchId })
+      : post("/api/staff", { name: d.name, username: d.username, password: d.password, permissions: d.permissions, branchId: d.branchId }),
     onSuccess: (_r, d) => {
       qc.invalidateQueries({ queryKey: KEY });
       setDraft(null);
@@ -120,7 +126,7 @@ export default function StaffManage() {
         title="الموظفون"
         sub="كل موظف له حساب يدخل فيه من جواله أو تابلت الكاونتر، ويشوف بس اللي يخصه."
         actions={
-          <button className={btnPrimary} onClick={() => atLimit ? setUpgrade(`باقتك تسمح بـ ${limit} موظفين نشطين — رقّها عشان تضيف أكثر، أو أوقف حساب قديم.`) : setDraft({ name: "", username: "", password: genPassword(), role: "staff", branchId: multiBranch ? shop.branch.id : null })}>
+          <button className={btnPrimary} onClick={() => atLimit ? setUpgrade(`باقتك تسمح بـ ${limit} موظفين نشطين — رقّها عشان تضيف أكثر، أو أوقف حساب قديم.`) : setDraft({ name: "", username: "", password: genPassword(), permissions: [...COUNTER], branchId: multiBranch ? shop.branch.id : null })}>
             <Plus className="w-4 h-4" />أضف موظف
           </button>
         }
@@ -138,13 +144,12 @@ export default function StaffManage() {
             </div>
           ) : <Skel className="h-6 w-64" />}
         </div>
-        <div className="grid sm:grid-cols-2 gap-3 pt-1">
-          {ROLES.map((r) => (
-            <div key={r.id} className="flex gap-3 rounded-xl bg-muted/40 p-3">
-              {r.id === "manager" ? <ShieldCheck className="w-4 h-4 text-primary mt-0.5 shrink-0" /> : <UserCog className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />}
-              <div><div className="text-sm font-medium">{r.title}</div><div className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{r.sub}</div></div>
-            </div>
-          ))}
+        <div className="flex gap-3 rounded-xl bg-muted/40 p-3">
+          <ShieldCheck className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+          <div className="text-xs text-muted-foreground leading-relaxed">
+            لكل موظف صلاحياته: الكاشير يشوف الصف والطلبات، ومسؤول المنيو يعدّل المنيو بس، ومسؤول التسويق الحملات بس.
+            التسويق ما يوصله أي موظف إلا اللي تعطيه. و«مدير كامل» يقدر على كل شيء مثلك.
+          </div>
         </div>
       </section>
 
@@ -153,7 +158,7 @@ export default function StaffManage() {
         {q.data && !staff.length && (
           <Empty icon={<Users className="w-5 h-5" />} title="ما فيه موظفين للحين"
             sub="أضف الكاشير أو المضيف عشان يشغّل «التالي» من جهازه، وأنت تتابع من جوالك."
-            action={<button className={btnPrimary} onClick={() => setDraft({ name: "", username: "", password: genPassword(), role: "staff", branchId: multiBranch ? shop.branch.id : null })}><Plus className="w-4 h-4" />أضف أول موظف</button>} />
+            action={<button className={btnPrimary} onClick={() => setDraft({ name: "", username: "", password: genPassword(), permissions: [...COUNTER], branchId: multiBranch ? shop.branch.id : null })}><Plus className="w-4 h-4" />أضف أول موظف</button>} />
         )}
         {staff.map((s) => (
           <div key={s.id} className={cn("bg-card border border-card-border rounded-xl px-4 py-3 flex items-center gap-3", !s.isActive && "opacity-60")}>
@@ -161,7 +166,7 @@ export default function StaffManage() {
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <span className="font-medium truncate">{s.name}</span>
-                <span className={cn("text-[11px] px-2 py-0.5 rounded-full", s.role === "manager" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground")}>{s.role === "manager" ? "مدير فرع" : "موظف"}</span>
+                <span className={cn("text-[11px] px-2 py-0.5 rounded-full max-w-[16rem] truncate", samePerms(s.permissions, COUNTER) ? "bg-muted text-muted-foreground" : "bg-primary/15 text-primary")} title={permsLabel(s.permissions)}>{permsLabel(s.permissions)}</span>
                 {!s.isActive && <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">موقوف</span>}
               </div>
               <div className="text-xs text-muted-foreground mt-0.5 truncate">
@@ -177,7 +182,7 @@ export default function StaffManage() {
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
                   <div className="absolute left-0 top-9 z-20 w-44 rounded-xl border border-popover-border bg-popover shadow-xl p-1 text-sm">
-                    <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted text-start" onClick={() => { setMenuFor(null); setDraft({ id: s.id, name: s.name, username: s.username, password: "", role: s.role, branchId: s.branchId }); }}><Pencil className="w-3.5 h-3.5" />تعديل</button>
+                    <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted text-start" onClick={() => { setMenuFor(null); setDraft({ id: s.id, name: s.name, username: s.username, password: "", permissions: [...s.permissions], branchId: s.branchId }); }}><Pencil className="w-3.5 h-3.5" />تعديل</button>
                     <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted text-start" onClick={() => { setMenuFor(null); setResetPw(genPassword()); setResetFor(s); }}><KeyRound className="w-3.5 h-3.5" />كلمة مرور جديدة</button>
                     <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-destructive/10 text-destructive text-start" onClick={() => { setMenuFor(null); if (confirm(`حذف ${s.name} نهائياً؟ لو تبيه يرجع بعدين، أوقفه بدال الحذف.`)) remove.mutate(s.id); }}><Trash2 className="w-3.5 h-3.5" />حذف</button>
                   </div>
@@ -193,7 +198,7 @@ export default function StaffManage() {
       <Modal open={!!draft} onClose={() => setDraft(null)} title={draft?.id ? `تعديل ${draft.name}` : "موظف جديد"}
         footer={<>
           <button className={btnQuiet} onClick={() => setDraft(null)}>إلغاء</button>
-          <button className={btnPrimary} disabled={save.isPending || !draft?.name.trim() || (!draft?.id && (draft!.username.length < 3 || draft!.password.length < 6))} onClick={() => draft && save.mutate(draft)}>
+          <button className={btnPrimary} disabled={save.isPending || !draft?.name.trim() || !draft?.permissions.length || (!draft?.id && (draft!.username.length < 3 || draft!.password.length < 6))} onClick={() => draft && save.mutate(draft)}>
             {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />}{draft?.id ? "احفظ" : "أضف"}
           </button>
         </>}>
@@ -211,18 +216,7 @@ export default function StaffManage() {
                 </Field>
               </div>
             )}
-            <div>
-              <div className="text-sm text-muted-foreground mb-1.5">الصلاحية</div>
-              <div className="grid gap-2">
-                {ROLES.map((r) => (
-                  <button key={r.id} type="button" onClick={() => setDraft({ ...draft, role: r.id })}
-                    className={cn("text-start rounded-xl border p-3 transition-colors", draft.role === r.id ? "border-primary bg-primary/10" : "border-card-border hover:border-primary/40")}>
-                    <div className="text-sm font-medium">{r.title}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">{r.sub}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
+            <PermsPicker value={draft.permissions} onChange={(permissions) => setDraft({ ...draft, permissions })} />
             {multiBranch && (
               <Field label="الفرع">
                 <select className={inputCls} value={draft.branchId ?? ""} onChange={(e) => setDraft({ ...draft, branchId: e.target.value ? Number(e.target.value) : null })}>
@@ -277,6 +271,48 @@ function Row({ k, v }: { k: string; v: string }) {
     <div className="flex items-center justify-between gap-3">
       <span className="text-muted-foreground shrink-0">{k}</span>
       <span className="font-mono truncate" dir="ltr">{v}</span>
+    </div>
+  );
+}
+
+/**
+ * What this person may do: a ready-made set to start from, then each
+ * permission on its own. «مدير كامل» stands alone — it already includes the rest.
+ */
+function PermsPicker({ value, onChange }: { value: StaffPerm[]; onChange: (v: StaffPerm[]) => void }) {
+  const admin = value.includes("admin");
+  const toggle = (p: StaffPerm, on: boolean) => onChange(cleanPerms(on ? [...value, p] : value.filter((x) => x !== p)));
+  return (
+    <div className="space-y-3">
+      <div>
+        <div className="text-sm text-muted-foreground mb-1.5">الصلاحيات</div>
+        <div className="flex flex-wrap gap-1.5">
+          {PERM_PRESETS.map((p) => (
+            <button key={p.id} type="button" onClick={() => onChange([...p.perms])}
+              className={cn("px-3 h-9 rounded-full text-xs border transition-colors", samePerms(p.perms, value) ? "border-primary bg-primary/10 text-primary font-semibold" : "border-card-border hover:border-primary/40")}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className={cn("rounded-xl border border-card-border divide-y divide-border", admin && "opacity-60")}>
+        {STAFF_PERMS.filter((p) => p !== "admin").map((p) => (
+          <label key={p} className="flex items-center justify-between gap-3 px-3 py-2.5 cursor-pointer">
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">{PERM_INFO[p].label}</span>
+              <span className="block text-[11px] text-muted-foreground leading-relaxed">{PERM_INFO[p].hint}</span>
+            </span>
+            <Toggle checked={admin || value.includes(p)} disabled={admin} label={PERM_INFO[p].label} onChange={(on) => toggle(p, on)} />
+          </label>
+        ))}
+      </div>
+      <label className={cn("flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 cursor-pointer", admin ? "border-primary bg-primary/10" : "border-card-border")}>
+        <span className="min-w-0">
+          <span className="flex items-center gap-1.5 text-sm font-medium"><UserCog className="w-4 h-4 text-primary" />{PERM_INFO.admin.label}</span>
+          <span className="block text-[11px] text-muted-foreground leading-relaxed">{PERM_INFO.admin.hint}</span>
+        </span>
+        <Toggle checked={admin} label={PERM_INFO.admin.label} onChange={(on) => onChange(on ? ["admin"] : [...COUNTER])} />
+      </label>
     </div>
   );
 }

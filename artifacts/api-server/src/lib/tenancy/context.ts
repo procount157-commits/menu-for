@@ -11,6 +11,8 @@
 import type { Request, Response, NextFunction } from "express";
 import { and, eq } from "drizzle-orm";
 import { db, orgsTable, branchesTable, staffTable, usersTable, type Org, type Branch } from "@workspace/db";
+import { STAFF_PERMS, permsOf, roleForPerms, type StaffPerm } from "@workspace/menu-shared";
+import { staffMay } from "./permissions";
 
 export type Role = "owner" | "manager" | "staff";
 
@@ -36,6 +38,8 @@ export interface Tenant {
   /** The signed-in person's user id (owners), or null for staff. */
   personId: number | null;
   staffId: number | null;
+  /** What this person may do: everything for the owner, their own list for staff. */
+  perms: StaffPerm[];
   /** The branches this person may act on. */
   branchIds: number[];
   isAdmin: boolean;
@@ -69,12 +73,16 @@ export async function tenant(req: Request): Promise<Tenant> {
   let role: Role = s.role ?? "owner";
   let personId: number | null = s.staffId ? null : (s.ownerId ?? s.userId);
   let branchScope: number | null = null;
+  let perms: StaffPerm[] = [...STAFF_PERMS];
 
   if (s.staffId) {
     const [st] = await db.select().from(staffTable).where(eq(staffTable.id, s.staffId)).limit(1);
     if (!st || !st.isActive) throw new TenantError(401, "انتهت صلاحية دخول الموظف");
     [org] = await db.select().from(orgsTable).where(eq(orgsTable.id, st.orgId)).limit(1);
-    role = st.role === "manager" ? "manager" : "staff";
+    perms = permsOf(st);
+    role = roleForPerms(perms);
+    // «مدير كامل» holds every permission, spelled out for the screens.
+    if (role === "owner") perms = [...STAFF_PERMS];
     branchScope = st.branchId;
   } else {
     org = await orgForOwner(personId!);
@@ -103,6 +111,7 @@ export async function tenant(req: Request): Promise<Tenant> {
     waUserId: branch.waUserId,
     personId,
     staffId: s.staffId ?? null,
+    perms,
     branchIds: allowed.map((b) => b.id),
     isAdmin: !!s.isAdmin && !s.staffId,
   };
@@ -163,47 +172,21 @@ export const MANAGERS: Role[] = ["owner", "manager"];
 export const OWNER: Role[] = ["owner"];
 
 // ── Staff may reach only what they need ───────────────────────────
-// Default deny. Every Flow Hub route checks only `requireAuth`, which a staff
-// session passes, so without this a cashier could open the campaigns or
-// unlink the shop's WhatsApp. Any route, old or new, that is not listed here
-// answers 403 to staff — forgetting to protect a new route fails closed.
+// Default deny, by permission (permissions.ts). The person's permissions are
+// read on every request rather than kept in the session, so what the owner
+// changes applies at once — and a member of staff switched off is out.
 
-const STAFF_ALLOW: Array<[string, RegExp]> = [
-  ["GET",  /^\/auth\/me$/],
-  ["POST", /^\/auth\/logout$/],
-  ["*",    /^\/staff-auth\//],
-  ["GET",  /^\/tenancy\/(me|queues)$/],
-  ["POST", /^\/tenancy\/branch$/],
-  ["GET",  /^\/whatsapp\/status$/],
-  ["*",    /^\/queue(\/|$)/],
-  ["*",    /^\/orders(\/|$)/],
-  ["*",    /^\/bookings(\/|$)/],
-  ["GET",  /^\/menu\/(items|categories)$/],
-  ["PATCH", /^\/menu\/availability$/],
-  ["*",    /^\/public\//],
-  ["GET",  /^\/healthz$/],
-  ["GET",  /^\/ping$/],
-];
-
-const MANAGER_ALLOW: Array<[string, RegExp]> = [
-  ...STAFF_ALLOW,
-  ["*",    /^\/queues(\/|$)/],
-  ["*",    /^\/booking-settings(\/|$)/],
-  ["GET",  /^\/customers(\/|$)/],
-  ["GET",  /^\/reports(\/|$)/],
-  ["GET",  /^\/qr(\/|$)/],
-  ["*",    /^\/menu\/(items|categories|offers)(\/|$)/],
-  ["POST", /^\/menu\/images$/],
-  ["POST", /^\/menu\/(import|import-photo|import-rows|translate)$/],
-];
-
-export function staffGuard(req: Request, res: Response, next: NextFunction) {
+export async function staffGuard(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.staffId) return next();
-  const list = req.session.role === "manager" ? MANAGER_ALLOW : STAFF_ALLOW;
-  const p = req.path;
-  const ok = list.some(([m, re]) => (m === "*" || m === req.method) && re.test(p));
-  if (ok) return next();
-  res.status(403).json({ error: "هذه الصفحة لصاحب المحل فقط", staff: true });
+  try {
+    const [st] = await db.select({ role: staffTable.role, permissions: staffTable.permissions, isActive: staffTable.isActive })
+      .from(staffTable).where(eq(staffTable.id, req.session.staffId)).limit(1);
+    if (!st || !st.isActive) return res.status(401).json({ error: "انتهت صلاحية دخول الموظف", staff: true });
+    const perms = permsOf(st);
+    req.session.role = roleForPerms(perms);
+    if (staffMay(perms, req.method, req.path)) return next();
+    res.status(403).json({ error: "ليست لديك صلاحية لهذه الصفحة — اطلبها من صاحب المحل", staff: true });
+  } catch (err) { next(err); }
 }
 
 /** The user row for whoever is signed in, never the branch's service account. */

@@ -76,6 +76,9 @@ export interface PublicQueue {
   id: number;
   name: string;
   nameEn: string | null;
+  /** line: the shop's queue · chair: one barber's own line, named after him. */
+  kind: "line" | "chair";
+  photoUrl: string | null;
   isOpen: boolean;
   isPaused: boolean;
   waiting: number;
@@ -128,7 +131,7 @@ export interface PublicTicket {
 export interface PublicDisplay {
   org: { name: string; nameEn: string | null; logoUrl: string | null; theme: PublicOrg["theme"]; slug: string };
   branch: { name: string; nameEn: string | null; slug: string };
-  queues: Array<{ id: number; name: string; nameEn: string | null; nowServing: string[]; next: string[]; waiting: number; eta: EtaRange; isPaused: boolean; isOpen: boolean }>;
+  queues: Array<{ id: number; name: string; nameEn: string | null; kind: "line" | "chair"; photoUrl: string | null; nowServing: string[]; next: string[]; waiting: number; eta: EtaRange; isPaused: boolean; isOpen: boolean }>;
   offers: PublicOffer[];
   /** The in-store join key for qr_only queues; rotates. */
   joinKey: string;

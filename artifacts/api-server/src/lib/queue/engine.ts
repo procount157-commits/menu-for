@@ -89,6 +89,7 @@ export async function publicQueue(ctx: QueueCtx): Promise<PublicQueue> {
   const s = await snapshot(ctx);
   return {
     id: ctx.queue.id, name: ctx.queue.name, nameEn: ctx.queue.nameEn,
+    kind: ctx.queue.kind === "chair" ? "chair" : "line", photoUrl: ctx.queue.photoUrl,
     isOpen: ctx.queue.isOpen, isPaused: ctx.queue.isPaused,
     waiting: s.waiting.length, eta: etaAt(s, s.waiting.length),
     askPartySize: ctx.queue.askPartySize, askService: ctx.queue.askService,

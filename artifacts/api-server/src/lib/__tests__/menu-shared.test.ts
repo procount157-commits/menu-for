@@ -4,8 +4,10 @@
 import {
   priceLine, priceCart, formatMoney, serviceInterval, etaFor, formatEta, serviceDay, localDate, zonedToUtc,
   isOpenAt, openWindow, availableSlots, fits, extractCode, queueCommand, randomCode, CODE_ALPHABET,
-  isValidSlug, slugError, slugify, renderTemplate, waMeLink, type PriceableItem,
+  isValidSlug, slugError, slugify, renderTemplate, waMeLink, cleanPerms, permsOf, roleForPerms, type PriceableItem,
 } from "@workspace/menu-shared";
+import { staffMay } from "../tenancy/permissions";
+import { cleanDefaults, orgModules } from "../tenancy/modules";
 import { laneFor, REPLIED_WINDOW_MS } from "../notify/outbox";
 import { withinDaytime } from "../notify/lifecycle";
 import { joinKey, joinKeyValid } from "../menu/urls";
@@ -142,6 +144,24 @@ const k = joinKey("secret", 1_000_000_000_000);
 check("the in-store key is valid now and for the previous window", joinKeyValid("secret", k, 1_000_000_000_000) && joinKeyValid("secret", k, 1_000_000_000_000 + 5 * 60_000));
 check("…and not after that", !joinKeyValid("secret", k, 1_000_000_000_000 + 11 * 60_000));
 check("…nor with another shop's secret", !joinKeyValid("other", k, 1_000_000_000_000));
+
+// ── Staff permissions ─────────────────────────────────────────────
+check("permissions are cleaned into catalogue order", JSON.stringify(cleanPerms(["orders", "queue", "nonsense"])) === '["queue","orders"]');
+check("…and «مدير كامل» stands alone", JSON.stringify(cleanPerms(["menu", "admin"])) === '["admin"]');
+check("staff from before keep their role's permissions", JSON.stringify(permsOf({ role: "staff", permissions: null })) === '["queue","orders","bookings"]' && permsOf({ role: "manager" }).includes("menu"));
+check("the counter three work as staff, more as a manager, admin as the owner",
+  roleForPerms(["queue", "orders"]) === "staff" && roleForPerms(["menu"]) === "manager" && roleForPerms(["admin"]) === "owner");
+check("the menu permission opens the menu, not the campaigns", staffMay(["menu"], "PATCH", "/menu/items/4") && !staffMay(["menu"], "GET", "/campaigns"));
+check("marketing opens the campaigns and the email, not the queue", staffMay(["marketing"], "GET", "/campaigns") && staffMay(["marketing"], "GET", "/email/overview") && !staffMay(["marketing"], "GET", "/queue/3"));
+check("everyone reaches who they are", staffMay([], "GET", "/auth/me") && staffMay([], "GET", "/tenancy/me"));
+check("«مدير كامل» reaches the shop but not the owner's account", staffMay(["admin"], "PATCH", "/org") && staffMay(["admin"], "POST", "/whatsapp/logout") && !staffMay(["admin"], "POST", "/auth/direct/regenerate/3") && !staffMay(["admin"], "GET", "/admin/users"));
+check("nobody without it unlinks WhatsApp", !staffMay(["queue", "orders", "bookings", "menu", "customers", "reports", "settings", "chats", "marketing"], "POST", "/whatsapp/logout"));
+
+// ── The queue and bookings as switches ────────────────────────────
+check("a shop from before the switches keeps both", orgModules({ features: {} }).queue && orgModules({ features: {} }).booking);
+check("a switched-off queue is off", orgModules({ features: { queue: false } }).queue === false);
+const d = cleanDefaults({ restaurant: { queue: true }, nonsense: { queue: true } });
+check("stored defaults are completed from the built-in ones", d.restaurant.queue === true && d.restaurant.booking === false && d.barber.queue === true && !("nonsense" in d));
 
 console.log(`\n${pass}/${total} مرّ`);
 process.exit(pass === total ? 0 : 1);

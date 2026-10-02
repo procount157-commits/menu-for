@@ -9,7 +9,9 @@ import { api, ApiError, forget, go, openWhatsApp, recall, remember, useLive } fr
 import { pick, t, type Lang } from "@/lib/i18n";
 
 export function QueueFab({ menu, lang, onOpen, cartVisible }: { menu: PublicMenu; lang: Lang; onOpen: () => void; cartVisible: boolean }) {
-  const q0 = menu.queues[0];
+  // A barbershop's chairs: the button shows the shortest line, by name.
+  const chairs = menu.queues.filter((x) => x.kind === "chair" && x.isOpen && !x.isPaused);
+  const q0 = chairs.length ? [...chairs].sort((a, b) => a.waiting - b.waiting)[0] : menu.queues[0];
   const { data: q } = useLive<PublicQueue>(q0 ? `/api/public/queues/${q0.id}/stream` : null, q0 ? `/api/public/queues/${q0.id}` : null, q0 ?? null, 15_000);
   const [held, setHeld] = useState<string | null>(() => recall("ticket", menu.org.slug)[0] ?? null);
   // A remembered ticket that was served, left, or no longer exists is not "your ticket".
@@ -49,9 +51,10 @@ export function QueueFab({ menu, lang, onOpen, cartVisible }: { menu: PublicMenu
             <Icon name="users" className="w-5 h-5" />
           </span>
           <span className="flex-1 min-w-0">
-            <span className="block font-bold text-[15px] leading-tight">{blocked ? (q.isPaused ? t("queuePaused", lang) : t("queueClosed", lang)) : t("joinQueue", lang)}</span>
+            <span className="block font-bold text-[15px] leading-tight">{blocked ? (q.isPaused ? t("queuePaused", lang) : t("queueClosed", lang)) : chairs.length ? t("joinBarber", lang) : t("joinQueue", lang)}</span>
             {!blocked && (
               <span className="block text-[12.5px] opacity-75 tabular mt-0.5">
+                {chairs.length > 0 && <>{t("shortestWait", lang)}: {pick(lang, q.name, q.nameEn)} · </>}
                 <span key={bump} className="inline-block animate-pop">{q.waiting}</span> {t("inQueue", lang)} · {formatEta(q.eta, lang)}
               </span>
             )}
@@ -64,7 +67,10 @@ export function QueueFab({ menu, lang, onOpen, cartVisible }: { menu: PublicMenu
 }
 
 export function JoinSheet({ menu, lang, open, onClose, joinKey, source }: { menu: PublicMenu; lang: Lang; open: boolean; onClose: () => void; joinKey: string | null; source: "qr" | "link" }) {
-  const [qid, setQid] = useState(menu.queues[0]?.id ?? 0);
+  const [qid, setQid] = useState(() => {
+    const open = menu.queues.filter((x) => x.kind === "chair" && x.isOpen && !x.isPaused && !x.full);
+    return (open.length ? [...open].sort((a, b) => a.waiting - b.waiting)[0]! : menu.queues[0])?.id ?? 0;
+  });
   const q = menu.queues.find((x) => x.id === qid) ?? menu.queues[0];
   const [name, setName] = useState(() => { try { return localStorage.getItem("mfy:name") ?? ""; } catch { return ""; } });
   const [party, setParty] = useState(2);
@@ -104,7 +110,37 @@ export function JoinSheet({ menu, lang, open, onClose, joinKey, source }: { menu
           </div>
         </div>
 
-        {menu.queues.length > 1 && (
+        {menu.queues.some((x) => x.kind === "chair") ? (
+          // A barbershop: whose chair. Each barber with his own line and wait.
+          <div className="mt-4">
+            <p className="font-semibold text-sm mb-2">{t("pickBarber", lang)}</p>
+            <div className="grid grid-cols-2 gap-2">
+              {menu.queues.map((x) => {
+                const off = !x.isOpen || x.isPaused || x.full;
+                return (
+                  <button key={x.id} type="button" disabled={off} aria-pressed={x.id === q.id} onClick={() => setQid(x.id)}
+                    className="rounded-2xl p-3 flex items-center gap-3 text-start border-2 transition-colors disabled:opacity-50"
+                    style={{ background: "var(--surface-2)", borderColor: x.id === q.id ? "var(--brand)" : "transparent" }}>
+                    {x.photoUrl
+                      ? <img src={x.photoUrl} alt="" className="w-11 h-11 rounded-full object-cover flex-shrink-0" />
+                      : <span className="w-11 h-11 rounded-full grid place-items-center font-bold flex-shrink-0" style={{ background: "var(--brand-soft)", color: "var(--brand)" }}>{x.name.trim()[0]}</span>}
+                    <span className="min-w-0">
+                      <span className="block font-semibold truncate">{pick(lang, x.name, x.nameEn)}</span>
+                      {off ? (
+                        <span className="block text-xs text-muted">{x.isPaused ? t("queuePaused", lang) : x.full ? t("queueFull", lang) : t("queueClosed", lang)}</span>
+                      ) : (
+                        <>
+                          <span className="block text-xs text-muted tabular">{t("ahead", lang)} {x.waiting}</span>
+                          <span className="block text-xs text-muted tabular whitespace-nowrap">{formatEta(x.eta, lang)}</span>
+                        </>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : menu.queues.length > 1 && (
           <div className="flex gap-2 mt-3 overflow-x-auto no-scrollbar">
             {menu.queues.map((x) => <button key={x.id} className="chip flex-shrink-0" aria-pressed={x.id === q.id} onClick={() => setQid(x.id)}>{pick(lang, x.name, x.nameEn)}</button>)}
           </div>

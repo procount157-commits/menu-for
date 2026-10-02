@@ -188,6 +188,66 @@ check("…nor the campaigns", r.status === 403);
 r = await M.get(`/api/wa-auto`);
 check("…nor the WhatsApp automation", r.status === 403);
 
+// ── Permissions the owner picks, person by person ────────────────
+const staffLogin = async (username: string, permissions: string[]) => {
+  const made = await A.post("/api/staff", { name: username, username: `${username}${tag}`, password: "pass1234", permissions });
+  const c = new Client();
+  await c.post("/api/staff-auth/login", { shop: `alpha-${tag}`, username: `${username}${tag}`, password: "pass1234" });
+  return { c, id: made.json.id as number, made };
+};
+const E = await staffLogin("menued", ["menu"]);
+check("the owner adds someone for the menu only", E.made.status === 201 && JSON.stringify(E.made.json.permissions) === '["menu"]', E.made.json);
+r = await E.c.get("/api/auth/me");
+check("…who signs in with just that", JSON.stringify(r.json.permissions) === '["menu"]' && r.json.role === "manager", r.json);
+r = await E.c.patch(`/api/menu/items/${itemA.id}`, { price: 56 });
+check("…edits the menu", r.status === 200, r.status);
+r = await E.c.get(`/api/queue/${qA.id}`);
+check("…but not the queue", r.status === 403, r.status);
+r = await E.c.get("/api/orders");
+check("…nor the orders", r.status === 403, r.status);
+r = await A.patch(`/api/staff/${E.id}`, { permissions: ["queue"] });
+check("the owner changes what they may do", r.status === 200 && JSON.stringify(r.json.permissions) === '["queue"]', r.json);
+r = await E.c.patch(`/api/menu/items/${itemA.id}`, { price: 55 });
+check("…and it applies at once: the menu is closed", r.status === 403, r.status);
+r = await E.c.get(`/api/queue/${qA.id}`);
+check("…and the queue open", r.status === 200, r.status);
+r = await A.patch(`/api/staff/${E.id}`, { isActive: false });
+r = await E.c.get(`/api/queue/${qA.id}`);
+check("someone switched off is out at once", r.status === 401, r.status);
+r = await A.post("/api/staff", { name: "x", username: `nothing${tag}`, password: "pass1234", permissions: [] });
+check("a member of staff needs at least one permission", r.status === 400, r.status);
+
+const K = await staffLogin("market", ["marketing"]);
+r = await K.c.get("/api/wa-auto");
+check("marketing staff open the WhatsApp automation", r.status === 200, r.status);
+r = await K.c.get("/api/campaigns");
+check("…and the campaigns", r.status === 200, r.status);
+r = await K.c.get(`/api/queue/${qA.id}`);
+check("…but not the queue", r.status === 403, r.status);
+r = await K.c.patch("/api/org", { name: "x" });
+check("…nor the shop", r.status === 403, r.status);
+r = await S.get("/api/campaigns");
+check("marketing stays closed to everyone not given it", r.status === 403, r.status);
+
+const F = await staffLogin("boss", ["admin"]);
+check("the owner makes someone «مدير كامل»", F.made.status === 201 && JSON.stringify(F.made.json.permissions) === '["admin"]', F.made.json);
+r = await F.c.get("/api/tenancy/me");
+check("…who works as the owner does", r.json.role === "owner" && r.json.perms.includes("marketing"), r.json?.role);
+r = await F.c.patch("/api/org", { name: "مطعم أ" });
+check("…edits the shop", r.status === 200, r.status);
+r = await F.c.get("/api/campaigns");
+check("…opens the campaigns", r.status === 200, r.status);
+r = await F.c.post("/api/staff", { name: "كاشير", username: `cash${tag}`, password: "pass1234", permissions: ["queue", "orders"] });
+check("…and adds staff", r.status === 201, r.status);
+r = await F.c.post("/api/staff", { name: "مدير ثاني", username: `boss2${tag}`, password: "pass1234", permissions: ["admin"] });
+check("…but cannot make another «مدير كامل»", r.status === 403, r.status);
+r = await F.c.patch(`/api/staff/${F.id}`, { password: "hijack123" });
+check("…nor change one", r.status === 403, r.status);
+r = await F.c.get("/api/admin/users");
+check("…nor reach the platform admin", r.status === 403, r.status);
+r = await F.c.post(`/api/auth/direct/regenerate/${meA.branch.waUserId}`);
+check("…nor the owner's own sign-in links", r.status === 403, r.status);
+
 // ── WhatsApp, as the owner runs it ───────────────────────────────
 await A.patch(`/api/menu/availability`, { itemId: itemA.id, available: true });
 r = await anon.post(`/api/public/orders`, { slug: `alpha-${tag}`, type: "pickup", customerName: "ريم", phone: "0503334444", lines: [{ itemId: itemA.id, qty: 1 }] });
@@ -303,6 +363,38 @@ r = await B.post("/api/campaigns", { name: "x", message: "x" });
 check("…and no campaigns", r.status === 402 || r.status === 400, `${r.status}`);
 r = await B.patch("/api/wa-auto/autopilot", { enabled: true });
 check("…nor the weekly campaign", r.status === 402 && r.json.plan === true, r.json);
+r = await B.patch("/api/shop/modules", { queue: true });
+check("…and its queue cannot be switched on", r.status === 402 && r.json.plan === true, r.json);
+
+// ── A barbershop's chairs ────────────────────────────────────────
+r = await A.post("/api/queues", { kind: "chair", name: "محفوظ" });
+check("a restaurant is not offered chairs", r.status === 403, r.status);
+const C = new Client();
+await C.post("/api/auth/register", { phone: `9990074${tag}`, password: "secret123", displayName: "owner c" });
+await db.update(usersTable).set({ plan: "business" }).where(like(usersTable.phone, `9990074${tag}%`));
+r = await C.post("/api/onboarding/org", { name: "حلاق ج", nameEn: "Gamma", vertical: "barber", slug: `gamma-${tag}` });
+check("a barbershop is made", r.status === 201 && r.json.org.vertical === "barber", r.json);
+const meC = (await C.get("/api/tenancy/me")).json;
+check("…starts with the queue and bookings, and speaks of services", meC.plan.features.queue === true && meC.plan.features.booking === true && meC.vocab.services === true, meC.plan);
+r = await C.post("/api/queues", { kind: "chair", name: "محفوظ", photoUrl: "/api/media/file/x.webp" });
+check("…adds a chair for a barber", r.status === 201 && r.json.kind === "chair" && r.json.photoUrl === "/api/media/file/x.webp" && r.json.askPartySize === false && r.json.prefix !== "A", r.json);
+const chair1 = r.json;
+r = await C.post("/api/queues", { kind: "chair", name: "أحمد" });
+check("…each chair its own letter", r.status === 201 && r.json.prefix !== chair1.prefix, r.json.prefix);
+r = await C.post("/api/queues", { kind: "chair", name: " " });
+check("…and a chair needs the barber's name", r.status === 400);
+r = await anon.get(`/api/public/m/gamma-${tag}`);
+const pubChair = r.json.queues.find((q: any) => q.id === chair1.id);
+check("the menu offers each barber's line, by name and photo", r.json.queues.length === 3 && pubChair?.kind === "chair" && pubChair.name === "محفوظ" && !!pubChair.photoUrl, r.json.queues);
+r = await anon.post(`/api/public/queues/${chair1.id}/join`, { name: "خالد" });
+check("a customer joins a barber's line", r.status === 201 && r.json.displayCode.startsWith(`${chair1.prefix}-`), r.json);
+r = await anon.get(`/api/public/m/gamma-${tag}`);
+check("…and only that barber's wait grows", r.json.queues.find((q: any) => q.id === chair1.id).waiting === 1 && r.json.queues.filter((q: any) => q.id !== chair1.id).every((q: any) => q.waiting === 0));
+r = await anon.get(`/api/public/display/${meC.branch.displayToken}`);
+check("the TV shows each chair", r.status === 200 && r.json.queues.filter((q: any) => q.kind === "chair").length === 2, r.json?.queues?.map((q: any) => q.kind));
+r = await C.patch(`/api/queues/${chair1.id}`, { isActive: false });
+r = await anon.get(`/api/public/m/gamma-${tag}`);
+check("a chair switched off leaves the menu", !r.json.queues.some((q: any) => q.id === chair1.id));
 
 server.close();
 await cleanup("7");

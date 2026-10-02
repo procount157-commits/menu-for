@@ -10,8 +10,10 @@
 //   restaurant owner     phone 500000001   password demo1234
 //   sweets owner         phone 500000002   password demo1234
 //   salon owner          phone 500000003   password demo1234
+//   barbershop owner     phone 500000004   password demo1234
 //   staff (restaurant)   shop  bait-shami  username cashier  password demo1234
 //   staff (salon)        shop  lamsa-salon username reception password demo1234
+//   barber (menu only)   shop  amir-barber username mahfouz  password demo1234
 
 import fs from "node:fs";
 import path from "node:path";
@@ -46,6 +48,7 @@ const OWNERS = [
   { phone: "500000001", name: "أبو خالد", admin: false, plan: "business" },
   { phone: "500000002", name: "ريم", admin: false, plan: "pro" },
   { phone: "500000003", name: "نورة", admin: false, plan: "pro" },
+  { phone: "500000004", name: "أبو سالم", admin: false, plan: "business" },
 ];
 
 async function owner(o: typeof OWNERS[number]) {
@@ -233,6 +236,49 @@ async function salon() {
   return org;
 }
 
+// A men's barbershop with a chair per barber: the customer picks whose line.
+async function barbershop() {
+  const u = await owner(OWNERS[3]!);
+  const { org, branch } = await createOrg(u.id, {
+    name: "صالون الأمير للحلاقة", nameEn: "Al Amir Barbershop", vertical: "barber", slug: "amir-barber",
+    tagline: "حلاقة رجالي — شعر، لحية، عناية", address: "دبي — الكرامة", displayPhone: "04 000 0000",
+    withDefaultCategories: true,
+  });
+  await db.update(orgsTable).set({
+    taglineEn: "Men's barbershop — hair, beard, grooming",
+    about: "اختر حلاقك وخذ دورك من جوالك، ونرسل لك على واتساب لما يقرب دورك.",
+    onboardedAt: new Date(), features: { reviews: true, queue: true, booking: true },
+  }).where(eq(orgsTable.id, org.id));
+  await db.update(branchesTable).set({ waPhone: "971500000004", nameEn: "Karama" }).where(eq(branchesTable.id, branch.id));
+  const cats = await db.select().from(menuCategoriesTable).where(eq(menuCategoriesTable.orgId, org.id));
+  const cat = (n: string) => cats.find((c) => c.name === n)!.id;
+  const services = [
+    { categoryId: cat("الشعر"), name: "قص شعر", nameEn: "Haircut", price: "40", durationMin: 25, tags: ["popular"] },
+    { categoryId: cat("الشعر"), name: "قص شعر أطفال", nameEn: "Kids' haircut", price: "30", durationMin: 20 },
+    { categoryId: cat("اللحية"), name: "تحديد لحية", nameEn: "Beard trim", price: "25", durationMin: 15, tags: ["popular"] },
+    { categoryId: cat("اللحية"), name: "حلاقة بالموس", nameEn: "Straight-razor shave", price: "35", durationMin: 20 },
+    { categoryId: cat("العناية"), name: "تنظيف بشرة", nameEn: "Facial", price: "60", durationMin: 30 },
+    { categoryId: cat("الباقات"), name: "باقة العريس", nameEn: "Groom package", price: "250", durationMin: 90, tags: ["preorder"] },
+  ];
+  for (const [n, i] of services.entries()) await db.insert(menuItemsTable).values({ orgId: org.id, kind: "service", sort: n, ...i } as any);
+  // The shop's general line stays for «أول حلاق يفضى»; a chair per barber beside it.
+  const [general] = await db.select().from(queuesTable).where(eq(queuesTable.branchId, branch.id));
+  await db.update(queuesTable).set({ name: "أول حلاق يفضى", nameEn: "First free barber", askPartySize: false }).where(eq(queuesTable.id, general!.id));
+  const chairs = await db.insert(queuesTable).values([
+    { orgId: org.id, branchId: branch.id, kind: "chair", name: "محفوظ", nameEn: "Mahfouz", prefix: "M", avgServiceMin: 25, askPartySize: false, askService: true, sort: 1 },
+    { orgId: org.id, branchId: branch.id, kind: "chair", name: "أحمد", nameEn: "Ahmed", prefix: "H", avgServiceMin: 20, askPartySize: false, askService: true, sort: 2 },
+    { orgId: org.id, branchId: branch.id, kind: "chair", name: "سالم", nameEn: "Salem", prefix: "S", avgServiceMin: 30, askPartySize: false, askService: true, sort: 3 },
+  ]).returning();
+  for (const [ci, people] of [["خالد", "عمر", "ياسر"], ["راشد"], ["سعيد", "Tom"]].entries()) {
+    const ctx = (await queueCtx(chairs[ci]!.id))!;
+    for (const [i, n] of people.entries()) await join(ctx, { name: n, partySize: 1, deviceId: `seed-barber-${ci}-${i}` });
+  }
+  // A barber who looks after the menu and nothing else.
+  await db.insert(staffTable).values({ orgId: org.id, branchId: branch.id, name: "محفوظ", username: "mahfouz", passwordHash: await bcrypt.hash(PASSWORD, 10), role: "manager", permissions: ["menu"] });
+  await rebuild(org.id);
+  return org;
+}
+
 // The platform admin: runs the platform, owns no shop.
 await db.insert(usersTable).values({ phone: "500000000", passwordHash: await bcrypt.hash(PASSWORD, 10), displayName: "مدير المنصة", isAdmin: true, plan: "business" })
   .onConflictDoUpdate({ target: usersTable.phone, set: { passwordHash: await bcrypt.hash(PASSWORD, 10), isAdmin: true, displayName: "مدير المنصة" } });
@@ -240,8 +286,10 @@ await db.insert(usersTable).values({ phone: "500000000", passwordHash: await bcr
 const a = await restaurant();
 const b = await sweets();
 const c = await salon();
+const d = await barbershop();
 await demoCustomers(a.id, ["خالد", "سارة", "محمد", "نورة", "عبدالله", "ريم", "فيصل", "هدى", "سلطان", "مها", "يوسف", "لطيفة"]);
 await demoCustomers(b.id, ["أم راشد", "منى", "حمد", "شيخة", "علي", "عائشة", "ناصر", "فاطمة"]);
 await demoCustomers(c.id, ["مريم", "هند", "دانة", "العنود", "شهد", "جواهر", "لمى", "روان", "غادة", "أمل"]);
-console.log(`seeded: /${a.slug}, /${b.slug} and /${c.slug}`);
+await demoCustomers(d.id, ["راشد", "خالد", "عمر", "ياسر", "سعيد", "مبارك"]);
+console.log(`seeded: /${a.slug}, /${b.slug}, /${c.slug} and /${d.slug}`);
 process.exit(0);

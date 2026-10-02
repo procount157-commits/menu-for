@@ -7,6 +7,7 @@ export * from "./vocab";
 export * from "./slug";
 export * from "./template";
 export * from "./types";
+export * from "./permissions";
 
 /** wa.me link with a prefilled message. `phone` is digits in international form. */
 export function waMeLink(phone: string | null | undefined, text: string): string | null {

@@ -11,7 +11,7 @@ import { TEMPLATES, type Template, type Vertical } from "@workspace/menu-shared"
 import { cn } from "@/lib/utils";
 import { SHOP_KEY, get, patch, post, useShop, useSwitchBranch, inputCls } from "@/lib/shop-api";
 import {
-  Field, ImageDrop, PageHeader, Section, SegTabs, Skel, ToggleRow, UpgradeNotice, btnPrimary, isPlanError,
+  Field, ImageDrop, PageHeader, Section, SegTabs, Skel, Toggle, ToggleRow, UpgradeNotice, btnGhost, btnPrimary, isPlanError,
 } from "@/components/shop/setup/kit";
 import BranchesTab from "@/components/shop/setup/BranchesTab";
 
@@ -32,6 +32,10 @@ const SOCIALS: Array<[string, string, string]> = [
   ["x", "X", "@baitshami"], ["facebook", "فيسبوك", "facebook.com/…"], ["google", "تقييم Google", "https://g.page/r/…"], ["website", "الموقع", "https://…"],
 ];
 
+/** A stored image path, as the dashboard (which may live under a base path) loads it. */
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const media = (u: string | null) => (u && u.startsWith("/") ? `${BASE}${u}` : u);
+
 function useTab(): [Tab, (t: Tab) => void] {
   const read = () => (TABS.some((t) => `#${t.id}` === location.hash) ? location.hash.slice(1) as Tab : "shop");
   const [tab, set] = useState<Tab>(read);
@@ -40,17 +44,19 @@ function useTab(): [Tab, (t: Tab) => void] {
 
 export default function ShopSettings() {
   const [tab, setTab] = useTab();
-  const { plan } = useShop();
-  // A switched-off queue or booking has no settings worth showing.
-  const tabs = TABS.filter((t) => (t.id !== "queue" || plan.features.queue) && (t.id !== "booking" || plan.features.booking));
-  const shown: Tab = tabs.some((t) => t.id === tab) ? tab : "shop";
+  const { plan, role } = useShop();
+  // A switched-off queue or booking has no settings worth showing; a member
+  // of staff with the settings permission sees only those two.
+  const tabs = TABS.filter((t) => (t.id !== "queue" || plan.features.queue) && (t.id !== "booking" || plan.features.booking)
+    && (role === "owner" || t.id === "queue" || t.id === "booking"));
+  const shown: Tab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id ?? "shop";
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-4xl" dir="rtl">
       <PageHeader icon={<Settings2 className="w-6 h-6 text-primary" />} title="المحل والفروع" sub="اسم المحل وشكله، الفروع وساعاتها، وكيف يشتغل الصف والحجز." />
       <SegTabs tabs={tabs} value={shown} onChange={setTab} />
-      {shown === "shop" && <ShopTab />}
-      {shown === "look" && <LookTab />}
-      {shown === "branches" && <BranchesTab />}
+      {shown === "shop" && role === "owner" && <ShopTab />}
+      {shown === "look" && role === "owner" && <LookTab />}
+      {shown === "branches" && role === "owner" && <BranchesTab />}
       {shown === "queue" && <QueueTab />}
       {shown === "booking" && <BookingTab />}
     </div>
@@ -203,8 +209,6 @@ function LookTab() {
   const shop = useShop();
   const { org } = shop;
   const save = useSaveOrg();
-  const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-  const media = (u: string | null) => (u && u.startsWith("/") ? `${BASE}${u}` : u);
   // Colour picks fire many events while dragging; send the last one.
   const [brand, setBrand] = useState(org.theme.brand);
   useEffect(() => setBrand(org.theme.brand), [org.theme.brand]);
@@ -337,6 +341,7 @@ function NumField({ label, hint, value, onChange, min, max, suffix }: { label: s
 interface Queue {
   id: number; name: string; nameEn: string | null; prefix: string; avgServiceMin: number; maxWaiting: number; notifyAhead: number;
   noShowMin: number; autoNoShow: boolean; remoteJoin: "anyone" | "qr_only"; askPartySize: boolean; askService: boolean; isActive: boolean; isOpen: boolean;
+  kind: "line" | "chair"; photoUrl: string | null;
 }
 
 function QueueTab() {
@@ -349,17 +354,71 @@ function QueueTab() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/queues"] }); toast.success("انضاف صف جديد"); },
     onError: (e) => { if (isPlanError(e)) setUpgrade(e.message); else toast.error((e as Error).message); },
   });
+  // Chairs are a barbershop's alone: a line per barber, named after him.
+  const barber = shop.org.vertical === "barber";
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <BranchPicker />
-        <button className={cn(btnPrimary, "ms-auto")} disabled={add.isPending} onClick={() => add.mutate()}><Plus className="w-4 h-4" />صف إضافي</button>
+        <button className={cn(barber ? btnGhost : btnPrimary, "ms-auto")} disabled={add.isPending} onClick={() => add.mutate()}><Plus className="w-4 h-4" />صف إضافي</button>
       </div>
       {upgrade && <UpgradeNotice message={upgrade} onClose={() => setUpgrade(null)} />}
       {!shop.plan.features.queue && <UpgradeNotice message={`الصف الرقمي مو ضمن باقة ${shop.plan.planName}.`} />}
+      {barber && <ChairsSection queues={q.data ?? []} onPlanError={setUpgrade} />}
       {q.isLoading && <Skel className="h-96 rounded-2xl" />}
       {q.data?.map((x) => <QueueCard key={x.id} queue={x} multi={(q.data?.length ?? 0) > 1} />)}
     </div>
+  );
+}
+
+/**
+ * A barbershop's chairs: one line per barber, under his name and photo. The
+ * customer picks whose line to join and sees his wait; the staff screen and
+ * the TV show each chair on its own.
+ */
+function ChairsSection({ queues, onPlanError }: { queues: Queue[]; onPlanError: (m: string) => void }) {
+  const qc = useQueryClient();
+  const [name, setName] = useState("");
+  const [photo, setPhoto] = useState<string | null>(null);
+  const chairs = queues.filter((x) => x.kind === "chair");
+  const add = useMutation({
+    mutationFn: () => post("/api/queues", { kind: "chair", name: name.trim(), photoUrl: photo }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/queues"] }); setName(""); setPhoto(null); toast.success("انضاف الكرسي"); },
+    onError: (e) => { if (isPlanError(e)) onPlanError(e.message); else toast.error((e as Error).message); },
+  });
+  const toggle = useMutation({
+    mutationFn: (x: Queue) => patch(`/api/queues/${x.id}`, { isActive: !x.isActive }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/queues"] }),
+    onError: (e) => toast.error((e as Error).message),
+  });
+  return (
+    <Section title="الكراسي" sub="لكل حلاق دوره باسمه: الزبون يختار حلاقه ويشوف كم قدامه عنده. الكرسي الموقوف يختفي من المنيو.">
+      {chairs.length > 0 && (
+        <div className="grid sm:grid-cols-2 gap-2 mb-4">
+          {chairs.map((x) => (
+            <div key={x.id} className={cn("flex items-center gap-3 rounded-xl bg-muted/40 p-3", !x.isActive && "opacity-60")}>
+              {x.photoUrl
+                ? <img src={media(x.photoUrl)!} alt="" className="w-10 h-10 rounded-full object-cover" />
+                : <div className="w-10 h-10 rounded-full bg-primary/15 text-primary grid place-items-center font-semibold">{x.name.trim()[0]}</div>}
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{x.name}</div>
+                <div className="text-xs text-muted-foreground font-mono" dir="ltr">{x.prefix}-1, {x.prefix}-2…</div>
+              </div>
+              <Toggle checked={x.isActive} label={`كرسي ${x.name}`} disabled={toggle.isPending} onChange={() => toggle.mutate(x)} />
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-wrap items-end gap-3">
+        <ImageDrop value={media(photo)} onChange={(img) => setPhoto(img?.md ?? img?.url ?? null)} kind="logo" round label="صورته" className="w-16 h-16" />
+        <Field label="اسم الحلاق" className="flex-1 min-w-[10rem]">
+          <input className={inputCls} value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="مثلاً: محفوظ" />
+        </Field>
+        <button className={btnPrimary} disabled={!name.trim() || add.isPending} onClick={() => add.mutate()}>
+          {add.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}أضف كرسي
+        </button>
+      </div>
+    </Section>
   );
 }
 
@@ -377,7 +436,7 @@ function QueueCard({ queue, multi }: { queue: Queue; multi: boolean }) {
   return (
     <Section title={multi ? f.name : undefined}>
       <div className="grid sm:grid-cols-2 gap-4">
-        <Field label="اسم الصف" hint="يشوفه الزبون فوق رقمه"><input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+        <Field label={f.kind === "chair" ? "اسم الحلاق" : "اسم الصف"} hint={f.kind === "chair" ? "الزبون يختار حلاقه بهذا الاسم" : "يشوفه الزبون فوق رقمه"}><input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
         <Field label="حرف الأرقام" hint={`التذاكر تطلع ${f.prefix || "A"}-1، ${f.prefix || "A"}-2…`}>
           <input className={cn(inputCls, "font-mono uppercase")} dir="ltr" maxLength={3} value={f.prefix} onChange={(e) => setF({ ...f, prefix: e.target.value.replace(/[^A-Za-z]/g, "").toUpperCase() })} />
         </Field>
@@ -390,7 +449,13 @@ function QueueCard({ queue, multi }: { queue: Queue; multi: boolean }) {
         <ToggleRow title="سجّل «ما حضر» تلقائياً" hint={`لو ما جاء خلال ${f.noShowMin || "…"} دقايق من النداء، ننتقل للي بعده.`} checked={f.autoNoShow} onChange={(autoNoShow) => setF({ ...f, autoNoShow })} />
         <ToggleRow title="اسأل عن عدد الأشخاص" checked={f.askPartySize} onChange={(askPartySize) => setF({ ...f, askPartySize })} />
         <ToggleRow title={`اسأل عن ${shop.vocab.item[0]}`} hint="مفيد للصالون: كل خدمة لها مدة، فالوقت التقريبي يصير أدق." checked={f.askService} onChange={(askService) => setF({ ...f, askService })} />
-        <ToggleRow title="الصف مفعّل" hint="إيقافه يخفي «احجز دورك» من المنيو." checked={f.isActive} onChange={(isActive) => setF({ ...f, isActive })} />
+        {f.kind === "chair" && (
+          <div className="py-3 flex items-center gap-3">
+            <ImageDrop value={media(f.photoUrl)} onChange={(img) => setF({ ...f, photoUrl: img?.md ?? img?.url ?? null })} kind="logo" round label="صورته" className="w-14 h-14" />
+            <div className="text-xs text-muted-foreground">صورة الحلاق — تطلع للزبون وهو يختار، وعلى شاشة العرض.</div>
+          </div>
+        )}
+        <ToggleRow title={f.kind === "chair" ? "الكرسي مفعّل" : "الصف مفعّل"} hint={f.kind === "chair" ? "إيقافه يخفي هذا الحلاق من المنيو." : "إيقافه يخفي «احجز دورك» من المنيو."} checked={f.isActive} onChange={(isActive) => setF({ ...f, isActive })} />
         <div className="py-3">
           <div className="text-sm font-medium mb-2">مين يقدر يدخل الصف؟</div>
           <div className="grid sm:grid-cols-2 gap-2">

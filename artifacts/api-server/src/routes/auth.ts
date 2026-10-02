@@ -9,6 +9,7 @@ import { logger } from "../lib/logger";
 import { checkCoupon, redeemCoupon, CouponError } from "../lib/coupons";
 import { attachOwner, signedInUser } from "../lib/tenancy/context";
 import { staffTable } from "@workspace/db";
+import { permsOf, roleForPerms } from "@workspace/menu-shared";
 
 const router = Router();
 
@@ -189,7 +190,9 @@ router.get("/me", requireAuth, async (req, res) => {
     const [st] = await db.select().from(staffTable).where(eq(staffTable.id, req.session.staffId)).limit(1);
     if (!st || !st.isActive) { req.session.destroy(() => {}); return res.status(401).json({ error: "انتهت صلاحية الدخول" }); }
     req.session.isAdmin = false;
-    return res.json({ id: req.session.userId, phone: st.username, displayName: st.name, isAdmin: false, status: "active", role: req.session.role ?? "staff", staffId: st.id });
+    const permissions = permsOf(st);
+    req.session.role = roleForPerms(permissions);
+    return res.json({ id: req.session.userId, phone: st.username, displayName: st.name, isAdmin: false, status: "active", role: req.session.role, staffId: st.id, permissions });
   }
 
   const user = await signedInUser(req);

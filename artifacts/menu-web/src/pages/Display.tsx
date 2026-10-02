@@ -20,11 +20,16 @@ export default function DisplayPage({ token, initial }: { token: string; initial
   useEffect(() => { if (data) applyTheme(data.org.theme); }, [data?.org.theme]);
   // The join key rotates; refresh the QR well before it expires.
   useEffect(() => { const iv = setInterval(() => api<PublicDisplay>(`/api/public/display/${token}`).then(setData).catch(() => {}), 60_000); return () => clearInterval(iv); }, [token, setData]);
+  // Every line's current number, so a call on any chair rings — not just the first line's.
+  const serving = data?.queues.map((x) => x.nowServing[0] ?? "").join("|") ?? null;
   useEffect(() => {
-    const now = data?.queues[0]?.nowServing[0] ?? null;
-    if (now && last.current && now !== last.current) { setFlash(now); chime(); setTimeout(() => setFlash(null), 6_000); }
-    last.current = now;
-  }, [data?.queues[0]?.nowServing[0]]); // eslint-disable-line
+    if (serving && last.current !== null && serving !== last.current) {
+      const prev = last.current.split("|");
+      const called = data!.queues.find((x, i) => x.nowServing[0] && x.nowServing[0] !== prev[i])?.nowServing[0];
+      if (called) { setFlash(called); chime(); setTimeout(() => setFlash(null), 6_000); }
+    }
+    last.current = serving;
+  }, [serving]); // eslint-disable-line
   useEffect(() => { const iv = setInterval(() => setOffer((n) => n + 1), 9_000); return () => clearInterval(iv); }, []);
   // Keep the screen awake.
   useEffect(() => { let lock: any; (navigator as any).wakeLock?.request("screen").then((l: any) => (lock = l)).catch(() => {}); return () => lock?.release?.(); }, []);
@@ -33,6 +38,8 @@ export default function DisplayPage({ token, initial }: { token: string; initial
   if (!data) return <div className="min-h-dvh flex items-center justify-center"><Spinner className="w-8 h-8 text-brand" /></div>;
   const q = data.queues[0];
   const o = data.offers.length ? data.offers[offer % data.offers.length] : null;
+  // A barbershop's chairs: one card per barber instead of one big number.
+  const chairs = data.queues.filter((x) => x.kind === "chair");
 
   return (
     <div className="h-dvh overflow-hidden flex flex-col p-[3vh] gap-[3vh] select-none" style={{ cursor: "none" }}>
@@ -45,7 +52,39 @@ export default function DisplayPage({ token, initial }: { token: string; initial
         <Clock />
       </header>
 
-      {q ? (
+      {chairs.length ? (
+        <div className="flex-1 grid gap-[3vh] min-h-0" style={{ gridTemplateColumns: "1fr auto" }}>
+          <section className="grid gap-[2.4vh] min-h-0" style={{ gridTemplateColumns: `repeat(${Math.min(chairs.length, chairs.length > 4 ? 3 : 2)}, minmax(0, 1fr))`, gridAutoRows: "minmax(0, 1fr)" }}>
+            {chairs.map((c) => {
+              const hot = !!flash && c.nowServing[0] === flash;
+              return (
+                <div key={c.id} className="rounded-[3.4vh] p-[2.4vh] flex flex-col min-h-0" style={{ background: hot ? "var(--ok)" : "var(--surface)", color: hot ? "#04210f" : "var(--text)", transition: "background .6s" }}>
+                  <div className="flex items-center gap-[1.6vh]">
+                    {c.photoUrl
+                      ? <img src={c.photoUrl} alt="" className="rounded-full object-cover" style={{ width: "7vh", height: "7vh" }} />
+                      : <span className="rounded-full grid place-items-center font-display" style={{ width: "7vh", height: "7vh", fontSize: "3.4vh", background: "var(--brand)", color: "var(--brand-ink)" }}>{c.name.trim()[0]}</span>}
+                    <div className="min-w-0">
+                      <p className="font-display truncate" style={{ fontSize: "3.6vh" }}>{pick(lang, c.name, c.nameEn)}</p>
+                      <p className="tabular opacity-70" style={{ fontSize: "2.2vh" }}>{c.isPaused ? t("queuePaused", lang) : `${c.waiting} ${t("waitingCount", lang)} · ${formatEta(c.eta, lang)}`}</p>
+                    </div>
+                  </div>
+                  <p key={c.nowServing[0] ?? "-"} className="flex-1 grid place-items-center font-display tabular leading-none" style={{ fontSize: "13vh", animation: "flip-in .8s var(--ease-out) both" }}>{c.nowServing[0] ?? "—"}</p>
+                  {c.next.length > 0 && (
+                    <div className="flex gap-[1vh] justify-center">
+                      {c.next.slice(0, 3).map((n) => <span key={n} className="tabular font-semibold rounded-full px-[1.6vh] py-[0.4vh]" style={{ fontSize: "2.4vh", background: hot ? "rgba(255,255,255,.3)" : "var(--surface-2)" }}>{n}</span>)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </section>
+          <section className="rounded-[4vh] p-[2.6vh] flex flex-col items-center justify-center gap-[2vh] text-center" style={{ background: "var(--brand)", color: "var(--brand-ink)", width: "30vh" }}>
+            <img src={`/api/public/display/${token}/qr.png?k=${data.joinKey}`} alt="" className="rounded-[1.6vh] bg-white p-[0.8vh]" style={{ width: "22vh", height: "22vh" }} />
+            <p className="font-display" style={{ fontSize: "3.2vh" }}>{t("scanToJoin", lang)}</p>
+            <p style={{ fontSize: "2vh" }} className="opacity-80">{lang === "ar" ? "اختر حلاقك وخذ دورك — ونرسل لك على واتساب" : "Pick your barber, take your turn — we'll WhatsApp you"}</p>
+          </section>
+        </div>
+      ) : q ? (
         <div className="flex-1 grid gap-[3vh]" style={{ gridTemplateColumns: "1.35fr 1fr" }}>
           <section className="rounded-[4vh] flex flex-col items-center justify-center relative overflow-hidden" style={{ background: flash ? "var(--ok)" : "var(--surface)", transition: "background .6s", color: flash ? "#04210f" : "var(--text)" }}>
             <p style={{ fontSize: "3.4vh" }} className="opacity-80">{t("nowServing", lang)}</p>

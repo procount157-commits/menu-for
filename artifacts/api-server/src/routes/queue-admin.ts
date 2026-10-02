@@ -9,6 +9,7 @@ import { queueCtx, staffView, callNext, callTicket, transition, walkIn, setQueue
 import { stream } from "../lib/realtime";
 import { normalisePhone } from "../lib/customers";
 import { assertFeature } from "../lib/plans";
+import { vocab } from "@workspace/menu-shared";
 
 const router = Router();
 
@@ -116,6 +117,7 @@ function settingsPatch(b: any) {
   int("avgServiceMin", 1, 240); int("maxWaiting", 1, 1000); int("notifyAhead", 0, 20); int("noShowMin", 1, 60); int("sort", 0, 100);
   for (const k of ["autoNoShow", "askPartySize", "askService", "isActive", "isOpen"]) if (typeof b[k] === "boolean") p[k] = b[k];
   if (b.remoteJoin === "anyone" || b.remoteJoin === "qr_only") p.remoteJoin = b.remoteJoin;
+  if ("photoUrl" in b) p.photoUrl = typeof b.photoUrl === "string" && /^(https?:\/\/|\/)/.test(b.photoUrl) ? b.photoUrl.slice(0, 500) : null;
   return p;
 }
 
@@ -123,11 +125,24 @@ router.get("/queues", requireAuth, withTenant(MANAGERS, async (_req, res, t) => 
   res.json(await db.select().from(queuesTable).where(eq(queuesTable.branchId, t.branch.id)).orderBy(asc(queuesTable.sort), asc(queuesTable.id)));
 }));
 
+// A chair is one barber's own line, named after him: the customer picks whose
+// line to join. Only a barbershop is offered chairs — every other kind of shop
+// keeps the queue it has, and never sees the option.
 router.post("/queues", requireAuth, withTenant(MANAGERS, async (req, res, t) => {
   await assertFeature(t.org.ownerUserId, "queue");
   const p = settingsPatch(req.body ?? {});
-  if (!p.name) return res.status(400).json({ error: "اسم الصف مطلوب" });
-  const [q] = await db.insert(queuesTable).values({ orgId: t.org.id, branchId: t.branch.id, name: p.name as string, ...p }).returning();
+  const chair = req.body?.kind === "chair";
+  if (chair && t.org.vertical !== "barber") return res.status(403).json({ error: "الكراسي لمحلات الحلاقة الرجالي فقط" });
+  if (!p.name) return res.status(400).json({ error: chair ? "اكتب اسم الحلاق" : "اسم الصف مطلوب" });
+  if (!p.prefix) {
+    // Each line its own letter, so «B-4» says whose chair at a glance.
+    const taken = new Set((await db.select({ prefix: queuesTable.prefix }).from(queuesTable).where(eq(queuesTable.branchId, t.branch.id))).map((x) => x.prefix));
+    p.prefix = "ABCDEFGHJKLMNPQRSTUVWXYZ".split("").find((l) => !taken.has(l)) ?? "Z";
+  }
+  if (chair) Object.assign(p, { askPartySize: false, askService: true, avgServiceMin: p.avgServiceMin ?? vocab(t.org.vertical).avgServiceMin });
+  const [q] = await db.insert(queuesTable).values({ orgId: t.org.id, branchId: t.branch.id, name: p.name as string, ...p, kind: chair ? "chair" : "line" }).returning();
+  const { publish } = await import("../lib/realtime");
+  publish(`branch:${t.branch.id}`);
   res.status(201).json(q);
 }));
 

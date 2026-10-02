@@ -49,8 +49,9 @@ import Reports from "@/pages/shop/Reports";
 import WaAuto from "@/pages/shop/WaAuto";
 import AdminOrgs from "@/pages/shop/AdminOrgs";
 import StaffLogin from "@/pages/shop/StaffLogin";
-import StaffLayout from "@/components/shop/StaffLayout";
-import { useShopQuery } from "@/lib/shop-api";
+import StaffLayout, { staffTabs } from "@/components/shop/StaffLayout";
+import { useShop, useShopQuery } from "@/lib/shop-api";
+import type { StaffPerm } from "@workspace/menu-shared";
 import { Redirect } from "wouter";
 
 // Helper: is this error a genuine "not authenticated" response?
@@ -215,19 +216,43 @@ function AdminOnlyRoutes() {
   );
 }
 
-/** Staff and managers: the queue, orders and bookings, in their own shell. */
+/**
+ * Staff and managers, in their own shell: only the screens their permissions
+ * open (set by the owner on /staff). «مدير كامل» works as the owner and gets
+ * the owner's dashboard instead.
+ */
 function StaffRoutes() {
-  const { user } = useAuth();
+  const shop = useShop();
+  const can = (p: StaffPerm) => shop.perms.includes(p);
+  const home = staffTabs(shop)[0]?.href ?? "/no-access";
   return (
     <StaffLayout>
       <Switch>
-        <Route path="/queue"     component={QueueScreen} />
-        <Route path="/orders"    component={Orders} />
-        <Route path="/bookings"  component={Bookings} />
-        {user?.role === "manager" && <Route path="/menu" component={MenuEditor} />}
-        {user?.role === "manager" && <Route path="/customers" component={Customers} />}
-        {user?.role === "manager" && <Route path="/reports" component={Reports} />}
-        <Route><Redirect to="/queue" /></Route>
+        {can("queue") && <Route path="/queue" component={QueueScreen} />}
+        {can("orders") && <Route path="/orders" component={Orders} />}
+        {can("bookings") && <Route path="/bookings" component={Bookings} />}
+        {can("menu") && <Route path="/menu" component={MenuEditor} />}
+        {can("customers") && <Route path="/customers" component={Customers} />}
+        {can("reports") && <Route path="/reports" component={Reports} />}
+        {can("settings") && <Route path="/shop/settings" component={ShopSettings} />}
+        {can("settings") && <Route path="/qr" component={QrKit} />}
+        {can("chats") && <Route path="/conversations" component={Conversations} />}
+        {can("chats") && <Route path="/inbox" component={WaInbox} />}
+        {can("marketing") && <Route path="/campaigns" component={CampaignsList} />}
+        {can("marketing") && <Route path="/campaigns/new" component={CampaignNew} />}
+        {can("marketing") && <Route path="/campaigns/:id/edit" component={CampaignNew} />}
+        {can("marketing") && <Route path="/campaigns/:id" component={CampaignDetail} />}
+        {can("marketing") && <Route path="/follow-ups" component={FollowUps} />}
+        {can("marketing") && <Route path="/contacts" component={ContactsList} />}
+        {can("marketing") && <Route path="/contacts/:id" component={ContactDetail} />}
+        {can("marketing") && <Route path="/wa-auto" component={WaAuto} />}
+        {can("marketing") && <Route path="/messages" component={Messages} />}
+        {can("marketing") && shop.plan.features.email && <Route path="/email/:tab/:id" component={EmailMarketing} />}
+        {can("marketing") && shop.plan.features.email && <Route path="/email/:tab?" component={EmailMarketing} />}
+        <Route path="/no-access">
+          <div className="p-10 text-center text-muted-foreground" dir="rtl">ما عندك صلاحيات للحين — اطلبها من صاحب المحل.</div>
+        </Route>
+        <Route><Redirect to={home} /></Route>
       </Switch>
     </StaffLayout>
   );

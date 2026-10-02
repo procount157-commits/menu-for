@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Vocab, Vertical } from "@workspace/menu-shared";
+import type { Vocab, Vertical, StaffPerm } from "@workspace/menu-shared";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -69,6 +69,8 @@ export interface PlanFeatures { queue: boolean; booking: boolean; notify: boolea
 export interface ShopMe {
   needsOnboarding?: false;
   role: Role;
+  /** What the signed-in person may do — every permission for the owner. */
+  perms: StaffPerm[];
   person: { id: number; name: string | null; phone?: string; username?: string; isAdmin?: boolean } | null;
   impersonating: boolean;
   org: {

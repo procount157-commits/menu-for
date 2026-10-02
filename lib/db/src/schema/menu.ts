@@ -86,6 +86,9 @@ export const staffTable = pgTable("staff", {
   passwordHash: text("password_hash").notNull(),
   // manager: a branch admin (settings, reports) · staff: the queue and orders
   role:         varchar("role", { length: 20 }).notNull().default("staff"),
+  // What this person may do (menu-shared permissions.ts). null = what their
+  // role gave before permissions existed.
+  permissions:  jsonb("permissions").$type<string[] | null>(),
   isActive:     boolean("is_active").notNull().default(true),
   lastLoginAt:  timestamp("last_login_at", { withTimezone: true }),
   createdAt:    timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -182,6 +185,10 @@ export const queuesTable = pgTable("queues", {
   remoteJoin:    varchar("remote_join", { length: 10 }).notNull().default("anyone"),
   askPartySize:  boolean("ask_party_size").notNull().default(true),
   askService:    boolean("ask_service").notNull().default(false),
+  // line: the shop's queue · chair: one barber's own line, named after him
+  // (barbershops only — see queue-admin.ts).
+  kind:          varchar("kind", { length: 10 }).notNull().default("line"),
+  photoUrl:      text("photo_url"),
   sort:          integer("sort").notNull().default(0),
   isActive:      boolean("is_active").notNull().default(true),
   createdAt:     timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

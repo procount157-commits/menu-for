@@ -93,17 +93,17 @@ router.post("/customers/to-list", requireAuth, withTenant(OWNER, async (_req, re
 
 // ── WhatsApp templates and what was sent ──────────────────────────
 
-router.get("/wa-templates", requireAuth, withTenant(OWNER, async (_req, res, t) => {
+router.get("/wa-templates", requireAuth, withTenant(MANAGERS, async (_req, res, t) => {
   res.json({ templates: await listTemplates(t.org.id), vars: TEMPLATE_VARS, features: { reviews: !!t.org.features?.reviews, winback: !!t.org.features?.winback } });
 }));
 
-router.put("/wa-templates/:key", requireAuth, withTenant(OWNER, async (req, res, t) => {
+router.put("/wa-templates/:key", requireAuth, withTenant(MANAGERS, async (req, res, t) => {
   try { await saveTemplate(t.org.id, String(req.params.key), req.body ?? {}); }
   catch (err) { return res.status(400).json({ error: (err as Error).message }); }
   res.json({ templates: await listTemplates(t.org.id) });
 }));
 
-router.patch("/wa-templates/features", requireAuth, withTenant(OWNER, async (req, res, t) => {
+router.patch("/wa-templates/features", requireAuth, withTenant(MANAGERS, async (req, res, t) => {
   const f = { ...(t.org.features ?? {}) };
   for (const k of ["reviews", "winback"]) if (typeof req.body?.[k] === "boolean") f[k] = req.body[k];
   const [o] = await db.update(orgsTable).set({ features: f }).where(eq(orgsTable.id, t.org.id)).returning();
@@ -130,7 +130,7 @@ router.patch("/shop/modules", requireAuth, withTenant(OWNER, async (req, res, t)
   res.json({ modules: orgModules(o), plan: await menuPlan(t.org.ownerUserId) });
 }));
 
-router.get("/notifications", requireAuth, withTenant(OWNER, async (_req, res, t) => {
+router.get("/notifications", requireAuth, withTenant(MANAGERS, async (_req, res, t) => {
   res.json({ recent: await recentNotifications(t.org.id, 150), stats: await notifyStats(t.org.id) });
 }));
 

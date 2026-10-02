@@ -8,7 +8,7 @@ import { Router } from "express";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { db, branchesTable, businessProfileTable, notificationsTable, campaignsTable, knowledgeBaseTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
-import { withTenant, OWNER } from "../lib/tenancy/context";
+import { withTenant, MANAGERS } from "../lib/tenancy/context";
 import { getStatus } from "../lib/whatsapp";
 import { getControls, gather } from "../lib/ops-agent";
 import { scoreRisk, RISK_LEVEL_AR } from "../lib/risk";
@@ -23,7 +23,7 @@ import { resolveProvider } from "../lib/llm";
 
 const router = Router();
 
-router.get("/wa-auto", requireAuth, withTenant(OWNER, async (_req, res, t) => {
+router.get("/wa-auto", requireAuth, withTenant(MANAGERS, async (_req, res, t) => {
   const uid = t.waUserId;
   const wa = getStatus(uid) as { connected?: boolean; status?: string; phone?: string | null };
   const since7 = new Date(Date.now() - 7 * 24 * 3_600_000);
@@ -84,21 +84,21 @@ router.get("/wa-auto", requireAuth, withTenant(OWNER, async (_req, res, t) => {
   });
 }));
 
-router.patch("/wa-auto/alerts", requireAuth, withTenant(OWNER, async (req, res, t) => {
+router.patch("/wa-auto/alerts", requireAuth, withTenant(MANAGERS, async (req, res, t) => {
   const phones = cleanAlertPhones(req.body?.phones);
   await db.update(branchesTable).set({ alertPhones: phones }).where(eq(branchesTable.id, t.branch.id));
   res.json({ phones });
 }));
 
 /** The auto-reply switch: the host answers customers from the menu and the knowledge base. */
-router.patch("/wa-auto/auto-reply", requireAuth, withTenant(OWNER, async (req, res, t) => {
+router.patch("/wa-auto/auto-reply", requireAuth, withTenant(MANAGERS, async (req, res, t) => {
   const on = !!req.body?.enabled;
   await db.insert(businessProfileTable).values({ userId: t.waUserId, name: t.org.name, autoReply: on })
     .onConflictDoUpdate({ target: businessProfileTable.userId, set: { autoReply: on, updatedAt: new Date() } });
   res.json({ autoReply: on });
 }));
 
-router.patch("/wa-auto/autopilot", requireAuth, withTenant(OWNER, async (req, res, t) => {
+router.patch("/wa-auto/autopilot", requireAuth, withTenant(MANAGERS, async (req, res, t) => {
   const patch = cleanAutopilotPatch(req.body ?? {});
   if (patch.enabled) {
     const plan = await menuPlan(t.org.ownerUserId);
@@ -110,25 +110,25 @@ router.patch("/wa-auto/autopilot", requireAuth, withTenant(OWNER, async (req, re
 }));
 
 /** Prepare this week's campaign now; it waits for approval whatever the mode. */
-router.post("/wa-auto/autopilot/run", requireAuth, withTenant(OWNER, async (_req, res, t) => {
+router.post("/wa-auto/autopilot/run", requireAuth, withTenant(MANAGERS, async (_req, res, t) => {
   const run = await runAutopilot(t.waUserId, { manual: true });
   if (!run) return res.status(400).json({ error: "تعذّر تجهيز الحملة" });
   res.json(run);
 }));
 
-router.post("/wa-auto/runs/:id/approve", requireAuth, withTenant(OWNER, async (req, res, t) => {
+router.post("/wa-auto/runs/:id/approve", requireAuth, withTenant(MANAGERS, async (req, res, t) => {
   const r = await approveRun(t.waUserId, Number(req.params.id), req.body?.message);
   if (!r.ok) return res.status(409).json({ error: r.reason ?? "تعذّر بدء الحملة" });
   res.json({ ok: true });
 }));
 
-router.post("/wa-auto/runs/:id/reject", requireAuth, withTenant(OWNER, async (req, res, t) => {
+router.post("/wa-auto/runs/:id/reject", requireAuth, withTenant(MANAGERS, async (req, res, t) => {
   if (!(await rejectRun(t.waUserId, Number(req.params.id)))) return res.status(409).json({ error: "هذه الحملة لم تعد بانتظار الموافقة" });
   res.json({ ok: true });
 }));
 
 /** A customer segment as a contact list, ready for «حملة جديدة». */
-router.post("/wa-auto/segment-list", requireAuth, withTenant(OWNER, async (req, res, t) => {
+router.post("/wa-auto/segment-list", requireAuth, withTenant(MANAGERS, async (req, res, t) => {
   const seg = req.body?.segment;
   if (!isSegment(seg)) return res.status(400).json({ error: "شريحة غير معروفة" });
   const people = await audience(t.org, t.waUserId, seg, { restDays: Number(req.body?.restDays) || 0 });
@@ -138,7 +138,7 @@ router.post("/wa-auto/segment-list", requireAuth, withTenant(OWNER, async (req, 
 }));
 
 /** People from a finished campaign who did not open it, opened without replying, or never got it. */
-router.post("/wa-auto/retarget", requireAuth, withTenant(OWNER, async (req, res, t) => {
+router.post("/wa-auto/retarget", requireAuth, withTenant(MANAGERS, async (req, res, t) => {
   const who = req.body?.who, campaignId = Number(req.body?.campaignId);
   if (!isRetarget(who) || !campaignId) return res.status(400).json({ error: "اختر الحملة ومن تعيد استهدافهم" });
   const people = await retargetPhones(t.waUserId, campaignId, who);
@@ -148,7 +148,7 @@ router.post("/wa-auto/retarget", requireAuth, withTenant(OWNER, async (req, res,
   res.json({ groupId: r.groupId, total: people.length });
 }));
 
-router.get("/wa-auto/campaigns", requireAuth, withTenant(OWNER, async (_req, res, t) => {
+router.get("/wa-auto/campaigns", requireAuth, withTenant(MANAGERS, async (_req, res, t) => {
   const rows = await db.select({
     id: campaignsTable.id, name: campaignsTable.name, status: campaignsTable.status, createdAt: campaignsTable.createdAt,
     sent: campaignsTable.sentCount, delivered: campaignsTable.deliveredCount, read: campaignsTable.readCount, total: campaignsTable.totalCount,

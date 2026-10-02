@@ -219,7 +219,7 @@ async function displayView(token: string): Promise<PublicDisplay | null> {
   const queues = await Promise.all(qs.map(async (q) => {
     const s = await snapshot({ queue: q, branch, org });
     return {
-      id: q.id, name: q.name, nameEn: q.nameEn,
+      id: q.id, name: q.name, nameEn: q.nameEn, kind: q.kind === "chair" ? "chair" as const : "line" as const, photoUrl: q.photoUrl,
       nowServing: s.called.slice(0, 4).map((t) => t.displayCode),
       next: s.waiting.slice(0, 6).map((t) => t.displayCode),
       waiting: s.waiting.length, eta: etaAt(s, s.waiting.length), isPaused: q.isPaused, isOpen: q.isOpen,

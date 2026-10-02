@@ -1,16 +1,37 @@
 // ── The staff and manager shell ───────────────────────────────────
 // A counter tablet, not a dashboard: one slim bar with the shop, the branch
-// and the three things staff do all evening, then the screen itself at full
-// height. Managers get the menu, customers and reports as extra tabs.
+// and the things this person does, then the screen itself at full height.
+// Which tabs appear is the person's permissions (set by the owner), narrowed
+// by what the shop has switched on.
 
 import type { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { CalendarDays, ClipboardList, LogOut, Users, BarChart3, BookOpen, ListOrdered, ChevronDown, Store } from "lucide-react";
+import { CalendarDays, ClipboardList, LogOut, Users, BarChart3, BookOpen, ListOrdered, ChevronDown, Store, Settings2, MessageSquare, Megaphone } from "lucide-react";
+import type { StaffPerm } from "@workspace/menu-shared";
 import { useAuth } from "@/context/AuthContext";
 import { useShop, useSwitchBranch } from "@/lib/shop-api";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+const TABS: Array<{ perm: StaffPerm; href: string; label: string; icon: typeof Store }> = [
+  { perm: "queue", href: "/queue", label: "الصف", icon: ListOrdered },
+  { perm: "orders", href: "/orders", label: "الطلبات", icon: ClipboardList },
+  { perm: "bookings", href: "/bookings", label: "الحجوزات", icon: CalendarDays },
+  { perm: "menu", href: "/menu", label: "المنيو", icon: BookOpen },
+  { perm: "customers", href: "/customers", label: "الزبائن", icon: Users },
+  { perm: "reports", href: "/reports", label: "التقارير", icon: BarChart3 },
+  { perm: "settings", href: "/shop/settings", label: "الإعدادات", icon: Settings2 },
+  { perm: "chats", href: "/conversations", label: "المحادثات", icon: MessageSquare },
+  { perm: "marketing", href: "/campaigns", label: "التسويق", icon: Megaphone },
+];
+
+/** The tabs this person has, in order; the queue and bookings only while the shop has them on. */
+export function staffTabs(shop: { perms: StaffPerm[]; plan: { features: { queue: boolean; booking: boolean } } }) {
+  return TABS.filter((t) => shop.perms.includes(t.perm)
+    && (t.perm !== "queue" || shop.plan.features.queue)
+    && (t.perm !== "bookings" || shop.plan.features.booking));
+}
 
 export default function StaffLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
@@ -18,17 +39,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
   const switchBranch = useSwitchBranch();
   const [path] = useLocation();
   const manager = (user?.role ?? shop.role) === "manager";
-
-  const tabs = [
-    { href: "/queue", label: "الصف", icon: ListOrdered },
-    { href: "/orders", label: "الطلبات", icon: ClipboardList },
-    { href: "/bookings", label: "الحجوزات", icon: CalendarDays },
-    ...(manager ? [
-      { href: "/menu", label: "المنيو", icon: BookOpen },
-      { href: "/customers", label: "الزبائن", icon: Users },
-      { href: "/reports", label: "التقارير", icon: BarChart3 },
-    ] : []),
-  ];
+  const tabs = staffTabs(shop);
 
   const signOut = async () => {
     await logout();
