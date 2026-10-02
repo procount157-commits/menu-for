@@ -46,6 +46,7 @@ const OWNERS = [
   { phone: "500000001", name: "أبو خالد", admin: false, plan: "business" },
   { phone: "500000002", name: "ريم", admin: false, plan: "pro" },
   { phone: "500000003", name: "نورة", admin: false, plan: "pro" },
+  { phone: "500000004", name: "أبو فارس", admin: false, plan: "pro" },
 ];
 
 async function owner(o: typeof OWNERS[number]) {
@@ -231,15 +232,73 @@ async function salon() {
   return org;
 }
 
+async function barber() {
+  const u = await owner(OWNERS[3]!);
+  const { org, branch } = await createOrg(u.id, {
+    name: "صالون الفارس", nameEn: "Al Faris Barbershop", vertical: "barber", slug: "alfaris-barber",
+    tagline: "حلاقة رجالية — قص، تدريج، لحية وعناية", address: "العين — شارع خليفة", displayPhone: "03 000 0000",
+    withDefaultCategories: true,
+  });
+  const logo = await photo("logo-barber", "logo"), cover = await photo("cover-barber", "cover");
+  await db.update(orgsTable).set({
+    taglineEn: "Men's barbershop — cuts, fades, beard and care",
+    about: "صالون حلاقة رجالي. تعال بالدور أو احجز موعدك، وخذ رقمك من الجوال وانتظر وين ما تحب — نرسل لك على واتساب لما يقرب دورك.",
+    logoUrl: logo?.md ?? null, coverUrl: cover?.url ?? null,
+    socials: { instagram: "alfaris.barber.demo", snapchat: "alfaris.barber.demo" }, onboardedAt: new Date(), features: { reviews: true },
+  }).where(eq(orgsTable.id, org.id));
+  const day = { open: "10:00", close: "23:00" };
+  await db.update(branchesTable).set({
+    waPhone: "971500000004", nameEn: "Khalifa Street", mapUrl: "https://maps.google.com/?q=Khalifa+Street+Al+Ain",
+    hours: { "0": day, "1": day, "2": day, "3": day, "4": day, "5": { open: "14:00", close: "23:30" }, "6": day },
+  }).where(eq(branchesTable.id, branch.id));
+  const cats = await db.select().from(menuCategoriesTable).where(eq(menuCategoriesTable.orgId, org.id));
+  const cat = (n: string) => cats.find((c) => c.name === n)!.id;
+  const services = [
+    { k: "barber-haircut", categoryId: cat("الشعر"), name: "قص شعر", nameEn: "Haircut", price: "40", durationMin: 30, description: "قص بالمقص أو المكينة حسب طلبك، مع غسيل وتصفيف", descriptionEn: "Scissor or clipper cut to your taste, with wash and styling", tags: ["popular"] },
+    { k: "barber-fade", categoryId: cat("الشعر"), name: "تدريج (فيد)", nameEn: "Skin fade", price: "50", durationMin: 35, description: "تدريج نظيف من الصفر مع تحديد الأطراف", descriptionEn: "A clean fade from zero with a sharp line-up", tags: ["popular"] },
+    { k: "barber-kids", categoryId: cat("الشعر"), name: "قص شعر أطفال", nameEn: "Kids' haircut", price: "30", durationMin: 20, description: "للأولاد حتى 12 سنة — بهدوء وصبر", descriptionEn: "For boys up to 12 — calm and patient" },
+    { k: "barber-color", categoryId: cat("الشعر"), name: "صبغة شعر", nameEn: "Hair colour", price: "80", durationMin: 45, description: "تغطية الشيب بلون طبيعي قريب من لونك", descriptionEn: "Grey coverage in a natural shade close to your own" },
+    { k: "barber-beard", categoryId: cat("اللحية"), name: "تحديد وتهذيب اللحية", nameEn: "Beard trim & line-up", price: "25", durationMin: 15, description: "تهذيب بالمكينة وتحديد الخدود والرقبة", descriptionEn: "Trimmed and lined up at the cheeks and neck" },
+    { k: "barber-shave", categoryId: cat("اللحية"), name: "حلاقة بالموس والفوطة الساخنة", nameEn: "Hot towel razor shave", price: "35", durationMin: 20, description: "فوطة ساخنة، رغوة، موس جديد لكل زبون، ثم مرطّب", descriptionEn: "Hot towel, lather, a fresh blade for every customer, then balm", tags: ["chef"] },
+    { k: "barber-facial", categoryId: cat("العناية"), name: "تنظيف بشرة وماسك", nameEn: "Facial & mask", price: "70", durationMin: 30, description: "بخار، تنظيف، ماسك فحم وترطيب", descriptionEn: "Steam, cleanse, charcoal mask and moisturiser", tags: ["new"] },
+    { k: "barber-package", categoryId: cat("الباقات"), name: "شعر + لحية", nameEn: "Haircut + beard", price: "55", compareAtPrice: "65", durationMin: 45, description: "قص شعر وتحديد لحية في جلسة واحدة", descriptionEn: "A haircut and a beard trim in one sitting", tags: ["popular", "offer"] },
+    { k: "barber-groom", categoryId: cat("الباقات"), name: "باقة العريس", nameEn: "Groom package", price: "250", durationMin: 90, description: "قص، لحية بالموس، تنظيف بشرة وتصفيف — بالحجز المسبق", descriptionEn: "Cut, razor beard, facial and styling — by booking", tags: ["preorder"] },
+  ];
+  for (const [n, { k, ...i }] of services.entries()) {
+    await db.insert(menuItemsTable).values({ orgId: org.id, kind: "service", sort: n, images: await images(k), ...i } as any);
+  }
+  await db.insert(offersTable).values([
+    { orgId: org.id, title: "شعر + لحية بـ 55", titleEn: "Haircut + beard for 55", body: "قص شعر وتحديد لحية في جلسة واحدة بدل 65", bodyEn: "A haircut and beard trim in one sitting, instead of 65", imageUrl: (await photo("barber-package"))?.url ?? null, sort: 0 },
+  ]);
+  await db.insert(staffTable).values({ orgId: org.id, branchId: branch.id, name: "الحلاق", username: "barber", passwordHash: await bcrypt.hash(PASSWORD, 10), role: "staff" });
+  await db.update(bookingSettingsTable).set({ enabled: true, capacityPerSlot: 2, slotMin: 30, leadTimeMin: 30 }).where(eq(bookingSettingsTable.branchId, branch.id));
+  const [q] = await db.select().from(queuesTable).where(eq(queuesTable.branchId, branch.id));
+  const ctx = (await queueCtx(q!.id))!;
+  for (const [i, n] of ["سالم", "راشد", "Omar", "حمدان"].entries()) await join(ctx, { name: n, partySize: 1, deviceId: `seed-barber-${i}` });
+  await rebuild(org.id);
+  return org;
+}
+
 // The platform admin: runs the platform, owns no shop.
 await db.insert(usersTable).values({ phone: "500000000", passwordHash: await bcrypt.hash(PASSWORD, 10), displayName: "مدير المنصة", isAdmin: true, plan: "business" })
   .onConflictDoUpdate({ target: usersTable.phone, set: { passwordHash: await bcrypt.hash(PASSWORD, 10), isAdmin: true, displayName: "مدير المنصة" } });
 
+// `seed-demo.ts barber` (re)makes one shop and leaves the others as they are.
+const only = process.argv[2];
+const MEN = ["سالم", "راشد", "حمدان", "عمر", "ماجد", "خليفة", "طارق", "زايد", "بدر", "سيف"];
+if (only === "barber") {
+  const d = await barber();
+  await demoCustomers(d.id, MEN);
+  console.log(`seeded: /${d.slug}`);
+  process.exit(0);
+}
 const a = await restaurant();
 const b = await sweets();
 const c = await salon();
+const d = await barber();
 await demoCustomers(a.id, ["خالد", "سارة", "محمد", "نورة", "عبدالله", "ريم", "فيصل", "هدى", "سلطان", "مها", "يوسف", "لطيفة"]);
 await demoCustomers(b.id, ["أم راشد", "منى", "حمد", "شيخة", "علي", "عائشة", "ناصر", "فاطمة"]);
 await demoCustomers(c.id, ["مريم", "هند", "دانة", "العنود", "شهد", "جواهر", "لمى", "روان", "غادة", "أمل"]);
-console.log(`seeded: /${a.slug}, /${b.slug} and /${c.slug}`);
+await demoCustomers(d.id, MEN);
+console.log(`seeded: /${a.slug}, /${b.slug}, /${c.slug} and /${d.slug}`);
 process.exit(0);

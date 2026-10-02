@@ -16,6 +16,7 @@ import { complete, resolveProvider } from "../llm";
 import { assertWithinLimit } from "../plans";
 import { itemCount } from "./service";
 import { logger } from "../logger";
+import { vocab } from "@workspace/menu-shared";
 
 const norm = (s: unknown) => String(s ?? "").trim().toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/\s+/g, " ");
 
@@ -95,7 +96,7 @@ export async function saveRows(t: Tenant, rows: ImportRow[]): Promise<{ categori
   let sort = cats.length;
   const [{ m }] = await db.select({ m: sql<number>`coalesce(max(sort), -1)::int` }).from(menuItemsTable).where(eq(menuItemsTable.orgId, t.org.id));
   let itemSort = m + 1;
-  const kind = t.org.vertical === "beauty" ? "service" : "product";
+  const kind = vocab(t.org.vertical).services ? "service" : "product";
   await db.transaction(async (tx) => {
     for (const r of rows) {
       let categoryId: number | null = null;

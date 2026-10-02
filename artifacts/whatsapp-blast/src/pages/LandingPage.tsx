@@ -370,7 +370,7 @@ interface DynamicPlan {
 }
 
 /** Demo shops shown on the home page; the ones that exist on this install appear. */
-const DEMO_SLUGS = ["bait-shami", "alreem-sweets", "lamsa-salon"];
+const DEMO_SLUGS = ["bait-shami", "alreem-sweets", "lamsa-salon", "alfaris-barber"];
 
 // ── Subscribe Modal ────────────────────────────────────────────────
 function SubscribeModal({ planName, salesWaNum, onClose, lang }: {
@@ -544,7 +544,7 @@ export default function LandingPage() {
   // The live demo shops, when this install has them.
   const [demos, setDemos] = useState<Array<{ slug: string; name: string; tagline: string; kind: string; cover: string | null; logo: string | null }>>([]);
   useEffect(() => {
-    const KIND: Record<string, [string, string]> = { restaurant: ["مطعم", "Restaurant"], cafe: ["كافيه", "Café"], sweets: ["حلويات", "Sweets"], beauty: ["صالون تجميل", "Beauty salon"] };
+    const KIND: Record<string, [string, string]> = { restaurant: ["مطعم", "Restaurant"], cafe: ["كافيه", "Café"], sweets: ["حلويات", "Sweets"], beauty: ["صالون تجميل", "Beauty salon"], barber: ["حلاقة رجالية", "Barbershop"] };
     Promise.all(DEMO_SLUGS.map((slug) => fetch(`/api/public/m/${slug}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)))
       .then((list) => setDemos(list.filter(Boolean).map((m: any) => ({
         slug: m.org.slug,
@@ -707,7 +707,7 @@ export default function LandingPage() {
               <h2 className="text-3xl sm:text-4xl font-black text-white">{lang === "ar" ? "افتح منيو حقيقي وجرّبه بنفسك" : "Open a real menu and try it"}</h2>
               <p className="text-white/50 mt-4 max-w-xl mx-auto">{lang === "ar" ? "تصفّح الأصناف، أضف للسلة، واحجز دورك — كما يراه زبونك." : "Browse the items, add to the cart and join the queue — just as your guest sees it."}</p>
             </div>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
               {demos.map((d, i) => (
                 <motion.a key={d.slug} href={`/${d.slug}`} target="_blank" rel="noopener noreferrer"
                   initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }}

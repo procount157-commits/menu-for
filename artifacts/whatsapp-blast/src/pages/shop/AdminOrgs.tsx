@@ -29,7 +29,7 @@ interface PlatformStats {
 }
 
 const PLAN_AR: Record<string, string> = { free: "تجريبي", basic: "أساسي", pro: "احترافي", business: "أعمال" };
-const VERTICAL_AR: Record<string, string> = { restaurant: "مطعم", cafe: "كافيه", sweets: "حلويات", beauty: "تجميل" };
+const VERTICAL_AR: Record<string, string> = { restaurant: "مطعم", cafe: "كافيه", sweets: "حلويات", beauty: "تجميل", barber: "حلاقة رجالية" };
 // Platform-level switches the admin turns on per shop; the owner's own
 // choices (reviews, win-back) live in their settings and are shown, not set.
 const FEATURES: Array<{ key: string; label: string }> = [{ key: "email", label: "التسويق بالبريد" }];
@@ -300,7 +300,7 @@ function CreateDialog({ open, onClose, onCreated }: { open: boolean; onClose: ()
           </div>
           <div>
             <label className={labelCls}>نوع المحل</label>
-            <div className="grid grid-cols-4 gap-1.5">
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
               {Object.entries(VERTICAL_AR).map(([k, l]) => (
                 <button key={k} type="button" onClick={() => setF((x) => ({ ...x, vertical: k }))} className={cn("h-11 rounded-lg text-sm", f.vertical === k ? "bg-primary text-primary-foreground font-semibold" : "bg-secondary")}>{l}</button>
               ))}

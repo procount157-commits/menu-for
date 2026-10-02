@@ -24,7 +24,7 @@ const TABS: Array<{ id: Tab; label: string; icon: ReactNode }> = [
   { id: "booking", label: "الحجز", icon: <CalendarCheck className="w-3.5 h-3.5" /> },
 ];
 
-const VERTICALS: Array<[Vertical, string]> = [["restaurant", "مطعم"], ["cafe", "كافيه"], ["sweets", "حلويات"], ["beauty", "تجميل"]];
+const VERTICALS: Array<[Vertical, string]> = [["restaurant", "مطعم"], ["cafe", "كافيه"], ["sweets", "حلويات"], ["beauty", "تجميل"], ["barber", "حلاقة رجالية"]];
 const CURRENCIES: Array<[string, string]> = [["AED", "درهم إماراتي"], ["SAR", "ريال سعودي"], ["KWD", "دينار كويتي"], ["QAR", "ريال قطري"], ["BHD", "دينار بحريني"], ["OMR", "ريال عماني"], ["EGP", "جنيه مصري"], ["USD", "دولار"]];
 const TIMEZONES: Array<[string, string]> = [["Asia/Dubai", "الإمارات / عُمان"], ["Asia/Riyadh", "السعودية / الكويت / قطر / البحرين"], ["Africa/Cairo", "مصر"], ["Asia/Amman", "الأردن"], ["Europe/London", "لندن"]];
 const SOCIALS: Array<[string, string, string]> = [

@@ -24,6 +24,7 @@ const VERTICALS: Array<{ id: Vertical; icon: typeof Coffee; title: string; sub: 
   { id: "cafe", icon: Coffee, title: "كافيه", sub: "مشروبات، دور الطلبات" },
   { id: "sweets", icon: Cake, title: "حلويات", sub: "صواني وكيك، طلب مسبق بتاريخ" },
   { id: "beauty", icon: Scissors, title: "صالون تجميل", sub: "خدمات لها مدة، مواعيد، الدور" },
+  { id: "barber", icon: Scissors, title: "حلاقة رجالية", sub: "قص ولحية، الدور، مواعيد" },
 ];
 
 const BRAND_SWATCHES = ["#22c55e", "#c9a24a", "#b5651d", "#7c5a3a", "#c2577a", "#8e3b46", "#2f6f5e", "#3b5b8e", "#111111"];

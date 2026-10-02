@@ -97,7 +97,9 @@ function QueueLoader() {
 
 function Counter({ queueId, queues, onPick }: { queueId: number; queues: QueueRow[]; onPick: (id: number) => void }) {
   const shop = useShop();
-  const beauty = shop.org.vertical === "beauty";
+  // A salon or a barbershop: one person per ticket, served for a while.
+  const beauty = shop.vocab.services;
+  const ladies = shop.org.vertical === "beauty";
   const now = useNow();
   const stream = useStream<View>(`/api/queue/${queueId}/stream`, { pollMs: 5_000 });
   const [view, setView] = useState<View | undefined>();
@@ -246,7 +248,7 @@ function Counter({ queueId, queues, onPick }: { queueId: number; queues: QueueRo
       <div className="flex-1 min-h-0 overflow-y-auto md:overflow-hidden md:grid md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
         <section className="md:overflow-y-auto p-3 space-y-3 md:border-e border-border">
           {focus ? (
-            <FocusCard t={focus} now={now} beauty={beauty} busy={busy} onAct={act} />
+            <FocusCard t={focus} now={now} beauty={beauty} ladies={ladies} busy={busy} onAct={act} />
           ) : (
             <div className="rounded-2xl border border-dashed border-border p-8 text-center text-muted-foreground">
               <Megaphone className="w-9 h-9 mx-auto text-primary/50 mb-2" />
@@ -374,7 +376,7 @@ function SectionTitle({ icon, label, count }: { icon: React.ReactNode; label: st
 
 // ── The person just called ────────────────────────────────────────
 
-function FocusCard({ t, now, beauty, busy, onAct }: { t: Ticket; now: number; beauty: boolean; busy: string | null; onAct: (t: Ticket, a: Action, body?: Record<string, unknown>) => unknown }) {
+function FocusCard({ t, now, beauty, ladies, busy, onAct }: { t: Ticket; now: number; beauty: boolean; ladies: boolean; busy: string | null; onAct: (t: Ticket, a: Action, body?: Record<string, unknown>) => unknown }) {
   const since = minsSince(t.calledAt, now) ?? 0;
   const b = (a: string) => busy === `${a}:${t.id}`;
   return (
@@ -405,7 +407,7 @@ function FocusCard({ t, now, beauty, busy, onAct }: { t: Ticket; now: number; be
       <div className="grid grid-cols-2 gap-2 mt-4">
         <Btn tone="ok" className="min-h-14 text-base col-span-2 sm:col-span-1" disabled={b("arrived")}
           onClick={() => onAct(t, "arrived", beauty ? {} : { finish: true })}>
-          {b("arrived") ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}{beauty ? "حضرت — ابدأ الخدمة" : "حضر"}
+          {b("arrived") ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}{beauty ? (ladies ? "حضرت — ابدأ الخدمة" : "حضر — ابدأ الخدمة") : "حضر"}
         </Btn>
         <Btn className="min-h-14 text-base col-span-2 sm:col-span-1" disabled={b("recall") || t.recallCount >= 2}
           title={t.recallCount >= 2 ? "تم النداء مرتين" : undefined} onClick={() => onAct(t, "recall")}>

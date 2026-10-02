@@ -13,7 +13,7 @@ import { assertWithinLimit, assertFeature } from "../plans";
 
 export const token = (bytes = 16) => crypto.randomBytes(bytes).toString("base64url").slice(0, Math.ceil(bytes * 4 / 3));
 
-const VERTICALS: Vertical[] = ["restaurant", "cafe", "sweets", "beauty"];
+const VERTICALS: Vertical[] = ["restaurant", "cafe", "sweets", "beauty", "barber"];
 
 /** Ten to ten every day: a starting point the owner edits, never a guess presented as fact. */
 export function defaultHours(): WeekHours {
