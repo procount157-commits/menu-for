@@ -73,6 +73,8 @@ const meA = (await A.get("/api/tenancy/me")).json;
 const meB = (await B.get("/api/tenancy/me")).json;
 check("each owner sees their own shop", meA.org.slug === `alpha-${tag}` && meB.org.slug === `beta-${tag}`);
 check("the beauty shop speaks of services", meB.vocab.item[0] === "خدمة");
+check("a new restaurant starts without the queue and bookings", meA.plan.modules.queue === false && meA.plan.features.queue === false && meA.plan.features.booking === false && meA.plan.planFeatures.queue === true, meA.plan);
+check("…and a new salon with both", meB.plan.features.queue === true && meB.plan.features.booking === true, meB.plan);
 
 // ── Build a little of each shop ──────────────────────────────────
 const catA = (await A.post("/api/menu/categories", { name: "مشويات" })).json;
@@ -109,6 +111,12 @@ check("…and A's category keeps its name", catStill?.name === "مشويات");
 const anon = new Client();
 r = await anon.get(`/api/public/m/alpha-${tag}`);
 check("the menu opens with no sign-up", r.status === 200 && r.json.items.some((i: any) => i.name === "مشاوي مشكل"));
+check("…without a queue while it is switched off", r.json.queues.length === 0 && r.json.booking === null);
+r = await anon.post(`/api/public/queues/${qA.id}/join`, { name: "ريم" });
+check("…and joining it is refused", r.status === 403, r.status);
+r = await A.patch("/api/shop/modules", { queue: true });
+check("the owner switches the queue on", r.status === 200 && r.json.modules.queue === true && r.json.plan.features.queue === true, r.json);
+r = await anon.get(`/api/public/m/alpha-${tag}`);
 check("…with its queue", r.json.queues.length === 1 && r.json.queues[0].waiting === 0);
 r = await anon.post(`/api/public/queues/${qA.id}/join`, { name: "ريم", partySize: 3, phone: "0501112233" });
 check("anyone with the link joins the queue", r.status === 201 && /^A-\d+$/.test(r.json.displayCode), r.json);
@@ -249,8 +257,37 @@ const meN = (await N.get("/api/tenancy/me")).json;
 check("the new owner signs in straight into their shop, on the plan sold", r.status === 200 && meN.org?.slug === madeSlug && meN.plan.plan === "pro", meN.plan);
 r = await anon.get(`/api/public/m/${madeSlug}`);
 check("…and its menu address is live", r.status === 200 && r.json.org.vertical === "beauty");
+check("…with bookings open, as a salon starts", r.json.booking?.enabled === true && r.json.queues.length === 1, r.json.booking);
+
+// ── Email marketing is the full plan's ───────────────────────────
+r = await N.get("/api/email/overview");
+check("email marketing is refused on a plan without it", r.status === 402 && r.json.plan === true, r.status);
+r = await B.get("/api/email/overview");
+check("…and open on «الشاملة»", r.status === 200, r.status);
+const orgN = meN.org.id as number;
+r = await A.patch(`/api/admin/orgs/${orgN}`, { features: { email: true } });
+r = await N.get("/api/email/overview");
+check("…or for one shop the admin switched it on for", r.status === 200, r.status);
+
+// ── What a new shop starts with is the admin's call ──────────────
+r = await A.get("/api/admin/orgs/platform/modules");
+check("the admin sees the defaults per kind of shop", r.status === 200 && r.json.defaults.restaurant.queue === false && r.json.defaults.beauty.booking === true && r.json.defaults.barber.queue === true, r.json);
+const before = r.json.defaults;
+r = await A.req("PUT", "/api/admin/orgs/platform/modules", { defaults: { cafe: { queue: true } } });
+check("…and changes one", r.status === 200 && r.json.defaults.cafe.queue === true && r.json.defaults.cafe.booking === false && r.json.defaults.restaurant.queue === false, r.json);
+r = await B.req("PUT", "/api/admin/orgs/platform/modules", { defaults: { cafe: { queue: false } } });
+check("…which an owner cannot", r.status === 403, r.status);
+await A.req("PUT", "/api/admin/orgs/platform/modules", { defaults: before });
+r = await A.patch(`/api/admin/orgs/${meA.org.id}`, { features: { booking: true } });
+r = await anon.get(`/api/public/m/alpha-${tag}`);
+check("the admin switching bookings on for a shop opens them on its menu", r.json.booking?.enabled === true, r.json.booking);
+
 r = await anon.get("/api/plans");
 check("the home page gets its plans", r.status === 200 && Array.isArray(r.json) && r.json.length >= 3, r.json?.length);
+const full = (r.json as any[]).filter((p) => p.name.startsWith("الشاملة"));
+check("…«الشاملة» at 199 a month and 800 a year, and no «الاحترافية»",
+  full.some((p) => Number(p.price) === 199 && p.period === "monthly") && full.some((p) => Number(p.price) === 800 && p.period === "yearly") && !(r.json as any[]).some((p) => p.name === "الاحترافية"),
+  (r.json as any[]).map((p) => `${p.name} ${p.price}/${p.period}`));
 r = await anon.post("/api/leads", { name: "زائر", phone: "0501231234", planName: "الاحترافية", businessType: "مطعم" });
 check("a sign-up request from the home page is recorded", r.status === 201);
 await db.execute(sql`delete from subscription_leads where phone = '0501231234'`);

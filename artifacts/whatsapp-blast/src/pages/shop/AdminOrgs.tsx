@@ -8,7 +8,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Building2, Copy, ExternalLink, Plus, Loader2, LogIn, Search, ShieldAlert, ShieldCheck, SlidersHorizontal, Store, MessageCircle, Crown, KeyRound } from "lucide-react";
-import { get, patch, post, inputCls, labelCls } from "@/lib/shop-api";
+import { get, patch, post, put, inputCls, labelCls } from "@/lib/shop-api";
 import { useAuth } from "@/context/AuthContext";
 import { Switch } from "@/components/ui/switch";
 import { Btn, Empty, Stat, errText, n, shortDate } from "@/components/shop/ops/kit";
@@ -28,12 +28,20 @@ interface PlatformStats {
   sent_24h: number; failed_24h: number; customers: number; plans: Array<{ plan: string; n: number }>; planNames: Record<string, string>;
 }
 
-const PLAN_AR: Record<string, string> = { free: "تجريبي", basic: "أساسي", pro: "احترافي", business: "أعمال" };
-const VERTICAL_AR: Record<string, string> = { restaurant: "مطعم", cafe: "كافيه", sweets: "حلويات", beauty: "تجميل" };
+const PLAN_AR: Record<string, string> = { free: "تجريبي", basic: "أساسي", pro: "احترافي", business: "الشاملة" };
+// «احترافي» is no longer sold; it stays readable for shops already on it.
+const PLANS_OFFERED = ["free", "basic", "business"] as const;
+const VERTICAL_AR: Record<string, string> = { restaurant: "مطعم", cafe: "كافيه", sweets: "حلويات", beauty: "تجميل", barber: "حلاقة رجالي" };
 // Platform-level switches the admin turns on per shop; the owner's own
 // choices (reviews, win-back) live in their settings and are shown, not set.
-const FEATURES: Array<{ key: string; label: string }> = [{ key: "email", label: "التسويق بالبريد" }];
-const FEATURE_AR: Record<string, string> = { email: "التسويق بالبريد", reviews: "طلب التقييم", winback: "اشتقنا لك" };
+const FEATURES: Array<{ key: string; label: string }> = [
+  { key: "queue", label: "صف الانتظار" }, { key: "booking", label: "الحجوزات" }, { key: "email", label: "التسويق بالبريد" },
+];
+const FEATURE_AR: Record<string, string> = { queue: "صف الانتظار", booking: "الحجوزات", email: "التسويق بالبريد", reviews: "طلب التقييم", winback: "اشتقنا لك" };
+// The queue and bookings count as on until switched off (shops from before
+// the switches existed); every other switch is off until switched on.
+const MODULE_KEYS = ["queue", "booking"];
+const isOn = (f: Record<string, boolean> | null | undefined, k: string) => MODULE_KEYS.includes(k) ? f?.[k] !== false : !!f?.[k];
 
 export default function AdminOrgs() {
   const { user } = useAuth();
@@ -51,6 +59,7 @@ function Inner() {
   const [busy, setBusy] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [keys, setKeys] = useState(false);
+  const [defaults, setDefaults] = useState(false);
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -84,6 +93,7 @@ function Inner() {
         </div>
         <div className="flex flex-wrap gap-2">
           <a href="/admin" className="inline-flex items-center gap-2 rounded-xl px-4 min-h-11 text-sm font-semibold bg-secondary hover:bg-secondary/70">الخطط والكوبونات والطلبات</a>
+          <Btn tone="plain" onClick={() => setDefaults(true)}><SlidersHorizontal className="w-4 h-4" />الصف والحجز الافتراضي</Btn>
           <Btn tone="plain" onClick={() => setKeys(true)}><KeyRound className="w-4 h-4" />مفاتيح الذكاء الاصطناعي</Btn>
           <Btn tone="gold" onClick={() => setCreating(true)}><Plus className="w-4 h-4" />محل جديد</Btn>
         </div>
@@ -167,7 +177,7 @@ function Inner() {
                       <MessageCircle className="w-3.5 h-3.5" />واتساب {o.wa.linked}/{o.wa.total}
                     </span>
                     {o.last_login_at && <span className="text-muted-foreground">آخر دخول {shortDate(o.last_login_at)}</span>}
-                    {Object.entries(o.features ?? {}).filter(([, v]) => v).map(([k]) => <span key={k} className="rounded-full bg-primary/10 text-primary px-2 py-1">{FEATURE_AR[k] ?? k}</span>)}
+                    {FEATURES.map((f) => f.key).concat(Object.keys(o.features ?? {}).filter((k) => !FEATURES.some((f) => f.key === k))).filter((k) => isOn(o.features, k)).map((k) => <span key={k} className="rounded-full bg-primary/10 text-primary px-2 py-1">{FEATURE_AR[k] ?? k}</span>)}
                   </div>
 
                   <footer className="flex flex-wrap gap-1.5">
@@ -191,19 +201,20 @@ function Inner() {
 
       <CreateDialog open={creating} onClose={() => setCreating(false)} onCreated={refresh} />
       <LlmKeysDialog open={keys} onClose={() => setKeys(false)} />
+      <ModuleDefaultsDialog open={defaults} onClose={() => setDefaults(false)} />
       <PlanDialog o={edit} onClose={() => setEdit(null)} onSave={async (o, body) => { if (await update(o, body, "حُفظت التغييرات")) setEdit(null); }} saving={!!edit && busy === `${edit.id}`} />
     </div>
   );
 }
 
 function PlanDialog({ o, onClose, onSave, saving }: { o: OrgRow | null; onClose: () => void; onSave: (o: OrgRow, body: Record<string, unknown>) => void; saving: boolean }) {
-  const [plan, setPlan] = useState("pro");
+  const [plan, setPlan] = useState("business");
   const [days, setDays] = useState<string>("30");
   const [touchDays, setTouchDays] = useState(false);
   const [features, setFeatures] = useState<Record<string, boolean>>({});
   const [lastId, setLastId] = useState<number | null>(null);
   if (o && o.id !== lastId) {
-    setLastId(o.id); setPlan(o.plan); setDays("30"); setTouchDays(false); setFeatures({ ...(o.features ?? {}) });
+    setLastId(o.id); setPlan(o.plan); setDays("30"); setTouchDays(false); setFeatures(Object.fromEntries(FEATURES.map((f) => [f.key, isOn(o.features, f.key)]).concat(Object.entries(o.features ?? {}).filter(([k]) => !FEATURES.some((f) => f.key === k)))));
   }
   if (!o) return null;
   const keys = Array.from(new Set([...FEATURES.map((f) => f.key), ...Object.keys(o.features ?? {}).filter((k) => !["reviews", "winback"].includes(k))]));
@@ -212,7 +223,7 @@ function PlanDialog({ o, onClose, onSave, saving }: { o: OrgRow | null; onClose:
     const body: Record<string, unknown> = {};
     if (plan !== o.plan) body.plan = plan;
     if (touchDays || plan !== o.plan) body.planDays = Number(days) || 0;
-    const changed = Object.fromEntries(keys.filter((k) => !!features[k] !== !!o.features?.[k]).map((k) => [k, !!features[k]]));
+    const changed = Object.fromEntries(keys.filter((k) => !!features[k] !== isOn(o.features, k)).map((k) => [k, !!features[k]]));
     if (Object.keys(changed).length) body.features = changed;
     if (!Object.keys(body).length) { onClose(); return; }
     onSave(o, body);
@@ -224,7 +235,7 @@ function PlanDialog({ o, onClose, onSave, saving }: { o: OrgRow | null; onClose:
         <div>
           <label className={labelCls}>الخطة</label>
           <div className="grid grid-cols-4 gap-1.5">
-            {Object.entries(PLAN_AR).map(([k, l]) => (
+            {Object.entries(PLAN_AR).filter(([k]) => (PLANS_OFFERED as readonly string[]).includes(k) || k === o.plan).map(([k, l]) => (
               <button key={k} type="button" onClick={() => setPlan(k)} className={cn("h-11 rounded-lg text-sm", plan === k ? "bg-primary text-primary-foreground font-semibold" : "bg-secondary")}>{l}</button>
             ))}
           </div>
@@ -244,6 +255,7 @@ function PlanDialog({ o, onClose, onSave, saving }: { o: OrgRow | null; onClose:
         </div>
         <div>
           <label className={labelCls}>الميزات</label>
+          <p className="text-[11px] text-muted-foreground -mt-1 mb-2">الصف والحجز يشتغلان فقط لو الخطة تسمح بهما.</p>
           <div className="space-y-2">
             {keys.map((k) => (
               <label key={k} className="flex items-center justify-between rounded-lg bg-secondary/50 px-3 py-2.5 text-sm">
@@ -261,7 +273,7 @@ function PlanDialog({ o, onClose, onSave, saving }: { o: OrgRow | null; onClose:
 
 /** A shop made for a customer: their account, their shop and their plan in one step. */
 function CreateDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
-  const empty = { name: "", nameEn: "", vertical: "restaurant", slug: "", ownerName: "", ownerPhone: "", password: "", plan: "pro", planDays: "30" };
+  const empty = { name: "", nameEn: "", vertical: "restaurant", slug: "", ownerName: "", ownerPhone: "", password: "", plan: "business", planDays: "30" };
   const [f, setF] = useState(empty);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState<{ menuUrl: string; loginUrl: string; phone: string; password: string; name: string } | null>(null);
@@ -317,8 +329,8 @@ function CreateDialog({ open, onClose, onCreated }: { open: boolean; onClose: ()
           </div>
           <div>
             <label className={labelCls}>الخطة والمدة</label>
-            <div className="grid grid-cols-4 gap-1.5">
-              {Object.entries(PLAN_AR).map(([k, l]) => (
+            <div className="grid grid-cols-3 gap-1.5">
+              {PLANS_OFFERED.map((k) => [k, PLAN_AR[k]!] as const).map(([k, l]) => (
                 <button key={k} type="button" onClick={() => setF((x) => ({ ...x, plan: k }))} className={cn("h-11 rounded-lg text-sm", f.plan === k ? "bg-primary text-primary-foreground font-semibold" : "bg-secondary")}>{l}</button>
               ))}
             </div>
@@ -329,6 +341,44 @@ function CreateDialog({ open, onClose, onCreated }: { open: boolean; onClose: ()
             </div>
           </div>
           <Btn tone="gold" className="w-full min-h-12" disabled={saving || !f.name.trim() || !f.ownerPhone.trim() || f.password.length < 6} onClick={save}>{saving && <Loader2 className="w-4 h-4 animate-spin" />}أنشئ المحل</Btn>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * Which kinds of shop start with the queue and bookings. Most restaurants want
+ * neither, a salon wants both — and the call is the platform's, per kind.
+ * Applies to shops made from now on; each shop then switches its own.
+ */
+function ModuleDefaultsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  type Defaults = Record<string, { queue: boolean; booking: boolean }>;
+  const q = useQuery<{ defaults: Defaults }>({ queryKey: ["/api/admin/orgs/platform/modules"], queryFn: () => get("/api/admin/orgs/platform/modules"), enabled: open });
+  const qc = useQueryClient();
+  const [saving, setSaving] = useState<string | null>(null);
+  const set = async (v: string, m: "queue" | "booking", on: boolean) => {
+    setSaving(`${v}:${m}`);
+    try {
+      const r = await put<{ defaults: Defaults }>("/api/admin/orgs/platform/modules", { defaults: { [v]: { [m]: on } } });
+      qc.setQueryData(["/api/admin/orgs/platform/modules"], r);
+    } catch (e) { toast.error(errText(e)); }
+    finally { setSaving(null); }
+  };
+  return (
+    <Modal open={open} onOpenChange={(v) => !v && onClose()} title="الصف والحجز الافتراضي" description="بماذا يبدأ كل محل جديد حسب نوعه. المحلات الموجودة لا تتغيّر، وكل محل يقدر يشغّل أو يطفّي من إعداداته.">
+      {!q.data ? <div className="py-10 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div> : (
+        <div className="space-y-2">
+          <div className="grid grid-cols-[1fr_auto_auto] gap-x-6 px-3 text-[11px] text-muted-foreground"><span>نوع المحل</span><span>الصف</span><span>الحجز</span></div>
+          {Object.entries(VERTICAL_AR).map(([v, l]) => (
+            <div key={v} className="grid grid-cols-[1fr_auto_auto] items-center gap-x-6 rounded-lg bg-secondary/50 px-3 py-2.5 text-sm">
+              <span>{l}</span>
+              {(["queue", "booking"] as const).map((m) => (
+                <Switch key={m} aria-label={`${l} — ${m === "queue" ? "الصف" : "الحجز"}`} disabled={saving === `${v}:${m}`}
+                  checked={!!q.data.defaults[v]?.[m]} onCheckedChange={(on) => void set(v, m, on)} dir="ltr" />
+              ))}
+            </div>
+          ))}
         </div>
       )}
     </Modal>

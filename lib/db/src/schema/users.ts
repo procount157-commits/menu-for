@@ -51,9 +51,11 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 // ── Plan limits reference ─────────────────────────────────────────
 export const PLAN_LIMITS = {
   // contacts / campaigns / chatbots are Flow Hub's; the rest are Menu For You's.
-  // -1 = unlimited, 0 = not in this plan.
-  free:     { name: "تجريبي",  contacts: 200,  campaigns: 0,  chatbots: 1,  branches: 1,  items: 30, staff: 2,  queue: true,  booking: false, notify: false, marketing: false, display: false, branchNumbers: false },
-  basic:    { name: "أساسي",   contacts: 500,  campaigns: 0,  chatbots: 1,  branches: 1,  items: -1, staff: 3,  queue: false, booking: false, notify: false, marketing: false, display: false, branchNumbers: false },
-  pro:      { name: "احترافي", contacts: 5000, campaigns: 60, chatbots: 5,  branches: 3,  items: -1, staff: 10, queue: true,  booking: true,  notify: true,  marketing: true,  display: false, branchNumbers: false },
-  business: { name: "أعمال",   contacts: -1,   campaigns: -1, chatbots: -1, branches: -1, items: -1, staff: -1, queue: true,  booking: true,  notify: true,  marketing: true,  display: true,  branchNumbers: true },
+  // -1 = unlimited, 0 = not in this plan. «الشاملة» (business) is the full
+  // package sold monthly or yearly; «احترافي» is kept for anyone already on it
+  // but is no longer offered.
+  free:     { name: "تجريبي",  contacts: 200,  campaigns: 0,  chatbots: 1,  branches: 1,  items: 30, staff: 2,  queue: true,  booking: false, notify: false, marketing: false, display: false, branchNumbers: false, email: false },
+  basic:    { name: "أساسي",   contacts: 500,  campaigns: 0,  chatbots: 1,  branches: 1,  items: -1, staff: 3,  queue: false, booking: false, notify: false, marketing: false, display: false, branchNumbers: false, email: false },
+  pro:      { name: "احترافي", contacts: 5000, campaigns: 60, chatbots: 5,  branches: 3,  items: -1, staff: 10, queue: true,  booking: true,  notify: true,  marketing: true,  display: false, branchNumbers: false, email: false },
+  business: { name: "الشاملة", contacts: -1,   campaigns: -1, chatbots: -1, branches: -1, items: -1, staff: -1, queue: true,  booking: true,  notify: true,  marketing: true,  display: true,  branchNumbers: true,  email: true },
 } as const;

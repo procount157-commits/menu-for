@@ -4,7 +4,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { db, orgsTable, branchesTable, staffTable, usersTable, queuesTable } from "@workspace/db";
-import { slugError, isValidSlug, vocab } from "@workspace/menu-shared";
+import { slugError, isValidSlug, vocab, VERTICALS } from "@workspace/menu-shared";
 import { requireAuth } from "../lib/auth";
 import {
   tenant, withTenant, switchBranch, tenantErrorToResponse, signedInUser, attachOwner,
@@ -125,7 +125,7 @@ router.patch("/org", requireAuth, withTenant(OWNER, async (req, res, t) => {
   for (const k of ORG_FIELDS) if (k in b) patch[k] = b[k] === "" ? null : b[k];
   if ("name" in patch && String(patch.name ?? "").trim().length < 2) return res.status(400).json({ error: "اسم المحل مطلوب" });
   if ("defaultLang" in patch && !["ar", "en"].includes(String(patch.defaultLang))) delete patch.defaultLang;
-  if ("vertical" in patch && !["restaurant", "cafe", "sweets", "beauty"].includes(String(patch.vertical))) delete patch.vertical;
+  if ("vertical" in patch && !(VERTICALS as readonly string[]).includes(String(patch.vertical))) delete patch.vertical;
   if ("currency" in patch && !/^[A-Z]{3}$/.test(String(patch.currency))) delete patch.currency;
   if ("timezone" in patch) {
     try { new Intl.DateTimeFormat("en", { timeZone: String(patch.timezone) }); } catch { delete patch.timezone; }

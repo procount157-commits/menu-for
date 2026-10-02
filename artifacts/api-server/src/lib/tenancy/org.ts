@@ -7,13 +7,12 @@ import {
   db, orgsTable, branchesTable, queuesTable, bookingSettingsTable, usersTable, menuCategoriesTable,
   type Org, type Branch, type WeekHours,
 } from "@workspace/db";
-import { isValidSlug, slugError, slugify, vocab, type Vertical } from "@workspace/menu-shared";
+import { isValidSlug, slugError, slugify, vocab, VERTICALS, type Vertical } from "@workspace/menu-shared";
 import { TenantError } from "./context";
 import { assertWithinLimit, assertFeature } from "../plans";
+import { defaultsFor } from "./modules";
 
 export const token = (bytes = 16) => crypto.randomBytes(bytes).toString("base64url").slice(0, Math.ceil(bytes * 4 / 3));
-
-const VERTICALS: Vertical[] = ["restaurant", "cafe", "sweets", "beauty"];
 
 /** Ten to ten every day: a starting point the owner edits, never a guess presented as fact. */
 export function defaultHours(): WeekHours {
@@ -68,12 +67,16 @@ export async function createOrg(ownerUserId: number, input: NewOrg): Promise<{ o
   }
   const template = (["noir", "cream", "clean", "rose"].includes(String(input.template)) ? input.template : v.template) as Org["theme"]["template"];
   const brand = /^#[0-9a-f]{6}$/i.test(String(input.brand)) ? String(input.brand) : v.brand;
+  // Whether this kind of shop starts with a queue and bookings is the super
+  // admin's call (modules.ts); the owner turns either on or off afterwards.
+  const modules = await defaultsFor(vertical);
 
   return db.transaction(async (tx) => {
     const [org] = await tx.insert(orgsTable).values({
       ownerUserId, name, nameEn: input.nameEn?.trim() || null, slug, vertical,
       tagline: input.tagline?.trim() || null,
       theme: { template, brand },
+      features: { queue: modules.queue, booking: modules.booking },
     }).returning();
     const [branch] = await tx.insert(branchesTable).values({
       orgId: org!.id, waUserId: ownerUserId,
@@ -86,7 +89,7 @@ export async function createOrg(ownerUserId: number, input: NewOrg): Promise<{ o
       avgServiceMin: v.avgServiceMin, askService: v.services,
     });
     await tx.insert(bookingSettingsTable).values({
-      branchId: branch!.id, enabled: false,
+      branchId: branch!.id, enabled: modules.booking,
       slotMin: v.services ? 30 : 30, capacityPerSlot: v.services ? 2 : 4,
       leadTimeMin: vertical === "sweets" ? 24 * 60 : 60, maxDaysAhead: vertical === "sweets" ? 30 : 14,
     });
@@ -145,7 +148,7 @@ export async function createBranch(org: Org, input: NewBranch): Promise<Branch> 
       orgId: org.id, branchId: branch!.id, name: v.queue[0], nameEn: v.queue[1], prefix: "A",
       avgServiceMin: v.avgServiceMin, askService: v.services,
     });
-    await tx.insert(bookingSettingsTable).values({ branchId: branch!.id });
+    await tx.insert(bookingSettingsTable).values({ branchId: branch!.id, enabled: org.features?.["booking"] === true });
     return branch!;
   });
 }

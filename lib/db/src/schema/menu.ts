@@ -395,6 +395,17 @@ export const notificationsTable = pgTable("notifications", {
   index("idx_notifications_org").on(t.orgId, t.createdAt),
 ]);
 
+// ── Platform settings ─────────────────────────────────────────────
+// The super admin's own switches, one JSON value per key — e.g.
+// `module_defaults`: which of the queue and bookings a new shop of each kind
+// starts with.
+
+export const platformSettingsTable = pgTable("platform_settings", {
+  key:       varchar("key", { length: 60 }).primaryKey(),
+  value:     jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type Org          = typeof orgsTable.$inferSelect;
 export type Branch       = typeof branchesTable.$inferSelect;
 export type Staff        = typeof staffTable.$inferSelect;

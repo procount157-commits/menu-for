@@ -24,7 +24,7 @@ const TABS: Array<{ id: Tab; label: string; icon: ReactNode }> = [
   { id: "booking", label: "الحجز", icon: <CalendarCheck className="w-3.5 h-3.5" /> },
 ];
 
-const VERTICALS: Array<[Vertical, string]> = [["restaurant", "مطعم"], ["cafe", "كافيه"], ["sweets", "حلويات"], ["beauty", "تجميل"]];
+const VERTICALS: Array<[Vertical, string]> = [["restaurant", "مطعم"], ["cafe", "كافيه"], ["sweets", "حلويات"], ["beauty", "تجميل"], ["barber", "حلاقة رجالي"]];
 const CURRENCIES: Array<[string, string]> = [["AED", "درهم إماراتي"], ["SAR", "ريال سعودي"], ["KWD", "دينار كويتي"], ["QAR", "ريال قطري"], ["BHD", "دينار بحريني"], ["OMR", "ريال عماني"], ["EGP", "جنيه مصري"], ["USD", "دولار"]];
 const TIMEZONES: Array<[string, string]> = [["Asia/Dubai", "الإمارات / عُمان"], ["Asia/Riyadh", "السعودية / الكويت / قطر / البحرين"], ["Africa/Cairo", "مصر"], ["Asia/Amman", "الأردن"], ["Europe/London", "لندن"]];
 const SOCIALS: Array<[string, string, string]> = [
@@ -40,15 +40,19 @@ function useTab(): [Tab, (t: Tab) => void] {
 
 export default function ShopSettings() {
   const [tab, setTab] = useTab();
+  const { plan } = useShop();
+  // A switched-off queue or booking has no settings worth showing.
+  const tabs = TABS.filter((t) => (t.id !== "queue" || plan.features.queue) && (t.id !== "booking" || plan.features.booking));
+  const shown: Tab = tabs.some((t) => t.id === tab) ? tab : "shop";
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-4xl" dir="rtl">
       <PageHeader icon={<Settings2 className="w-6 h-6 text-primary" />} title="المحل والفروع" sub="اسم المحل وشكله، الفروع وساعاتها، وكيف يشتغل الصف والحجز." />
-      <SegTabs tabs={TABS} value={tab} onChange={setTab} />
-      {tab === "shop" && <ShopTab />}
-      {tab === "look" && <LookTab />}
-      {tab === "branches" && <BranchesTab />}
-      {tab === "queue" && <QueueTab />}
-      {tab === "booking" && <BookingTab />}
+      <SegTabs tabs={tabs} value={shown} onChange={setTab} />
+      {shown === "shop" && <ShopTab />}
+      {shown === "look" && <LookTab />}
+      {shown === "branches" && <BranchesTab />}
+      {shown === "queue" && <QueueTab />}
+      {shown === "booking" && <BookingTab />}
     </div>
   );
 }
@@ -87,6 +91,7 @@ function ShopTab() {
 
   return (
     <div className="space-y-4">
+      <ModulesSection />
       <Section title="الاسم والتعريف">
         <div className="grid sm:grid-cols-2 gap-4">
           <Field label="اسم المحل"><input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
@@ -144,6 +149,39 @@ function ShopTab() {
 
       <SaveBar dirty={dirty} busy={save.isPending} onSave={submit} onReset={() => setF(initial())} />
     </div>
+  );
+}
+
+/**
+ * The queue and bookings, on or off for the whole shop. Many restaurants want
+ * neither: switched off, they leave the menu, the dashboard and the staff
+ * screens. Saved the moment they are flipped.
+ */
+function ModulesSection() {
+  const shop = useShop();
+  const qc = useQueryClient();
+  const [upgrade, setUpgrade] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: (p: Partial<Record<"queue" | "booking", boolean>>) => patch("/api/shop/modules", p),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: SHOP_KEY }); toast.success("انحفظ"); },
+    onError: (e) => { if (isPlanError(e)) setUpgrade(e.message); else toast.error((e as Error).message); },
+  });
+  if (shop.role !== "owner") return null;
+  const { modules, planFeatures } = shop.plan;
+  return (
+    <Section title="الخدمات المفعّلة" sub="شغّل اللي يحتاجه محلك بس. المطفأ يختفي من المنيو ومن لوحة التحكم وشاشة الموظفين.">
+      {upgrade && <div className="mb-3"><UpgradeNotice message={upgrade} onClose={() => setUpgrade(null)} /></div>}
+      <div className="divide-y divide-border">
+        <ToggleRow title={`صف الانتظار — ${shop.vocab.queue[0]}`}
+          hint={planFeatures.queue ? "الزبون ياخذ دوره من الرابط أو الـ QR ويشوف كم قدامه." : "غير متاح في خطتك."}
+          checked={modules.queue && planFeatures.queue} disabled={save.isPending}
+          onChange={(queue) => save.mutate({ queue })} />
+        <ToggleRow title={shop.vocab.booking[0]}
+          hint={planFeatures.booking ? `يطلع زر «${shop.vocab.bookCta[0]}» في المنيو. تفاصيل المواعيد من تبويب «الحجز».` : "غير متاح في خطتك."}
+          checked={modules.booking && planFeatures.booking} disabled={save.isPending}
+          onChange={(booking) => save.mutate({ booking })} />
+      </div>
+    </Section>
   );
 }
 

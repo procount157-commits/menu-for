@@ -149,7 +149,7 @@ function FeatureSwitch({ icon, title, text, on, onChange, plan }: { icon: React.
       <div className="flex-1 min-w-0">
         <div className="font-semibold text-sm">{title}</div>
         <div className="text-xs text-muted-foreground mt-1 leading-relaxed">{text}</div>
-        {plan && <div className="text-[11px] text-amber-300 mt-1">ضمن خطة «أعمال».</div>}
+        {plan && <div className="text-[11px] text-amber-300 mt-1">ضمن الخطة «الشاملة».</div>}
       </div>
       <Switch checked={on} onCheckedChange={onChange} dir="ltr" />
     </div>

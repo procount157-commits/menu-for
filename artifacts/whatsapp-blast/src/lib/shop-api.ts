@@ -56,8 +56,15 @@ export interface ShopBranch {
 export interface Plan {
   plan: string; planName: string; expired: boolean; expiresAt: string | null;
   limits: { branches: number; items: number; staff: number };
-  features: { queue: boolean; booking: boolean; notify: boolean; marketing: boolean; display: boolean; branchNumbers: boolean };
+  /** What the shop can use now: the plan, narrowed by the shop's own switches. */
+  features: PlanFeatures;
+  /** The plan alone — what the owner could switch on. */
+  planFeatures: PlanFeatures;
+  /** The shop's own queue and booking switches. */
+  modules: { queue: boolean; booking: boolean };
 }
+
+export interface PlanFeatures { queue: boolean; booking: boolean; notify: boolean; marketing: boolean; display: boolean; branchNumbers: boolean; email: boolean }
 
 export interface ShopMe {
   needsOnboarding?: false;

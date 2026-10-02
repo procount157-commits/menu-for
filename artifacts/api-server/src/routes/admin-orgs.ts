@@ -9,6 +9,7 @@ import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import { attachOwner, TenantError } from "../lib/tenancy/context";
 import { createOrg } from "../lib/tenancy/org";
+import { moduleDefaults, saveModuleDefaults, setOrgModules, MODULES } from "../lib/tenancy/modules";
 import { getStatus } from "../lib/whatsapp";
 import { publicUrl, menuPath } from "../lib/menu/urls";
 import { logger } from "../lib/logger";
@@ -149,6 +150,16 @@ router.get("/platform/stats", async (_req, res) => {
   res.json({ ...s, plans, planNames: Object.fromEntries(Object.entries(PLAN_LIMITS).map(([k, v]) => [k, v.name])) });
 });
 
+// Which kinds of shop start with the queue and bookings. Changing it affects
+// shops made from now on; existing shops keep their own switches.
+router.get("/platform/modules", async (_req, res) => {
+  res.json({ defaults: await moduleDefaults() });
+});
+
+router.put("/platform/modules", async (req, res) => {
+  res.json({ defaults: await saveModuleDefaults(req.body?.defaults ?? req.body) });
+});
+
 router.patch("/:id", async (req, res) => {
   const id = Number(req.params.id);
   const [o] = await db.select().from(orgsTable).where(eq(orgsTable.id, id)).limit(1);
@@ -158,6 +169,15 @@ router.patch("/:id", async (req, res) => {
   if (b.status === "active" || b.status === "suspended") patch.status = b.status;
   if (b.features && typeof b.features === "object") patch.features = { ...(o.features ?? {}), ...Object.fromEntries(Object.entries(b.features).filter(([, v]) => typeof v === "boolean")) };
   if (Object.keys(patch).length) await db.update(orgsTable).set(patch).where(eq(orgsTable.id, id));
+  // The queue and bookings go through the same path as the owner's own switch,
+  // so bookings switched on here open on the shop's branches too.
+  const mods = b.features && typeof b.features === "object"
+    ? Object.fromEntries(MODULES.filter((m) => typeof b.features[m] === "boolean").map((m) => [m, b.features[m] as boolean]))
+    : {};
+  if (Object.keys(mods).length) {
+    const [fresh] = await db.select().from(orgsTable).where(eq(orgsTable.id, id)).limit(1);
+    await setOrgModules(fresh!, mods);
+  }
   const up: Record<string, unknown> = {};
   if (typeof b.plan === "string" && b.plan in PLAN_LIMITS) up.plan = b.plan;
   if (b.planDays !== undefined) {

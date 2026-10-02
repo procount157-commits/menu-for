@@ -97,7 +97,7 @@ function QueueLoader() {
 
 function Counter({ queueId, queues, onPick }: { queueId: number; queues: QueueRow[]; onPick: (id: number) => void }) {
   const shop = useShop();
-  const beauty = shop.org.vertical === "beauty";
+  const beauty = shop.vocab.services;
   const now = useNow();
   const stream = useStream<View>(`/api/queue/${queueId}/stream`, { pollMs: 5_000 });
   const [view, setView] = useState<View | undefined>();

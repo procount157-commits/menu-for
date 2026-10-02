@@ -13,6 +13,7 @@ import { listTemplates, saveTemplate } from "../lib/notify/templates";
 import { recentNotifications, notifyStats } from "../lib/notify/outbox";
 import { publicUrl, menuPath, displayPath, joinKey } from "../lib/menu/urls";
 import { menuPlan } from "../lib/plans";
+import { MODULES, orgModules, setOrgModules, type Module } from "../lib/tenancy/modules";
 
 const router = Router();
 
@@ -107,6 +108,26 @@ router.patch("/wa-templates/features", requireAuth, withTenant(OWNER, async (req
   for (const k of ["reviews", "winback"]) if (typeof req.body?.[k] === "boolean") f[k] = req.body[k];
   const [o] = await db.update(orgsTable).set({ features: f }).where(eq(orgsTable.id, t.org.id)).returning();
   res.json({ features: o!.features });
+}));
+
+// ── The queue and bookings, on or off for this shop ───────────────
+// A restaurant with neither should not see either — on its menu or in its
+// dashboard. Turning bookings on opens them on every branch; a branch can
+// still close its own from the booking settings.
+
+router.patch("/shop/modules", requireAuth, withTenant(OWNER, async (req, res, t) => {
+  const plan = await menuPlan(t.org.ownerUserId);
+  const patch: Partial<Record<Module, boolean>> = {};
+  for (const k of MODULES) {
+    const v = req.body?.[k];
+    if (typeof v !== "boolean") continue;
+    if (v && !plan.planFeatures[k]) {
+      return res.status(402).json({ error: `${k === "queue" ? "الصف الرقمي" : "الحجوزات"} غير متاح في خطة ${plan.planName} — رقّ الخطة لتفعيله.`, plan: true });
+    }
+    patch[k] = v;
+  }
+  const o = await setOrgModules(t.org, patch);
+  res.json({ modules: orgModules(o), plan: await menuPlan(t.org.ownerUserId) });
 }));
 
 router.get("/notifications", requireAuth, withTenant(OWNER, async (_req, res, t) => {

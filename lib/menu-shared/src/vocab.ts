@@ -1,9 +1,11 @@
-// ── One engine, four kinds of shop ────────────────────────────────
+// ── One engine, five kinds of shop ────────────────────────────────
 // A restaurant's dish, a sweets shop's tray and a salon's service are the
 // same row; what changes is what they are called and what the shop starts
-// with. Nothing else branches on the vertical.
+// with. Nothing else branches on the vertical — except the barbershop's
+// chairs, a queue per barber, which only a barbershop is offered.
 
-export type Vertical = "restaurant" | "cafe" | "sweets" | "beauty";
+export type Vertical = "restaurant" | "cafe" | "sweets" | "beauty" | "barber";
+export const VERTICALS: readonly Vertical[] = ["restaurant", "cafe", "sweets", "beauty", "barber"];
 export type Template = "noir" | "cream" | "clean" | "rose";
 
 export interface Vocab {
@@ -50,6 +52,13 @@ export const VOCAB: Record<Vertical, Vocab> = {
     bookCta: ["احجزي موعد", "Book an appointment"], orderCta: ["احجزي على واتساب", "Book on WhatsApp"],
     services: true, template: "noir", brand: "#22c55e", avgServiceMin: 25,
     defaultCategories: [["الشعر", "Hair"], ["الأظافر", "Nails"], ["البشرة", "Skin"], ["المكياج", "Makeup"]],
+  },
+  barber: {
+    label: ["حلاقة رجالي", "Barbershop"], item: ["خدمة", "Service"], items: ["الخدمات", "Services"],
+    queue: ["الدور", "Walk-in queue"], booking: ["موعد", "Appointment"],
+    bookCta: ["احجز موعد", "Book an appointment"], orderCta: ["احجز على واتساب", "Book on WhatsApp"],
+    services: true, template: "noir", brand: "#22c55e", avgServiceMin: 20,
+    defaultCategories: [["الشعر", "Hair"], ["اللحية", "Beard"], ["العناية", "Grooming"], ["الباقات", "Packages"]],
   },
 };
 

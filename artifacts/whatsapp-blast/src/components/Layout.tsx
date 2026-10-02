@@ -15,7 +15,7 @@ import { toast } from "sonner";
 
 // Grouped: the shop first — what an owner opens every day — then WhatsApp,
 // marketing and the AI team that came from Flow Hub.
-type NavItem = { href: string; label: string; icon: any; badge?: string; owner?: boolean; feature?: "queue" | "booking" | "marketing" };
+type NavItem = { href: string; label: string; icon: any; badge?: string; owner?: boolean; feature?: "queue" | "booking" | "marketing" | "email" };
 const NAV: Array<{ title: string; items: NavItem[] }> = [
   { title: "المحل", items: [
     { href: "/shop",          label: "الرئيسية",           icon: Store },
@@ -45,7 +45,7 @@ const NAV: Array<{ title: string; items: NavItem[] }> = [
     { href: "/follow-ups",    label: "المتابعات",          icon: Clock },
     { href: "/contacts",      label: "قوائم الأرقام",     icon: Users },
     { href: "/extractor",     label: "مستخرج الأرقام",    icon: Download },
-    { href: "/email",         label: "التسويق بالبريد",    icon: Mail, owner: true },
+    { href: "/email",         label: "التسويق بالبريد",    icon: Mail, feature: "email" },
   ] },
   { title: "الفريق الذكي", items: [
     { href: "/employees",     label: "فريق البوتات",       icon: Bot },

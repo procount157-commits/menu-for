@@ -98,8 +98,8 @@ const CONTENT = {
       note: "أنت تركّز على ضيوفك، والنظام يرتّب الصف والطلبات.",
       plans: [
         { label: "الأساسية", price: "99", period: "درهم / شهر", features: ["منيو رقمي بالصور والأقسام", "الطلب على واتساب", "QR جاهز للطباعة", "عربي وإنجليزي", "فرع واحد", "3 موظفين"], cta: "اشترك الآن", highlight: false },
-        { label: "الاحترافية", price: "199", period: "درهم / شهر", badge: "الأكثر طلباً", features: ["كل مميزات الأساسية", "صف الانتظار الرقمي", "الحجوزات والطلبات المسبقة", "إشعارات واتساب «جاء دورك»", "المضيف الذكي على واتساب", "حملة أسبوعية آلية لزبائنك", "حتى 3 فروع و10 موظفين"], cta: "ابدأ الاشتراك", highlight: true },
-        { label: "الأعمال", price: "399", period: "درهم / شهر", features: ["كل مميزات الاحترافية", "فروع وموظفون بلا حد", "رقم واتساب لكل فرع", "حملات بلا حد وإعادة الاستهداف", "شاشة «الآن يُخدم»", "أولوية في الدعم"], cta: "احجز مكالمة", highlight: false },
+        { label: "الشاملة", price: "199", period: "درهم / شهر", badge: "الأكثر طلباً", features: ["كل مميزات الأساسية", "صف الانتظار الرقمي والحجوزات", "إشعارات واتساب «جاء دورك» و«طلبك جاهز»", "المضيف الذكي على واتساب", "حملات واتساب بلا حد وإعادة الاستهداف", "حملة أسبوعية آلية لزبائنك", "التسويق بالبريد الإلكتروني", "فروع وموظفون بلا حد"], cta: "ابدأ الاشتراك", highlight: true },
+        { label: "الشاملة — سنوي", price: "800", period: "درهم / سنة", badge: "وفّر 66%", features: ["كل مميزات الشاملة", "سنة كاملة بسعر 4 أشهر", "وفّر 1,588 درهم"], cta: "اشترك سنوياً", highlight: false },
       ],
     },
     testimonials: {
@@ -229,8 +229,8 @@ const CONTENT = {
       note: "You look after your guests; the system looks after the line.",
       plans: [
         { label: "Basic", price: "99", period: "AED / month", features: ["Photo menu with sections", "WhatsApp ordering", "Print-ready QR", "Arabic & English", "One branch", "3 staff"], cta: "Subscribe", highlight: false },
-        { label: "Pro", price: "199", period: "AED / month", badge: "Most popular", features: ["Everything in Basic", "Digital queue", "Bookings & pre-orders", "WhatsApp \"your turn\" alerts", "Smart WhatsApp host", "Automatic weekly campaign", "Up to 3 branches, 10 staff"], cta: "Start now", highlight: true },
-        { label: "Business", price: "399", period: "AED / month", features: ["Everything in Pro", "Unlimited branches & staff", "A WhatsApp number per branch", "Unlimited campaigns & retargeting", "\"Now serving\" screen", "Priority support"], cta: "Book a call", highlight: false },
+        { label: "Full", price: "199", period: "AED / month", badge: "Most popular", features: ["Everything in Basic", "Digital queue & bookings", "WhatsApp \"your turn\" and \"order ready\" alerts", "Smart WhatsApp host", "Unlimited WhatsApp campaigns & retargeting", "Automatic weekly campaign", "Email marketing", "Unlimited branches & staff"], cta: "Start now", highlight: true },
+        { label: "Full — yearly", price: "800", period: "AED / year", badge: "Save 66%", features: ["Everything in Full", "A full year for the price of four months", "Save AED 1,588"], cta: "Subscribe yearly", highlight: false },
       ],
     },
     testimonials: {
@@ -544,7 +544,7 @@ export default function LandingPage() {
   // The live demo shops, when this install has them.
   const [demos, setDemos] = useState<Array<{ slug: string; name: string; tagline: string; kind: string; cover: string | null; logo: string | null }>>([]);
   useEffect(() => {
-    const KIND: Record<string, [string, string]> = { restaurant: ["مطعم", "Restaurant"], cafe: ["كافيه", "Café"], sweets: ["حلويات", "Sweets"], beauty: ["صالون تجميل", "Beauty salon"] };
+    const KIND: Record<string, [string, string]> = { restaurant: ["مطعم", "Restaurant"], cafe: ["كافيه", "Café"], sweets: ["حلويات", "Sweets"], beauty: ["صالون تجميل", "Beauty salon"], barber: ["حلاقة رجالي", "Barbershop"] };
     Promise.all(DEMO_SLUGS.map((slug) => fetch(`/api/public/m/${slug}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)))
       .then((list) => setDemos(list.filter(Boolean).map((m: any) => ({
         slug: m.org.slug,

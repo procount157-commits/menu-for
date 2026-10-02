@@ -90,7 +90,8 @@ async function restaurant() {
     about: "مطعم شامي عائلي منذ 1998 — المشاوي على الفحم، الخبز من التنور، والمقبلات تُحضّر كل صباح. نستقبلكم للجلسات العائلية والعزائم.",
     logoUrl: logo?.md ?? null, coverUrl: cover?.url ?? null,
     socials: { instagram: "baitshami.demo", tiktok: "baitshami.demo" },
-    onboardedAt: new Date(), features: { reviews: true },
+    // A restaurant starts with neither; the demo shows both switched on.
+    onboardedAt: new Date(), features: { reviews: true, queue: true, booking: true },
   }).where(eq(orgsTable.id, org.id));
   await db.update(branchesTable).set({
     waPhone: "971500000001", nameEn: "Sheikh Zayed Rd",
@@ -170,6 +171,7 @@ async function sweets() {
     onboardedAt: new Date(), taglineEn: "Trays and Arabic sweets for every occasion",
     about: "حلويات شرقية تُحضّر يومياً، وصواني للمناسبات بالطلب المسبق.",
     logoUrl: logo?.md ?? null, coverUrl: cover?.url ?? null, socials: { instagram: "alreem.sweets.demo" },
+    features: { queue: true, booking: true },
   }).where(eq(orgsTable.id, org.id));
   await db.update(branchesTable).set({ waPhone: "971500000002", address: "العين — شارع خليفة", mapUrl: "https://maps.google.com/?q=Al+Ain" }).where(eq(branchesTable.id, branch.id));
   const cats = await db.select().from(menuCategoriesTable).where(eq(menuCategoriesTable.orgId, org.id));
@@ -197,7 +199,7 @@ async function salon() {
     taglineEn: "Ladies salon — hair, nails, skin and makeup",
     about: "صالون نسائي بخصوصية تامة. نستقبلكِ بموعد مسبق أو بالدور، وفريقنا يهتم بالتفاصيل.",
     logoUrl: logo?.md ?? null, coverUrl: cover?.url ?? null,
-    socials: { instagram: "lamsa.salon.demo", snapchat: "lamsa.salon.demo" }, onboardedAt: new Date(), features: { reviews: true },
+    socials: { instagram: "lamsa.salon.demo", snapchat: "lamsa.salon.demo" }, onboardedAt: new Date(), features: { reviews: true, queue: true, booking: true },
   }).where(eq(orgsTable.id, org.id));
   await db.update(branchesTable).set({
     waPhone: "971500000003", nameEn: "Al Muroor", mapUrl: "https://maps.google.com/?q=Al+Muroor+Abu+Dhabi",

@@ -11,6 +11,7 @@
 import * as XLSX from "xlsx";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { db, menuCategoriesTable, menuItemsTable } from "@workspace/db";
+import { vocab } from "@workspace/menu-shared";
 import type { Tenant } from "../tenancy/context";
 import { complete, resolveProvider } from "../llm";
 import { assertWithinLimit } from "../plans";
@@ -95,7 +96,7 @@ export async function saveRows(t: Tenant, rows: ImportRow[]): Promise<{ categori
   let sort = cats.length;
   const [{ m }] = await db.select({ m: sql<number>`coalesce(max(sort), -1)::int` }).from(menuItemsTable).where(eq(menuItemsTable.orgId, t.org.id));
   let itemSort = m + 1;
-  const kind = t.org.vertical === "beauty" ? "service" : "product";
+  const kind = vocab(t.org.vertical).services ? "service" : "product";
   await db.transaction(async (tx) => {
     for (const r of rows) {
       let categoryId: number | null = null;

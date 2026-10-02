@@ -58,7 +58,7 @@ const PLANS = [
   { value: "free",  label: "تجريبي",  icon: "⬜" },
   { value: "basic", label: "أساسي",   icon: "🔵" },
   { value: "pro",   label: "احترافي", icon: "🟡" },
-  { value: "business", label: "أعمال", icon: "🟢" },
+  { value: "business", label: "الشاملة", icon: "🟢" },
 ] as const;
 
 const PLAN_META: Record<string, { label: string; color: string; bg: string; icon: any }> = {
@@ -482,7 +482,7 @@ function CouponsPanel() {
                 <select value={form.planUpgrade} onChange={(e) => setForm({ ...form, planUpgrade: e.target.value })} className={inputCls}>
                   <option value="basic">🔵 أساسي</option>
                   <option value="pro">🟡 احترافي</option>
-                  <option value="business">🟢 أعمال</option>
+                  <option value="business">🟢 الشاملة</option>
                 </select>
               </div>
             )}

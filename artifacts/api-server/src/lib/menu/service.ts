@@ -102,7 +102,7 @@ export async function publicMenu(org: Org, branch: Branch): Promise<PublicMenu> 
     booking: plan.features.booking && bk?.enabled
       ? { enabled: true, maxParty: bk.maxParty, slotMin: bk.slotMin, maxDaysAhead: bk.maxDaysAhead, services: v.services }
       : null,
-    ordering: { enabled: !!branch.waPhone, types: org.vertical === "beauty" ? ["pickup"] : ["dine_in", "pickup", "delivery", "preorder"] },
+    ordering: { enabled: !!branch.waPhone, types: v.services ? ["pickup"] : ["dine_in", "pickup", "delivery", "preorder"] },
     whatsapp: !!wa?.connected,
   };
 }

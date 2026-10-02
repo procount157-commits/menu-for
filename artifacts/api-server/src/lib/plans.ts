@@ -10,7 +10,8 @@
 // it is renewed. Admins are never limited.
 
 import { eq, inArray, sql } from "drizzle-orm";
-import { db, pool, usersTable, contactGroupsTable, contactsTable, campaignsTable, PLAN_LIMITS } from "@workspace/db";
+import { db, pool, usersTable, orgsTable, contactGroupsTable, contactsTable, campaignsTable, PLAN_LIMITS } from "@workspace/db";
+import { orgModules } from "./tenancy/modules";
 
 export type PlanName = keyof typeof PLAN_LIMITS;
 
@@ -71,7 +72,7 @@ export async function assertCanAddContacts(userId: number, adding: number): Prom
 export async function assertCanCreateCampaign(userId: number): Promise<void> {
   const p = await planStatus(userId);
   if (p.limits.campaigns < 0) return;
-  if (p.limits.campaigns === 0) throw new PlanError("الحملات الجماعية متاحة في خطة الأعمال — رقّ الخطة لتفعيلها.");
+  if (p.limits.campaigns === 0) throw new PlanError("الحملات الجماعية متاحة في الخطة الشاملة — رقّ الخطة لتفعيلها.");
   const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(campaignsTable).where(eq(campaignsTable.userId, userId));
   if (Number(n) >= p.limits.campaigns) {
     throw new PlanError(`خطة ${AR[p.expired ? "free" : p.plan]} تسمح بـ${p.limits.campaigns} حملات ولديك ${n}. احذف حملة قديمة أو رقّ الخطة.`);
@@ -85,28 +86,46 @@ async function planHolder(userId: number): Promise<number> {
   return rows[0]?.owner ?? userId;
 }
 
-export type MenuFeature = "queue" | "booking" | "notify" | "marketing" | "display" | "branchNumbers";
+export type MenuFeature = "queue" | "booking" | "notify" | "marketing" | "display" | "branchNumbers" | "email";
 export type MenuLimit = "branches" | "items" | "staff";
 
-/** Menu For You's side of the plan, for an org owner (or any account in the org). */
+/**
+ * Menu For You's side of the plan, for an org owner (or any account in the org).
+ * `features` is what the shop can use now: the plan, narrowed by the shop's
+ * own queue and booking switches, widened by the super admin's per-shop
+ * email switch. `planFeatures` is the plan alone — what the owner could turn on.
+ */
 export async function menuPlan(userId: number) {
   const p = await planStatus(userId);
   const known = (p.plan in PLAN_LIMITS ? p.plan : "free") as PlanName;
   const l = PLAN_LIMITS[p.isAdmin ? "business" : p.expired ? "free" : known];
+  const holder = await planHolder(userId);
+  const [org] = await db.select({ features: orgsTable.features }).from(orgsTable).where(eq(orgsTable.ownerUserId, holder)).limit(1);
+  const modules = orgModules(org);
+  const planFeatures = { queue: l.queue as boolean, booking: l.booking as boolean, notify: l.notify as boolean, marketing: l.marketing as boolean, display: l.display as boolean, branchNumbers: l.branchNumbers as boolean, email: l.email as boolean };
   return {
     plan: p.plan, planName: AR[p.plan], expired: p.expired, expiresAt: p.expiresAt,
     limits: { branches: l.branches as number, items: l.items as number, staff: l.staff as number },
-    features: { queue: l.queue as boolean, booking: l.booking as boolean, notify: l.notify as boolean, marketing: l.marketing as boolean, display: l.display as boolean, branchNumbers: l.branchNumbers as boolean },
+    features: {
+      ...planFeatures,
+      queue: planFeatures.queue && modules.queue,
+      booking: planFeatures.booking && modules.booking,
+      email: planFeatures.email || org?.features?.["email"] === true,
+    },
+    planFeatures,
+    modules,
   };
 }
 
 const FEATURE_AR: Record<MenuFeature, string> = {
-  queue: "الصف الرقمي", booking: "الحجوزات", notify: "إشعارات واتساب", marketing: "الحملات", display: "شاشة العرض", branchNumbers: "رقم واتساب لكل فرع",
+  queue: "الصف الرقمي", booking: "الحجوزات", notify: "إشعارات واتساب", marketing: "الحملات", display: "شاشة العرض", branchNumbers: "رقم واتساب لكل فرع", email: "التسويق بالبريد",
 };
 
 export async function assertFeature(userId: number, f: MenuFeature): Promise<void> {
   const m = await menuPlan(userId);
-  if (!m.features[f]) throw new PlanError(`${FEATURE_AR[f]} غير متاح في خطة ${m.planName} — رقّ الخطة لتفعيله.`);
+  if (m.features[f]) return;
+  if (m.planFeatures[f]) throw new PlanError(`${FEATURE_AR[f]} مطفأ لهذا المحل — شغّله من «المحل والفروع».`);
+  throw new PlanError(`${FEATURE_AR[f]} غير متاح في خطة ${m.planName} — رقّ الخطة لتفعيله.`);
 }
 
 export async function assertWithinLimit(userId: number, what: MenuLimit, have: number): Promise<void> {

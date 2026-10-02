@@ -14,7 +14,7 @@ import {
   botEmployeesTable, agentMemoryTable, emailKnowledgeDocsTable, type EmailStep,
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
-import { assertCanSend, assertCanAddContacts, planErrorToResponse } from "../lib/plans";
+import { assertCanSend, assertCanAddContacts, planErrorToResponse, menuPlan } from "../lib/plans";
 import { getSettings, overview, startCampaign, pauseCampaign, enrolInSequence, cancelSequencesFor, recordEvent, verdictFor, signals } from "../lib/email/service";
 import { verifySettings, sendEmail, isConfigured, messageIdFor } from "../lib/email/provider";
 import { checkDomain } from "../lib/email/dns";
@@ -40,6 +40,14 @@ import { logger } from "../lib/logger";
 
 const router = Router();
 router.use(requireAuth);
+// Email marketing is part of «الشاملة», or switched on for one shop by the
+// super admin. The public half (routes/track.ts) is not behind this.
+router.use(async (req, res, next) => {
+  try {
+    if ((await menuPlan(req.session.userId!)).features.email) return next();
+    res.status(402).json({ error: "التسويق بالبريد ضمن الخطة «الشاملة» — رقّ الخطة لتفعيله.", plan: true });
+  } catch (err) { next(err); }
+});
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 60 * 1024 * 1024 } });
 
 // ── Overview ──────────────────────────────────────────────────────
