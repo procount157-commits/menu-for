@@ -17,10 +17,10 @@ const DEFAULTS: SiteSettings = {
   whatsappNumber:  "971588951186",
   salesWhatsapp:   "971588951186",
   supportWhatsapp: "971588951186",
-  heroTitleAr: "أرسل آلاف الرسائل عبر واتساب باحترافية",
-  heroTitleEn: "Scale Your WhatsApp Marketing Effortlessly",
-  heroSubAr: "وقم بإدارة حملاتك وقوائمك وعملائك من منصة واحدة.",
-  heroSubEn: "Manage campaigns, contacts and customer engagement from one platform.",
+  heroTitleAr: "منيو أنيق وصف انتظار رقمي يكلّم زبائنك على واتساب",
+  heroTitleEn: "A beautiful menu and a digital queue on WhatsApp",
+  heroSubAr: "رابط واحد أو QR على الباب: المنيو، الطلب، الدور، والحجز.",
+  heroSubEn: "One link or a QR on the door: the menu, ordering, the queue and bookings.",
 };
 
 export function readSettings(): SiteSettings {

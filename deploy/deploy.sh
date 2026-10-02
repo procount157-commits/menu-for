@@ -49,20 +49,22 @@ $PSQL -qc "create table if not exists schema_migrations (name text primary key, 
 if [ "$fresh" = 1 ]; then
   echo "→ fresh database: base schema"
   $PSQL < lib/db/migrations/000_base.sql >/dev/null
-  for f in lib/db/migrations/[0-9][0-9][0-9]_*.sql; do
+  # Flow Hub's history (001–099) is already in the base and cannot be
+  # replayed. Menu For You's own (100+) is re-runnable and seeds the starting
+  # plans, so it runs below like on any other deploy.
+  for f in lib/db/migrations/0[0-9][0-9]_*.sql; do
     $PSQL -qc "insert into schema_migrations (name) values ('$(basename "$f")') on conflict do nothing" >/dev/null
   done
-else
-  echo "→ migrations"
-  for f in lib/db/migrations/[0-9][0-9][0-9]_*.sql; do
-    n="$(basename "$f")"
-    [ "$n" = "000_base.sql" ] && continue
-    $PSQL -tAc "select 1 from schema_migrations where name = '$n'" | grep -q 1 && continue
-    echo "   $n"
-    $PSQL < "$f" >/dev/null
-    $PSQL -qc "insert into schema_migrations (name) values ('$n')" >/dev/null
-  done
 fi
+echo "→ migrations"
+for f in lib/db/migrations/[0-9][0-9][0-9]_*.sql; do
+  n="$(basename "$f")"
+  [ "$n" = "000_base.sql" ] && continue
+  $PSQL -tAc "select 1 from schema_migrations where name = '$n'" | grep -q 1 && continue
+  echo "   $n"
+  $PSQL < "$f" >/dev/null
+  $PSQL -qc "insert into schema_migrations (name) values ('$n')" >/dev/null
+done
 
 echo "→ building and restarting the app"
 docker compose build api

@@ -1,361 +1,1007 @@
-// ── The public home page ──────────────────────────────────────────
-// What a shop owner sees before signing up. Every claim here is something
-// the product does today; there are no invented numbers, ratings or
-// testimonials, and plan prices come from the admin's plan table (or say
-// «تواصل معنا» when none are set).
-
-import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { motion, useInView, useMotionValue, useSpring, AnimatePresence } from "framer-motion";
 import { Link } from "wouter";
 import { useAuth } from "@/context/AuthContext";
 import {
-  QrCode, MessageCircle, Users, CalendarDays, Store, Bot, Tv, BarChart3, Sparkles, Bell, ArrowLeft, ArrowRight,
-  CheckCircle2, UtensilsCrossed, Coffee, CakeSlice, Scissors, Languages, ChevronDown, Clock,
+  MessageCircle, Users, BarChart3, Bot, Zap, ChevronDown, Star,
+  CheckCircle2, ArrowLeft, Shield, TrendingUp, Clock, Target,
+  Smartphone, Globe, Award, Play, LayoutDashboard, Languages, UtensilsCrossed, QrCode,
 } from "lucide-react";
 
-type Lang = "ar" | "en";
-
-const C = {
+// ── Bilingual Content ──────────────────────────────────────────────
+// Everything here is something the product does today. The counters are
+// facts about the product, not usage numbers, and the «مواقف» are scenarios,
+// not customer quotes — real ones go here when there are real customers.
+const CONTENT = {
   ar: {
-    nav: { features: "المزايا", how: "كيف يعمل", plans: "الخطط", faq: "أسئلة", login: "دخول", staff: "دخول الموظفين", start: "ابدأ مجاناً", dashboard: "لوحة التحكم" },
-    hero: {
-      kicker: "للمطاعم والكافيهات والحلويات وصالونات التجميل",
-      title: ["منيو أنيق،", "وصف انتظار رقمي", "يكلّم زبائنك على واتساب"],
-      sub: "رابط واحد أو QR على الباب: الزبون يشوف المنيو بالصور، يطلب على واتساب، يحجز دوره بدون تطبيق ولا تسجيل — ويوصله «جاء دورك» على واتساب.",
-      cta: "أنشئ منيو محلك", demo: "شوف منيو تجريبي",
-      note: "بدون تطبيق للزبون · عربي وإنجليزي · يشتغل على أي جوال",
+    dir: "rtl" as const,
+    fontClass: "font-cairo",
+    nav: {
+      contact: "تواصل معنا",
+      login: "دخول",
+      start: "ابدأ مجاناً",
+      demo: "منيو تجريبي",
+      dashboard: "لوحة التحكم",
     },
-    how: {
-      title: "من الباب إلى الطاولة في ثلاث خطوات",
-      steps: [
-        { t: "يمسح الكود", d: "على الباب أو الطاولة أو من رابط أرسلته له — يفتح المنيو فوراً، بدون تحميل وبدون حساب." },
-        { t: "يحجز دوره", d: "يشوف كم قدامه والوقت التقريبي، ويتابع دوره حيّاً وهو بالسيارة أو بالمول." },
-        { t: "يوصله «جاء دورك»", d: "الموظف يضغط «التالي» — شاشة الزبون تتحول، وتوصله رسالة واتساب من رقم محلك." },
+    badge: "المنيو الرقمي والصف الرقمي عبر واتساب",
+    headline: "منيو أنيق وصف انتظار رقمي يكلّم زبائنك على واتساب",
+    sub: "رابط واحد أو QR على الباب: المنيو، الطلب، الدور، والحجز — بدون تطبيق ولا تسجيل.",
+    subEn: "Digital Menu · Digital Queue · WhatsApp",
+    ctaStart: "أنشئ منيو محلك الآن",
+    ctaDemo: "شاهد منيو تجريبي",
+    ctaContact: "تواصل مباشرة",
+    trustQuote: {
+      label: "الحقيقة التي يعرفها كل صاحب محل مزدحم",
+      text: "الزبون ما يمشي لأن الانتظار طويل — يمشي لأنه ما يعرف كم بيطول.",
+      highlight: "ما يعرف كم بيطول",
+      body: "ليلة الزحمة يقف الناس على الباب، يسألون «باقي كثير؟»، وبعضهم يمشي بدون ما يقول شيئاً. مع رقم واضح ووقت تقريبي ورسالة «جاء دورك» على واتساب، الزبون ينتظر وهو مرتاح — في سيارته أو في المول.",
+      cta: "هنا يأتي دور منيو فور يو.",
+    },
+    stats: [
+      { label: "تطبيق يحمّله الزبون", to: 0, suffix: "" },
+      { label: "رابط واحد لكل شيء",  to: 1, suffix: "" },
+      { label: "لغتان: عربي وإنجليزي", to: 2, suffix: "" },
+      { label: "قوالب جاهزة للمنيو",  to: 4, suffix: "" },
+    ],
+    industries: {
+      label: "لمن هو؟",
+      title: "مصمَّم لأربعة أنواع من المحلات",
+      body: "نفس النظام، بمصطلحات كل محل: طبق أو منتج أو خدمة، طاولة أو موعد أو طلب مسبق.",
+      items: [
+        { icon: "🍽️", title: "المطاعم", body: "منيو بالصور، طلب داخل المحل برقم الطاولة أو سفري أو توصيل، وصف انتظار للطاولات ليلة الزحمة." },
+        { icon: "☕", title: "الكافيهات", body: "دور الطلبات برقم لكل زبون، وشاشة «الآن يُخدم» على الكاونتر، ورسالة لما يجهز الطلب." },
+        { icon: "🍰", title: "محلات الحلويات", body: "صواني وكيك بالطلب المسبق: الزبون يختار الحجم ويوم الاستلام، ويوصله «طلبك جاهز»." },
+        { icon: "💅", title: "صالونات التجميل", body: "خدمات لها مدة، مواعيد بأوقات متاحة فعلاً، ودور للحضور المباشر بدون وقوف عند الاستقبال." },
+      ],
+    },
+    whyWa: {
+      title: "ثلاث خطوات من الباب إلى الطاولة",
+      sub: "الزبون يستخدم ما عنده أصلاً: كاميرا الجوال وواتساب.",
+      items: [
+        { stat: "١", label: "يمسح الكود", body: "على الباب أو الطاولة أو من رابط أرسلته له — يفتح المنيو فوراً بدون تحميل ولا حساب." },
+        { stat: "٢", label: "يحجز دوره أو يطلب", body: "يشوف كم قدامه والوقت التقريبي، أو يرسل طلبه مرتّباً على واتساب المحل." },
+        { stat: "٣", label: "يوصله «جاء دورك»", body: "الموظف يضغط «التالي» — شاشة الزبون تتحول وتوصله رسالة واتساب من رقم محلك." },
       ],
     },
     features: {
-      title: "كل اللي يحتاجه محلك في رابط واحد",
-      list: [
-        { i: "menu", t: "منيو رقمي بحركات", d: "صور تكبر عند اللمس، تصنيفات تتابع التمرير، أربعة قوالب أنيقة بألوان محلك." },
-        { i: "wa", t: "السلة تنتهي على واتساب", d: "الطلب يوصلك مرتّب برقمه وإجماليه — والسعر يحسبه الخادم، ما يقدر أحد يغيّره." },
-        { i: "queue", t: "صف انتظار رقمي", d: "رقم لكل زبون، وقت تقريبي يتعلّم من سرعة خدمتك اليوم، وزر «التالي» واحد للموظف." },
-        { i: "book", t: "حجوزات وطلبات مسبقة", d: "طاولة، موعد صالون، أو صينية ليوم الخميس — مع تذكير قبل الموعد." },
-        { i: "bot", t: "مضيف ذكي على واتساب", d: "يرد على «بكم الكنافة؟» من المنيو نفسه، ولا يخترع سعراً ولا صنفاً غير موجود." },
-        { i: "store", t: "فروع وموظفون", d: "كل فرع برابطه وصفه، ورقم واتساب له إذا تبي، وكل موظف يشوف شاشته فقط." },
-        { i: "tv", t: "شاشة «الآن يُخدم»", d: "على تلفزيون المحل: الأرقام الكبيرة، القادمون، وكود الانضمام للصف." },
-        { i: "chart", t: "تقارير صادقة", d: "متوسط الانتظار، نسبة عدم الحضور، الأصناف الأكثر طلباً — وكم كان الوقت الموعود دقيقاً." },
+      label: "المميزات",
+      title: "كل ما يحتاجه محلك في مكان واحد",
+      items: [
+        { title: "منيو رقمي بالصور والحركات", body: "أقسام مصوّرة، بطاقات للأصناف، عروض، بحث، عربي وإنجليزي — بألوان محلك وشعاره." },
+        { title: "السلة تنتهي على واتساب",   body: "الطلب يوصلك مكتوباً برقمه وإجماليه. السعر يحسبه النظام من المنيو، ما يقدر أحد يغيّره." },
+        { title: "صف انتظار رقمي",           body: "رقم لكل زبون، وقت تقريبي يتعلّم من سرعة خدمتك اليوم، وزر «التالي» واحد للموظف." },
+        { title: "حجوزات وطلبات مسبقة",      body: "طاولة، موعد صالون، أو صينية ليوم معيّن — مع تأكيد وتذكير على واتساب." },
+        { title: "مضيف ذكي على واتساب",      body: "يرد على «بكم الكنافة؟» و«متى تفتحون؟» من المنيو نفسه، ولا يخترع سعراً ولا صنفاً." },
+        { title: "فروع وموظفون",             body: "كل فرع برابطه وصفّه ورقم واتسابه إن أردت، وكل موظف يشوف شاشته فقط." },
+        { title: "شاشة «الآن يُخدم»",         body: "على تلفزيون المحل: الأرقام كبيرة، القادمون، وكود الانضمام للصف." },
+        { title: "حملات ومتابعات",           body: "عروضك تصل فقط لمن وافق عليها، مع حماية رقمك من الحظر في كل إرسال." },
+        { title: "تقارير صادقة",             body: "متوسط الانتظار، عدم الحضور، الأكثر طلباً — وكم كان الوقت الموعود دقيقاً." },
       ],
     },
-    verticals: { title: "مصمم لأربعة أنواع من المحلات", list: [["مطاعم", "طاولات، سفري، توصيل"], ["كافيهات", "دور الطلبات والاستلام"], ["حلويات", "صواني وطلبات مسبقة"], ["تجميل", "خدمات ومواعيد ودور"]] },
-    honest: {
-      title: "يحمي رقم محلك",
-      body: "الرسائل تروح فقط لزبون راسلك أولاً أو كتب رقمه بنفسه ووافق. لا رسائل لغرباء، ولا رسالة «جاء دورك» متأخرة: إذا فات وقتها تُلغى. وكل شيء يشتغل حتى لو انقطع واتساب — صفحة التذكرة حيّة دائماً.",
+    differentiators: {
+      title: "ما الذي يجعل منيو فور يو مختلفاً؟",
+      items: [
+        "الزبون لا يحمّل تطبيقاً ولا يسجّل حساباً",
+        "المنيو والصف والحجز والطلب في رابط واحد",
+        "إشعارات «جاء دورك» من رقم واتساب محلك نفسه",
+        "كل شيء يشتغل حتى لو انقطع واتساب — صفحة الدور حيّة دائماً",
+        "استيراد المنيو من Excel أو من صورة المنيو الورقي",
+        "لوحة تحكم عربية للمالك وشاشة بسيطة للموظف",
+        "طقم QR جاهز للطباعة: ملصق الكاونتر وبطاقات الطاولات",
+        "الرسائل تصل فقط لمن راسلك أو وافق — رقمك بأمان",
+      ],
     },
-    plans: { title: "الخطط", contact: "تواصل معنا", perMonth: "شهرياً", features: ["المنيو والطلب على واتساب", "الصف الرقمي", "الحجوزات", "إشعارات واتساب والمضيف الذكي", "الفروع", "الحملات والمتابعات"] },
+    pricing: {
+      label: "الاشتراكات",
+      title: "اختر الباقة المناسبة لمحلك",
+      sub: "بدون رسوم على الطلبات. بدون عمولات. ابدأ بالتجربة ثم اختر.",
+      note: "أنت تركّز على ضيوفك، والنظام يرتّب الصف والطلبات.",
+      plans: [
+        { label: "الأساسية", price: "99", period: "درهم / شهر", features: ["منيو رقمي بالصور والأقسام", "الطلب على واتساب", "QR جاهز للطباعة", "عربي وإنجليزي", "فرع واحد", "3 موظفين"], cta: "اشترك الآن", highlight: false },
+        { label: "الاحترافية", price: "199", period: "درهم / شهر", badge: "الأكثر طلباً", features: ["كل مميزات الأساسية", "صف الانتظار الرقمي", "الحجوزات والطلبات المسبقة", "إشعارات واتساب «جاء دورك»", "المضيف الذكي على واتساب", "حتى 3 فروع و10 موظفين"], cta: "ابدأ الاشتراك", highlight: true },
+        { label: "الأعمال", price: "399", period: "درهم / شهر", features: ["كل مميزات الاحترافية", "فروع وموظفون بلا حد", "رقم واتساب لكل فرع", "الحملات والمتابعات", "شاشة «الآن يُخدم»", "أولوية في الدعم"], cta: "احجز مكالمة", highlight: false },
+      ],
+    },
+    testimonials: {
+      label: "مواقف من يوم مزدحم",
+      title: "كيف يشتغل على أرض الواقع؟",
+      items: [
+        { name: "ليلة الخميس — مطعم مشويات", text: "عشرون على الباب. كل واحد يمسح الكود وياخذ رقمه ويرجع لسيارته. المضيف يضغط «التالي» وتوصل الرسالة — بدون أسماء تُنادى ولا زحمة عند المدخل." },
+        { name: "قبل العيد — محل حلويات", text: "الزبونة تختار صينية الكنافة وحجمها ويوم الاستلام من المنيو، وترسل الطلب على واتساب مكتوباً بالتاريخ والإجمالي. يوم الاستلام توصلها «طلبك جاهز»." },
+        { name: "عصر الجمعة — صالون تجميل", text: "من عندها موعد يوصلها تذكير قبله، ومن تمر بدون موعد تمسح الكود وتاخذ دورها وتطلع تشتري قهوة حتى يوصلها «جاء دورك»." },
+      ],
+    },
     faq: {
-      title: "أسئلة متكررة",
-      list: [
-        ["هل يحتاج الزبون تطبيق أو حساب؟", "لا. يفتح الرابط أو يمسح الكود ويكمل مباشرة."],
-        ["كيف يوصل الزبون إشعار دوره؟", "عند الانضمام يفتح واتساب برسالة جاهزة فيها رمز تذكرته؛ لما يرسلها نربط رقمه بالتذكرة ونرسل له لما يقرب دوره ولما يجي."],
-        ["أقدر أستخدم رقم واتساب محلي الحالي؟", "نعم، تربطه بمسح كود من لوحة التحكم. وننصح برقم مخصص للمحل لا رقمك الشخصي."],
-        ["ماذا لو انقطع واتساب؟", "المنيو والصف وصفحة التذكرة تكمل بدون أي تأثير — فقط الإشعارات تتوقف حتى يرجع الاتصال."],
-        ["هل يدعم أكثر من فرع؟", "نعم، كل فرع برابط وصف وساعات عمل خاصة، وتتنقل بينها من حساب واحد."],
+      title: "أسئلة شائعة",
+      items: [
+        { q: "هل يحتاج الزبون تطبيقاً أو حساباً؟", a: "لا. يفتح الرابط أو يمسح الكود ويكمل مباشرة من المتصفح." },
+        { q: "هل أحتاج خبرة تقنية؟", a: "لا. تكتب اسم المحل، ترفع الشعار، تضيف الأصناف — أو ترفع ملف Excel أو صورة المنيو الورقي — والكود جاهز للطباعة." },
+        { q: "كيف يوصل الزبون إشعار دوره؟", a: "عند الانضمام يفتح واتساب برسالة جاهزة فيها رمز تذكرته. لما يرسلها نربط رقمه بالتذكرة ونرسل له لما يقرب دوره ولما يجي." },
+        { q: "هل أحتاج واتساب بزنس؟", a: "لا، يعمل مع واتساب العادي. تربط رقم المحل بمسح QR من لوحة التحكم. وننصح برقم مخصص للمحل لا رقمك الشخصي." },
+        { q: "ماذا لو انقطع واتساب؟", a: "المنيو والصف وصفحة التذكرة تكمل بدون أي تأثير. فقط الإشعارات تتوقف حتى يرجع الاتصال." },
+        { q: "هل توجد رسوم على الطلبات؟", a: "لا. اشتراك شهري فقط — بدون عمولة على الطلب وبدون رسوم لكل رسالة." },
       ],
     },
-    cta: { title: "جهّز منيو محلك اليوم", sub: "اكتب اسم المحل، ارفع الشعار، أضف الأصناف — والكود جاهز للطباعة.", btn: "ابدأ مجاناً" },
-    footer: "منيو فور يو — المنيو والصف الرقمي وواتساب",
-  },
-  en: {
-    nav: { features: "Features", how: "How it works", plans: "Plans", faq: "FAQ", login: "Sign in", staff: "Staff sign-in", start: "Start free", dashboard: "Dashboard" },
-    hero: {
-      kicker: "For restaurants, cafés, sweets shops and beauty salons",
-      title: ["A beautiful menu,", "a digital queue,", "talking to guests on WhatsApp"],
-      sub: "One link or a QR on the door: guests browse the menu with photos, order on WhatsApp, and take a place in line with no app and no sign-up — then get «it's your turn» on WhatsApp.",
-      cta: "Create your menu", demo: "See a demo menu",
-      note: "No app for guests · Arabic & English · Works on any phone",
+    cta: {
+      title: "جهّز منيو محلك اليوم، وخلّ الصف يمشي لحاله.",
+      body: "اكتب اسم المحل، ارفع الشعار، أضف الأصناف — والكود جاهز للطباعة على الباب والطاولات.",
+      btnStart: "ابدأ الآن",
+      btnDemo: "احجز عرضاً مباشراً",
     },
-    how: {
-      title: "From the door to the table in three steps",
-      steps: [
-        { t: "Scan the code", d: "On the door, the table, or a link you sent — the menu opens at once, nothing to install." },
-        { t: "Join the line", d: "See how many are ahead and the estimated wait, and follow it live from the car or the mall." },
-        { t: "Get «it's your turn»", d: "Staff press Next — the guest's screen changes and a WhatsApp message arrives from your number." },
+    footer: {
+      contact: "واتساب",
+      email: "دخول الموظفين",
+      pricing: "الاشتراكات",
+      rights: `© ${new Date().getFullYear()} منيو فور يو. جميع الحقوق محفوظة.`,
+      privacy: "سياسة الخصوصية",
+      terms: "الشروط والأحكام",
+    },
+    modal: {
+      title: "العرض التوضيحي",
+      body: "تواصل معنا على واتساب ونرتّب لك عرضاً مباشراً على منيو محلك.",
+      cta: "طلب العرض على واتساب",
+      close: "إغلاق",
+    },
+  },
+
+  en: {
+    dir: "ltr" as const,
+    fontClass: "font-inter",
+    nav: {
+      contact: "Contact",
+      login: "Sign in",
+      start: "Start free",
+      demo: "Demo menu",
+      dashboard: "Dashboard",
+    },
+    badge: "Digital menu & digital queue on WhatsApp",
+    headline: "A beautiful menu and a digital queue that talks to guests on WhatsApp",
+    sub: "One link or a QR on the door: the menu, ordering, the queue and bookings — no app, no sign-up.",
+    subEn: "منيو رقمي · صف رقمي · واتساب",
+    ctaStart: "Create your menu now",
+    ctaDemo: "See a demo menu",
+    ctaContact: "Contact us",
+    trustQuote: {
+      label: "What every busy shop owner knows",
+      text: "Guests don't leave because the wait is long — they leave because they don't know how long.",
+      highlight: "they don't know how long",
+      body: "On a busy night people stand at the door asking \"much longer?\", and some walk away without a word. With a clear number, an estimated wait and a WhatsApp \"it's your turn\", guests wait at ease — in the car or the mall.",
+      cta: "That's where Menu For You comes in.",
+    },
+    stats: [
+      { label: "Apps for guests to install", to: 0, suffix: "" },
+      { label: "Link for everything",        to: 1, suffix: "" },
+      { label: "Languages: Arabic & English", to: 2, suffix: "" },
+      { label: "Ready-made menu templates",  to: 4, suffix: "" },
+    ],
+    industries: {
+      label: "Who is it for?",
+      title: "Built for four kinds of shop",
+      body: "One system in each shop's own words: dish, product or service; table, appointment or pre-order.",
+      items: [
+        { icon: "🍽️", title: "Restaurants", body: "A photo menu, dine-in by table number, takeaway or delivery, and a waitlist for busy nights." },
+        { icon: "☕", title: "Cafés", body: "An order queue with a number per guest, a \"now serving\" screen at the counter, and a message when it's ready." },
+        { icon: "🍰", title: "Sweets shops", body: "Trays and cakes by pre-order: pick a size and pickup day, then get \"your order is ready\"." },
+        { icon: "💅", title: "Beauty salons", body: "Services with durations, appointments in genuinely free slots, and a walk-in queue without standing at reception." },
+      ],
+    },
+    whyWa: {
+      title: "Three steps from the door to the table",
+      sub: "Guests use what they already have: the phone camera and WhatsApp.",
+      items: [
+        { stat: "1", label: "Scan the code", body: "On the door, the table or a link you sent — the menu opens at once, nothing to install." },
+        { stat: "2", label: "Join the line or order", body: "See how many are ahead and the estimated wait, or send a tidy order to the shop's WhatsApp." },
+        { stat: "3", label: "Get \"it's your turn\"", body: "Staff press Next — the guest's screen changes and a WhatsApp message arrives from your number." },
       ],
     },
     features: {
-      title: "Everything your shop needs, in one link",
-      list: [
-        { i: "menu", t: "An animated menu", d: "Photos that grow on tap, categories that follow the scroll, four elegant templates in your colours." },
-        { i: "wa", t: "The cart ends on WhatsApp", d: "Orders arrive neatly with a number and total — priced by the server, so nobody can change it." },
-        { i: "queue", t: "A digital queue", d: "A number per guest, a wait that learns from today's pace, and one Next button for staff." },
-        { i: "book", t: "Bookings & pre-orders", d: "A table, a salon slot, or a tray for Thursday — with a reminder before." },
-        { i: "bot", t: "A smart WhatsApp host", d: "Answers «how much is the kunafa?» from your menu, and never invents a price or a dish." },
-        { i: "store", t: "Branches & staff", d: "Each branch with its own link and queue, its own WhatsApp number if you like; each staff member sees only their screen." },
-        { i: "tv", t: "A «now serving» screen", d: "On the shop's TV: big numbers, who's next, and a code to join." },
-        { i: "chart", t: "Honest reports", d: "Average wait, no-show rate, best sellers — and how accurate the promised wait was." },
+      label: "Features",
+      title: "Everything your shop needs in one place",
+      items: [
+        { title: "A photo menu that moves",   body: "Photo sections, item cards, offers, search, Arabic and English — in your colours and logo." },
+        { title: "The cart ends on WhatsApp", body: "Orders arrive written out with a number and total. Prices come from the menu, not the browser." },
+        { title: "Digital queue",             body: "A number per guest, a wait that learns from today's pace, and one Next button for staff." },
+        { title: "Bookings & pre-orders",     body: "A table, a salon slot or a tray for a set day — confirmed and reminded on WhatsApp." },
+        { title: "Smart WhatsApp host",       body: "Answers \"how much is the kunafa?\" from your menu, and never invents a price or a dish." },
+        { title: "Branches & staff",          body: "Each branch with its link, queue and its own WhatsApp number if you like; staff see only their screen." },
+        { title: "\"Now serving\" screen",     body: "On the shop's TV: big numbers, who's next, and a code to join." },
+        { title: "Campaigns & follow-ups",    body: "Offers reach only guests who agreed, with your number protected on every send." },
+        { title: "Honest reports",            body: "Average wait, no-shows, best sellers — and how accurate the promised wait was." },
       ],
     },
-    verticals: { title: "Built for four kinds of shop", list: [["Restaurants", "Tables, takeaway, delivery"], ["Cafés", "Order & pickup queue"], ["Sweets", "Trays and pre-orders"], ["Beauty", "Services, slots, walk-ins"]] },
-    honest: {
-      title: "It protects your number",
-      body: "Messages only go to a guest who wrote to you first or typed their number and agreed. No messages to strangers, and no late «it's your turn»: if its moment passed, it's dropped. Everything keeps working if WhatsApp drops — the ticket page is always live.",
+    differentiators: {
+      title: "What makes Menu For You different?",
+      items: [
+        "Guests install nothing and create no account",
+        "Menu, queue, booking and ordering in one link",
+        "\"It's your turn\" from your own shop's WhatsApp number",
+        "Everything works even if WhatsApp drops — the ticket page is always live",
+        "Import the menu from Excel or a photo of the paper menu",
+        "An Arabic dashboard for the owner and a simple screen for staff",
+        "A print-ready QR kit: counter poster and table cards",
+        "Messages go only to guests who wrote first or agreed",
+      ],
     },
-    plans: { title: "Plans", contact: "Contact us", perMonth: "per month", features: ["Menu & WhatsApp ordering", "Digital queue", "Bookings", "WhatsApp notifications & AI host", "Branches", "Campaigns & follow-ups"] },
+    pricing: {
+      label: "Plans",
+      title: "Choose the plan for your shop",
+      sub: "No fees on orders. No commissions. Start with a trial, then choose.",
+      note: "You look after your guests; the system looks after the line.",
+      plans: [
+        { label: "Basic", price: "99", period: "AED / month", features: ["Photo menu with sections", "WhatsApp ordering", "Print-ready QR", "Arabic & English", "One branch", "3 staff"], cta: "Subscribe", highlight: false },
+        { label: "Pro", price: "199", period: "AED / month", badge: "Most popular", features: ["Everything in Basic", "Digital queue", "Bookings & pre-orders", "WhatsApp \"your turn\" alerts", "Smart WhatsApp host", "Up to 3 branches, 10 staff"], cta: "Start now", highlight: true },
+        { label: "Business", price: "399", period: "AED / month", features: ["Everything in Pro", "Unlimited branches & staff", "A WhatsApp number per branch", "Campaigns & follow-ups", "\"Now serving\" screen", "Priority support"], cta: "Book a call", highlight: false },
+      ],
+    },
+    testimonials: {
+      label: "A busy day, three shops",
+      title: "How does it work on the ground?",
+      items: [
+        { name: "Thursday night — a grill restaurant", text: "Twenty at the door. Each scans the code, takes a number and goes back to the car. The host presses Next and the message arrives — no names shouted, no crowd at the entrance." },
+        { name: "Before Eid — a sweets shop", text: "A customer picks a kunafa tray, its size and pickup day from the menu and sends the order on WhatsApp with the date and total. On the day she gets \"your order is ready\"." },
+        { name: "Friday afternoon — a beauty salon", text: "Clients with appointments get a reminder; walk-ins scan the code, take a place in line and go for a coffee until \"it's your turn\" arrives." },
+      ],
+    },
     faq: {
       title: "FAQ",
-      list: [
-        ["Do guests need an app or an account?", "No. They open the link or scan the code and carry on."],
-        ["How do guests get notified?", "When they join, WhatsApp opens with a ready message carrying their ticket code; once sent, we link their number and message them when they're close and when it's their turn."],
-        ["Can I use my shop's current WhatsApp number?", "Yes — link it by scanning a code in the dashboard. We recommend a dedicated shop number rather than a personal one."],
-        ["What if WhatsApp disconnects?", "The menu, queue and ticket page carry on unaffected — only notifications pause until it reconnects."],
-        ["Does it support several branches?", "Yes — each branch has its own link, queue and hours, all from one account."],
+      items: [
+        { q: "Do guests need an app or an account?", a: "No. They open the link or scan the code and carry on in the browser." },
+        { q: "Do I need technical skills?", a: "No. Type your shop's name, upload the logo and add items — or upload an Excel file or a photo of the paper menu — and the QR is ready to print." },
+        { q: "How do guests get notified?", a: "On joining, WhatsApp opens with a ready message carrying their ticket code. Once sent, we link their number and message them when they're close and when it's their turn." },
+        { q: "Do I need WhatsApp Business?", a: "No, ordinary WhatsApp works. Link the shop's number by scanning a QR in the dashboard. We recommend a dedicated shop number." },
+        { q: "What if WhatsApp disconnects?", a: "The menu, queue and ticket page carry on unaffected. Only notifications pause until it reconnects." },
+        { q: "Are there fees on orders?", a: "No. A monthly subscription only — no commission per order and no per-message fees." },
       ],
     },
-    cta: { title: "Set up your menu today", sub: "Type your shop's name, upload the logo, add items — the QR is ready to print.", btn: "Start free" },
-    footer: "Menu For You — the menu, the queue and WhatsApp",
+    cta: {
+      title: "Set up your menu today, and let the line run itself.",
+      body: "Type your shop's name, upload the logo, add items — and the QR is ready for the door and the tables.",
+      btnStart: "Start now",
+      btnDemo: "Book a live demo",
+    },
+    footer: {
+      contact: "WhatsApp",
+      email: "Staff sign-in",
+      pricing: "Plans",
+      rights: `© ${new Date().getFullYear()} Menu For You. All rights reserved.`,
+      privacy: "Privacy policy",
+      terms: "Terms",
+    },
+    modal: {
+      title: "Live demo",
+      body: "Message us on WhatsApp and we'll arrange a live demo on your shop's menu.",
+      cta: "Request the demo on WhatsApp",
+      close: "Close",
+    },
   },
 };
 
-const ICON: Record<string, any> = { menu: UtensilsCrossed, wa: MessageCircle, queue: Users, book: CalendarDays, bot: Bot, store: Store, tv: Tv, chart: BarChart3 };
-const VERT_ICON = [UtensilsCrossed, Coffee, CakeSlice, Scissors];
+// ── Animated Counter ──────────────────────────────────────────────
+function AnimatedCounter({ from = 0, to, suffix = "", duration = 2 }: {
+  from?: number; to: number; suffix?: string; duration?: number;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const inView = useInView(ref, { once: true, margin: "-50px" });
+  const motionVal = useMotionValue(from);
+  const spring = useSpring(motionVal, { duration: duration * 1000, bounce: 0 });
+  const [display, setDisplay] = useState(from);
 
-const fade = { initial: { opacity: 0, y: 24 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true, margin: "-60px" }, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] as any } };
-
-interface PlanRow { id: number; name: string; name_en: string | null; price: string; period: string; period_label: string | null; features: string[] | null; features_en: string[] | null; badge: string | null; is_featured: boolean }
-
-export default function LandingPage() {
-  const { user } = useAuth();
-  const [lang, setLang] = useState<Lang>(() => (localStorage.getItem("mfy:landing-lang") === "en" ? "en" : "ar"));
-  const [plans, setPlans] = useState<PlanRow[]>([]);
-  const [demo, setDemo] = useState<string | null>(null);
-  const [faq, setFaq] = useState<number | null>(0);
-  const c = C[lang];
-  const Arrow = lang === "ar" ? ArrowLeft : ArrowRight;
-
-  useEffect(() => { localStorage.setItem("mfy:landing-lang", lang); document.documentElement.dir = lang === "ar" ? "rtl" : "ltr"; return () => { document.documentElement.dir = "rtl"; }; }, [lang]);
   useEffect(() => {
-    fetch("/api/plans").then((r) => (r.ok ? r.json() : [])).then((d) => Array.isArray(d) && setPlans(d)).catch(() => {});
-    // A live demo menu, when the platform has one (DEMO_SHOP, or the seeded demo).
-    fetch("/api/public/m/bait-shami").then((r) => r.ok && setDemo("/bait-shami")).catch(() => {});
-  }, []);
+    if (inView) motionVal.set(to);
+  }, [inView, to, motionVal]);
+
+  useEffect(() => spring.on("change", (v) => setDisplay(Math.round(v))), [spring]);
+
+  return <span ref={ref}>{display.toLocaleString("en")}{suffix}</span>;
+}
+
+// ── Floating Particle ─────────────────────────────────────────────
+const PARTICLES = Array.from({ length: 18 }, (_, i) => ({
+  delay: i * 0.4,
+  x: `${5 + (i * 5.3) % 90}%`,
+  y: `${10 + (i * 7.1) % 80}%`,
+  size: 4 + (i % 5) * 3,
+}));
+
+function Particle({ delay, x, y, size }: { delay: number; x: string; y: string; size: number }) {
+  return (
+    <motion.div
+      className="absolute rounded-full bg-green-400/20 pointer-events-none"
+      style={{ left: x, top: y, width: size, height: size }}
+      animate={{ y: [0, -30, 0], opacity: [0.2, 0.6, 0.2], scale: [1, 1.3, 1] }}
+      transition={{ duration: 4 + Math.random() * 3, delay, repeat: Infinity, ease: "easeInOut" }}
+    />
+  );
+}
+
+// ── Section wrapper ───────────────────────────────────────────────
+function Section({ children, className = "", id }: {
+  children: React.ReactNode; className?: string; id?: string;
+}) {
+  const ref = useRef(null);
+  const inView = useInView(ref, { once: true, margin: "-80px" });
+  return (
+    <motion.section ref={ref} id={id}
+      initial={{ opacity: 0, y: 40 }}
+      animate={inView ? { opacity: 1, y: 0 } : {}}
+      transition={{ duration: 0.7, ease: "easeOut" }}
+      className={className}
+    >
+      {children}
+    </motion.section>
+  );
+}
+
+// ── FAQ Item ──────────────────────────────────────────────────────
+function FaqItem({ q, a }: { q: string; a: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-b border-white/10 last:border-0">
+      <button onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between py-5 text-right gap-4 group">
+        <span className="font-semibold text-white group-hover:text-green-400 transition-colors">{q}</span>
+        <ChevronDown className={`w-5 h-5 text-green-400 flex-shrink-0 transition-transform duration-300 ${open ? "rotate-180" : ""}`} />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }} className="overflow-hidden">
+            <p className="pb-5 text-white/60 text-sm leading-relaxed">{a}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Dynamic Plan type (from API) ──────────────────────────────────
+interface DynamicPlan {
+  id: number;
+  name: string;
+  name_en: string | null;
+  price: string;
+  period: string;
+  period_label: string | null;
+  features: string[];
+  features_en: string[] | null;
+  badge: string | null;
+  badge_en: string | null;
+  is_featured: boolean;
+}
+
+/** Demo shops shown on the home page; the ones that exist on this install appear. */
+const DEMO_SLUGS = ["bait-shami", "alreem-sweets", "lamsa-salon"];
+
+// ── Subscribe Modal ────────────────────────────────────────────────
+function SubscribeModal({ planName, salesWaNum, onClose, lang }: {
+  planName: string; salesWaNum: string; onClose: () => void; lang: "ar" | "en";
+}) {
+  const [name,     setName]     = useState("");
+  const [phone,    setPhone]    = useState("");
+  const [biz,      setBiz]      = useState("");
+  const [size,     setSize]     = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [sent,     setSent]     = useState(false);
+
+  const isAr = lang === "ar";
+  const bizOptions = isAr
+    ? ["مطعم", "كافيه", "محل حلويات", "صالون تجميل", "أخرى"]
+    : ["Restaurant", "Café", "Sweets shop", "Beauty salon", "Other"];
+  const sizeOptions = isAr
+    ? ["فرع واحد", "2 - 3 فروع", "4 - 10 فروع", "أكثر من 10"]
+    : ["One branch", "2 - 3 branches", "4 - 10 branches", "More than 10"];
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!phone) return;
+    setLoading(true);
+    try {
+      await fetch("/api/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, phone, planName, businessType: biz, estimatedCustomers: size }),
+      });
+    } catch {}
+    setSent(true);
+    setLoading(false);
+    const msg = isAr
+      ? `مرحباً، أريد الاشتراك في *${planName}*\n\nالاسم: ${name}\nالجوال: ${phone}\nنوع المحل: ${biz}\nالفروع: ${size}`
+      : `Hello, I want to subscribe to *${planName}*\n\nName: ${name}\nPhone: ${phone}\nBusiness: ${biz}`;
+    setTimeout(() => {
+      window.open(`https://wa.me/${salesWaNum}?text=${encodeURIComponent(msg)}`, "_blank");
+      onClose();
+    }, 1_200);
+  };
 
   return (
-    <div dir={lang === "ar" ? "rtl" : "ltr"} className="min-h-screen bg-[#050f0a] text-white overflow-x-hidden"
-      style={{ fontFamily: lang === "ar" ? "'Cairo', sans-serif" : "'Inter', sans-serif" }}>
-      <header className="sticky top-0 z-40 backdrop-blur-xl bg-black/40 border-b border-white/5">
-        <div className="max-w-6xl mx-auto px-5 h-16 flex items-center gap-6">
-          <Link href="/" className="flex items-center gap-2.5">
-            <Mark />
-            <span className="font-bold">{lang === "ar" ? "منيو فور يو" : "Menu For You"}</span>
-          </Link>
-          <nav className="hidden md:flex items-center gap-6 text-sm text-white/55">
-            <a href="#how" className="hover:text-white">{c.nav.how}</a>
-            <a href="#features" className="hover:text-white">{c.nav.features}</a>
-            <a href="#plans" className="hover:text-white">{c.nav.plans}</a>
-            <a href="#faq" className="hover:text-white">{c.nav.faq}</a>
-          </nav>
-          <div className="flex-1" />
-          <button onClick={() => setLang(lang === "ar" ? "en" : "ar")} className="h-9 px-3 rounded-lg text-sm text-white/55 hover:text-white flex items-center gap-1.5"><Languages className="w-4 h-4" />{lang === "ar" ? "EN" : "ع"}</button>
-          {user ? (
-            <Link href="/shop" className="h-10 px-4 rounded-xl bg-green-500 text-black text-sm font-semibold flex items-center">{c.nav.dashboard}</Link>
-          ) : (
-            <>
-              <Link href="/login" className="hidden sm:flex h-10 px-4 rounded-xl text-sm font-semibold items-center hover:bg-white/10">{c.nav.login}</Link>
-              <Link href="/login?register=1" className="h-10 px-4 rounded-xl bg-green-500 text-black text-sm font-semibold flex items-center">{c.nav.start}</Link>
-            </>
-          )}
-        </div>
-      </header>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" dir={isAr ? "rtl" : "ltr"}>
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+        className="relative bg-[#0c1a10] border border-green-500/30 rounded-2xl p-6 w-full max-w-md shadow-2xl shadow-green-900/40 z-10">
+        <button onClick={onClose} className="absolute top-4 left-4 text-white/40 hover:text-white text-xl leading-none">✕</button>
+        {sent ? (
+          <div className="text-center py-6">
+            <div className="w-14 h-14 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CheckCircle2 className="w-7 h-7 text-green-400" />
+            </div>
+            <p className="text-white font-bold text-lg mb-1">{isAr ? "شكراً لك!" : "Thank you!"}</p>
+            <p className="text-white/50 text-sm">{isAr ? "جاري فتح واتساب للتواصل..." : "Opening WhatsApp..."}</p>
+          </div>
+        ) : (
+          <>
+            <p className="text-green-400 text-xs font-semibold uppercase tracking-widest mb-1">{isAr ? "طلب اشتراك" : "Subscribe"}</p>
+            <h3 className="text-white font-black text-xl mb-5">{planName}</h3>
+            <form onSubmit={submit} className="space-y-3">
+              <input value={name} onChange={(e) => setName(e.target.value)}
+                placeholder={isAr ? "الاسم" : "Your name"}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-green-500/50" />
+              <input required value={phone} onChange={(e) => setPhone(e.target.value)}
+                placeholder={isAr ? "رقم الجوال *" : "Phone number *"} dir="ltr"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-green-500/50" />
+              <select value={biz} onChange={(e) => setBiz(e.target.value)}
+                className="w-full bg-[#0c1a10] border border-white/10 rounded-xl px-4 py-3 text-sm text-white/70 focus:outline-none focus:border-green-500/50">
+                <option value="">{isAr ? "نوع المحل" : "Type of shop"}</option>
+                {bizOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+              <select value={size} onChange={(e) => setSize(e.target.value)}
+                className="w-full bg-[#0c1a10] border border-white/10 rounded-xl px-4 py-3 text-sm text-white/70 focus:outline-none focus:border-green-500/50">
+                <option value="">{isAr ? "عدد الفروع" : "Number of branches"}</option>
+                {sizeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+              <button type="submit" disabled={loading || !phone}
+                className="w-full py-3.5 bg-green-500 hover:bg-green-400 disabled:opacity-50 text-black font-bold rounded-xl text-sm transition-all flex items-center justify-center gap-2">
+                {loading ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : null}
+                {isAr ? "أرسل الطلب عبر واتساب ←" : "Send Request via WhatsApp →"}
+              </button>
+            </form>
+          </>
+        )}
+      </motion.div>
+    </div>
+  );
+}
 
-      <section className="relative">
+// ── Price Card ────────────────────────────────────────────────────
+function PriceCard({ label, price, period, badge, features, cta, highlight, delay, onSubscribe }: {
+  label: string; price: string; period: string; badge?: string;
+  features: string[]; cta: string; highlight?: boolean; delay: number;
+  onSubscribe: (planLabel: string) => void;
+}) {
+  const ref = useRef(null);
+  const inView = useInView(ref, { once: true, margin: "-60px" });
+  return (
+    <motion.div ref={ref}
+      initial={{ opacity: 0, y: 50 }} animate={inView ? { opacity: 1, y: 0 } : {}}
+      transition={{ delay, duration: 0.6 }}
+      className={`relative rounded-2xl p-8 flex flex-col ${highlight
+        ? "bg-gradient-to-b from-green-600/30 to-green-900/20 border-2 border-green-400/50 shadow-2xl shadow-green-500/20"
+        : "bg-white/5 border border-white/10"}`}
+    >
+      {badge && (
+        <div className="absolute -top-4 right-6 bg-green-500 text-black text-xs font-bold px-4 py-1.5 rounded-full">
+          {badge}
+        </div>
+      )}
+      <p className="text-sm text-white/60 mb-2">{label}</p>
+      <div className="mb-1">
+        <span className="text-4xl font-black text-white">{price}</span>
+        <span className="text-white/40 text-sm mr-2">{period}</span>
+      </div>
+      <div className="h-px bg-white/10 my-6" />
+      <ul className="space-y-3 flex-1 mb-8">
+        {features.map((f, i) => (
+          <li key={i} className="flex items-start gap-2.5 text-sm text-white/70">
+            <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+            {f}
+          </li>
+        ))}
+      </ul>
+      <button onClick={() => onSubscribe(label)}
+        className={`w-full py-3.5 rounded-xl font-bold text-center text-sm transition-all cursor-pointer ${highlight
+          ? "bg-green-500 hover:bg-green-400 text-black shadow-lg shadow-green-500/30"
+          : "bg-white/10 hover:bg-white/20 text-white border border-white/20"}`}>
+        {cta}
+      </button>
+    </motion.div>
+  );
+}
+
+// ── MAIN PAGE ─────────────────────────────────────────────────────
+export default function LandingPage() {
+  const { user } = useAuth();
+  const [lang, setLang] = useState<"ar" | "en">(() =>
+    (localStorage.getItem("mfy-lang") as "ar" | "en") || "ar"
+  );
+  const [videoOpen,   setVideoOpen]   = useState(false);
+  const [waNum,       setWaNum]       = useState("971588951186");
+  const [salesWaNum,  setSalesWaNum]  = useState("971588951186");
+  const [plans,       setPlans]       = useState<DynamicPlan[]>([]);
+  const [subscribeModal, setSubscribeModal] = useState<{ open: boolean; planName: string }>({ open: false, planName: "" });
+
+  const c = CONTENT[lang];
+
+  // Save lang preference
+  useEffect(() => {
+    localStorage.setItem("mfy-lang", lang);
+  }, [lang]);
+
+  // Load settings + dynamic plans
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.whatsappNumber) setWaNum(d.whatsappNumber);
+        if (d.salesWhatsapp)  setSalesWaNum(d.salesWhatsapp);
+        else if (d.whatsappNumber) setSalesWaNum(d.whatsappNumber);
+      })
+      .catch(() => {});
+    fetch("/api/plans")
+      .then((r) => r.json())
+      .then((data: DynamicPlan[]) => { if (Array.isArray(data) && data.length) setPlans(data); })
+      .catch(() => {});
+  }, []);
+
+  // The live demo shops, when this install has them.
+  const [demos, setDemos] = useState<Array<{ slug: string; name: string; tagline: string; kind: string; cover: string | null; logo: string | null }>>([]);
+  useEffect(() => {
+    const KIND: Record<string, [string, string]> = { restaurant: ["مطعم", "Restaurant"], cafe: ["كافيه", "Café"], sweets: ["حلويات", "Sweets"], beauty: ["صالون تجميل", "Beauty salon"] };
+    Promise.all(DEMO_SLUGS.map((slug) => fetch(`/api/public/m/${slug}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)))
+      .then((list) => setDemos(list.filter(Boolean).map((m: any) => ({
+        slug: m.org.slug,
+        name: lang === "en" && m.org.nameEn ? m.org.nameEn : m.org.name,
+        tagline: (lang === "en" && m.org.taglineEn ? m.org.taglineEn : m.org.tagline) ?? "",
+        kind: (KIND[m.org.vertical] ?? KIND.restaurant!)[lang === "ar" ? 0 : 1]!,
+        cover: m.org.coverUrl, logo: m.org.logoUrl,
+      }))));
+  }, [lang]);
+
+  const openSubscribe = (planName: string) => setSubscribeModal({ open: true, planName });
+  const closeSubscribe = () => setSubscribeModal({ open: false, planName: "" });
+
+  const toggleLang = () => setLang((l) => (l === "ar" ? "en" : "ar"));
+
+  return (
+    <div
+      className={`min-h-screen bg-[#050f0a] text-white overflow-x-hidden ${c.fontClass}`}
+      dir={c.dir}
+      style={{ fontFamily: lang === "ar" ? "'Cairo', sans-serif" : "'Inter', sans-serif" }}
+    >
+      {/* ── NAV ──────────────────────────────────────────────────── */}
+      <nav className="fixed top-0 inset-x-0 z-50 backdrop-blur-xl bg-black/40 border-b border-white/5">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
+              <UtensilsCrossed className="w-4 h-4 text-black" />
+            </div>
+            <span className="font-black text-lg tracking-tight">{lang === "ar" ? "منيو فور يو" : "Menu For You"}</span>
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Language Toggle */}
+            <button onClick={toggleLang}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white/60 hover:text-white border border-white/15 hover:border-white/30 rounded-lg transition-all">
+              <Languages className="w-3.5 h-3.5" />
+              {lang === "ar" ? "EN" : "ع"}
+            </button>
+            <a href="#demos" className="hidden md:block text-sm text-white/70 hover:text-white transition-colors">{c.nav.demo}</a>
+            <a href="#pricing" className="hidden md:block text-sm text-white/70 hover:text-white transition-colors">{c.footer.pricing}</a>
+            <a href={`https://wa.me/${waNum}`} target="_blank" rel="noopener noreferrer"
+              className="hidden sm:flex items-center gap-2 text-sm text-white/70 hover:text-white transition-colors">
+              <MessageCircle className="w-4 h-4 text-green-400" />
+              {c.nav.contact}
+            </a>
+            {user ? (
+              <Link href="/shop"
+                className="flex items-center gap-1.5 px-4 py-2 bg-green-500 hover:bg-green-400 text-black font-bold text-sm rounded-lg transition-colors">
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                {c.nav.dashboard}
+              </Link>
+            ) : (
+              <>
+                <Link href="/login"
+                  className="px-3 py-2 text-sm font-semibold text-white/70 hover:text-white transition-colors">
+                  {c.nav.login}
+                </Link>
+                <Link href="/login?register=1"
+                  className="px-4 py-2 bg-green-500 hover:bg-green-400 text-black font-bold text-sm rounded-lg transition-colors">
+                  {c.nav.start}
+                </Link>
+              </>
+            )}
+          </div>
+        </div>
+      </nav>
+
+      {/* ── HERO ─────────────────────────────────────────────────── */}
+      <div className="relative min-h-screen flex items-center justify-center overflow-hidden pt-16">
         <motion.div className="absolute inset-0 pointer-events-none"
           animate={{ background: [
             "radial-gradient(ellipse 80% 60% at 50% 40%, rgba(34,197,94,0.15) 0%, transparent 70%)",
             "radial-gradient(ellipse 80% 60% at 55% 35%, rgba(16,185,129,0.18) 0%, transparent 70%)",
             "radial-gradient(ellipse 80% 60% at 45% 45%, rgba(34,197,94,0.12) 0%, transparent 70%)",
-          ] }}
-          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }} />
+          ]}}
+          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <div className="absolute inset-0 pointer-events-none">
+          {PARTICLES.map((p, i) => <Particle key={i} {...p} />)}
+        </div>
         <div className="absolute inset-0 pointer-events-none opacity-[0.04]"
-          style={{ backgroundImage: "linear-gradient(#22c55e 1px, transparent 1px), linear-gradient(90deg, #22c55e 1px, transparent 1px)", backgroundSize: "60px 60px" }} />
-        <div className="relative max-w-6xl mx-auto px-5 pt-14 pb-20 grid lg:grid-cols-[1.1fr_.9fr] gap-14 items-center">
-          <div>
-            <motion.p {...fade} className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-green-500/10 text-green-400"><Sparkles className="w-3.5 h-3.5" />{c.hero.kicker}</motion.p>
-            <motion.h1 {...fade} transition={{ ...fade.transition, delay: 0.05 }} className="mt-5 text-4xl sm:text-5xl lg:text-[56px] font-black leading-[1.15] tracking-tight">
-              {c.hero.title[0]} <span className="text-transparent bg-clip-text bg-gradient-to-l from-green-400 to-emerald-300">{c.hero.title[1]}</span><br className="hidden sm:block" /> {c.hero.title[2]}
-            </motion.h1>
-            <motion.p {...fade} transition={{ ...fade.transition, delay: 0.1 }} className="mt-5 text-lg text-white/55 leading-relaxed max-w-xl">{c.hero.sub}</motion.p>
-            <motion.div {...fade} transition={{ ...fade.transition, delay: 0.15 }} className="mt-8 flex flex-wrap gap-3">
-              <Link href={user ? "/shop" : "/login?register=1"} className="h-12 px-6 rounded-xl bg-green-500 text-black font-semibold flex items-center gap-2 shadow-lg shadow-green-500/30 hover:brightness-110 transition">{c.hero.cta}<Arrow className="w-4 h-4" /></Link>
-              {demo && <a href={demo} target="_blank" rel="noreferrer" className="h-12 px-6 rounded-xl border border-white/10 font-semibold flex items-center gap-2 hover:bg-white/10 transition"><QrCode className="w-4 h-4" />{c.hero.demo}</a>}
-            </motion.div>
-            <p className="mt-5 text-sm text-white/55">{c.hero.note}</p>
-          </div>
-          <Phones lang={lang} />
-        </div>
-      </section>
+          style={{ backgroundImage: "linear-gradient(#22c55e 1px, transparent 1px), linear-gradient(90deg, #22c55e 1px, transparent 1px)", backgroundSize: "60px 60px" }}
+        />
+        <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 text-center">
+          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
+            className="inline-flex items-center gap-2 bg-green-500/10 border border-green-500/25 rounded-full px-5 py-2 text-sm text-green-400 font-medium mb-8">
+            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            {c.badge}
+          </motion.div>
 
-      <section id="how" className="max-w-6xl mx-auto px-5 py-20">
-        <motion.h2 {...fade} className="text-3xl sm:text-4xl font-black text-center">{c.how.title}</motion.h2>
-        <div className="mt-12 grid md:grid-cols-3 gap-5">
-          {c.how.steps.map((s, i) => (
-            <motion.div key={i} {...fade} transition={{ ...fade.transition, delay: i * 0.08 }} className="relative rounded-2xl border border-white/10 bg-white/5 p-6">
-              <span className="absolute -top-4 start-6 w-9 h-9 rounded-xl bg-green-500 text-black font-bold flex items-center justify-center">{i + 1}</span>
-              <div className="mt-3 w-12 h-12 rounded-xl bg-green-500/10 text-green-400 flex items-center justify-center">{[<QrCode key="a" />, <Clock key="b" />, <Bell key="c" />][i]}</div>
-              <h3 className="mt-4 text-lg font-bold">{s.t}</h3>
-              <p className="mt-2 text-white/55 leading-relaxed">{s.d}</p>
+          <motion.h1 initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, delay: 0.1 }}
+            className="text-4xl sm:text-5xl md:text-6xl font-black leading-tight mb-4">
+            <span className="text-transparent bg-clip-text bg-gradient-to-l from-green-400 to-emerald-300">
+              {c.headline}
+            </span>
+          </motion.h1>
+
+          <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, delay: 0.2 }}
+            className="text-xl text-white/50 mb-3 font-medium">{c.sub}</motion.p>
+
+          <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, delay: 0.25 }}
+            className="text-base text-white/30 mb-10" dir={lang === "ar" ? "ltr" : "rtl"}>
+            {c.subEn}
+          </motion.p>
+
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, delay: 0.35 }}
+            className="flex flex-wrap items-center justify-center gap-4">
+            <Link href={user ? "/shop" : "/login?register=1"}
+              className="flex items-center gap-2.5 px-6 sm:px-7 py-4 bg-green-500 hover:bg-green-400 text-black font-black rounded-xl text-base transition-all shadow-2xl shadow-green-500/30 hover:shadow-green-400/40 hover:scale-105">
+              <QrCode className="w-5 h-5" />
+              {c.ctaStart}
+            </Link>
+            <a href="#demos"
+              className="flex items-center gap-2.5 px-6 sm:px-7 py-4 bg-white/8 hover:bg-white/14 border border-white/15 text-white font-bold rounded-xl text-base transition-all">
+              <Play className="w-5 h-5 text-green-400 fill-green-400" />
+              {c.ctaDemo}
+            </a>
+          </motion.div>
+
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.5 }}
+            className="absolute bottom-10 left-1/2 -translate-x-1/2">
+            <motion.div animate={{ y: [0, 8, 0] }} transition={{ duration: 1.8, repeat: Infinity }}>
+              <ChevronDown className="w-6 h-6 text-white/25" />
             </motion.div>
+          </motion.div>
+        </div>
+      </div>
+
+      {/* ── TRUST QUOTE ──────────────────────────────────────────── */}
+      <Section className="py-20 px-4 sm:px-6">
+        <div className="max-w-3xl mx-auto text-center">
+          <div className="inline-flex items-center gap-2 text-sm text-green-400 font-medium mb-6">
+            <TrendingUp className="w-4 h-4" />
+            {c.trustQuote.label}
+          </div>
+          <blockquote className="text-2xl sm:text-3xl font-bold text-white leading-relaxed mb-6">
+            "{c.trustQuote.text.split(c.trustQuote.highlight).map((part, i, arr) => (
+              i < arr.length - 1
+                ? <span key={i}>{part}<span className="text-green-400">{c.trustQuote.highlight}</span></span>
+                : <span key={i}>{part}</span>
+            ))}"
+          </blockquote>
+          <p className="text-white/50 text-base leading-relaxed max-w-2xl mx-auto">
+            {c.trustQuote.body}
+            <br /><br />
+            <strong className="text-white">{c.trustQuote.cta}</strong>
+          </p>
+        </div>
+      </Section>
+
+      {/* ── LIVE DEMOS ───────────────────────────────────────────── */}
+      {demos.length > 0 && (
+        <Section className="py-16 px-4 sm:px-6" id="demos">
+          <div className="max-w-6xl mx-auto">
+            <div className="text-center mb-12">
+              <p className="text-green-400 text-sm font-semibold uppercase tracking-widest mb-3">{lang === "ar" ? "أمثلة حيّة" : "Live examples"}</p>
+              <h2 className="text-3xl sm:text-4xl font-black text-white">{lang === "ar" ? "افتح منيو حقيقي وجرّبه بنفسك" : "Open a real menu and try it"}</h2>
+              <p className="text-white/50 mt-4 max-w-xl mx-auto">{lang === "ar" ? "تصفّح الأصناف، أضف للسلة، واحجز دورك — كما يراه زبونك." : "Browse the items, add to the cart and join the queue — just as your guest sees it."}</p>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {demos.map((d, i) => (
+                <motion.a key={d.slug} href={`/${d.slug}`} target="_blank" rel="noopener noreferrer"
+                  initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: "-60px" }} transition={{ delay: i * 0.1, duration: 0.5 }}
+                  className="group bg-white/5 border border-white/10 rounded-2xl overflow-hidden hover:border-green-500/40 transition-all duration-300">
+                  <div className="relative h-44 overflow-hidden">
+                    {d.cover && <img src={d.cover} alt="" loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />}
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#050f0a] via-transparent to-transparent" />
+                    <span className="absolute top-3 right-3 text-xs font-bold px-2.5 py-1 rounded-full bg-green-500 text-black">{d.kind}</span>
+                  </div>
+                  <div className="p-5 flex items-center gap-3">
+                    {d.logo && <img src={d.logo} alt="" className="w-12 h-12 rounded-xl object-cover -mt-10 relative border-2 border-[#050f0a]" />}
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-white truncate">{d.name}</h3>
+                      <p className="text-white/50 text-xs truncate">{d.tagline}</p>
+                    </div>
+                    <span className="text-green-400 text-sm font-bold whitespace-nowrap">{lang === "ar" ? "افتح ←" : "Open →"}</span>
+                  </div>
+                </motion.a>
+              ))}
+            </div>
+          </div>
+        </Section>
+      )}
+
+      {/* ── STATS ────────────────────────────────────────────────── */}
+      <Section className="py-16 px-4 sm:px-6 border-y border-white/5">
+        <div className="max-w-5xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-8 text-center">
+          {c.stats.map((s, i) => (
+            <div key={i}>
+              <div className="text-3xl sm:text-4xl font-black text-green-400 tabular-nums">
+                <AnimatedCounter to={s.to} suffix={s.suffix} />
+              </div>
+              <p className="text-white/50 text-sm mt-1">{s.label}</p>
+            </div>
           ))}
         </div>
-      </section>
+      </Section>
 
-      <section id="features" className="bg-white/[.02] border-y border-white/5">
-        <div className="max-w-6xl mx-auto px-5 py-20">
-          <motion.h2 {...fade} className="text-3xl sm:text-4xl font-black text-center">{c.features.title}</motion.h2>
-          <div className="mt-12 grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {c.features.list.map((f, i) => {
-              const I = ICON[f.i];
-              return (
-                <motion.div key={f.t} {...fade} transition={{ ...fade.transition, delay: (i % 4) * 0.06 }} className="rounded-2xl bg-[#050f0a] border border-white/10 p-5 hover:border-green-500/40 transition-colors">
-                  <div className="w-11 h-11 rounded-xl bg-green-500/10 text-green-400 flex items-center justify-center"><I className="w-5 h-5" /></div>
-                  <h3 className="mt-4 font-bold">{f.t}</h3>
-                  <p className="mt-1.5 text-sm text-white/55 leading-relaxed">{f.d}</p>
-                </motion.div>
-              );
-            })}
+      {/* ── INDUSTRIES ───────────────────────────────────────────── */}
+      <Section className="py-24 px-4 sm:px-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <p className="text-green-400 text-sm font-semibold uppercase tracking-widest mb-3">{c.industries.label}</p>
+            <h2 className="text-3xl sm:text-4xl font-black text-white">{c.industries.title}</h2>
+            <p className="text-white/50 mt-4 max-w-xl mx-auto">{c.industries.body}</p>
           </div>
-        </div>
-      </section>
-
-      <section className="max-w-6xl mx-auto px-5 py-20">
-        <motion.h2 {...fade} className="text-3xl sm:text-4xl font-black text-center">{c.verticals.title}</motion.h2>
-        <div className="mt-10 grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {c.verticals.list.map(([t, d], i) => {
-            const I = VERT_ICON[i]!;
-            return (
-              <motion.div key={t} {...fade} transition={{ ...fade.transition, delay: i * 0.06 }} className="rounded-2xl border border-white/10 p-6 text-center bg-gradient-to-b from-green-500/[.06] to-transparent">
-                <I className="w-8 h-8 mx-auto text-green-400" />
-                <p className="mt-3 font-bold text-lg">{t}</p>
-                <p className="text-sm text-white/55 mt-1">{d}</p>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {c.industries.items.map((item, i) => (
+              <motion.div key={i}
+                initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: "-60px" }} transition={{ delay: i * 0.1, duration: 0.5 }}
+                className="bg-white/5 border border-white/10 rounded-2xl p-6 hover:border-green-500/40 hover:bg-white/8 transition-all duration-300">
+                <div className="text-3xl mb-4">{item.icon}</div>
+                <h3 className="font-bold text-white text-lg mb-3">{item.title}</h3>
+                <p className="text-white/60 text-sm leading-relaxed">{item.body}</p>
               </motion.div>
-            );
-          })}
-        </div>
-        <motion.div {...fade} className="mt-12 rounded-3xl border border-green-500/25 bg-green-500/[.06] p-8 grid md:grid-cols-[auto_1fr] gap-6 items-start">
-          <div className="w-14 h-14 rounded-2xl bg-green-500 text-black flex items-center justify-center"><MessageCircle className="w-7 h-7" /></div>
-          <div>
-            <h3 className="text-xl font-bold">{c.honest.title}</h3>
-            <p className="mt-2 text-white/55 leading-relaxed">{c.honest.body}</p>
+            ))}
           </div>
-        </motion.div>
-      </section>
-
-      <section id="plans" className="bg-white/[.02] border-y border-white/5">
-        <div className="max-w-6xl mx-auto px-5 py-20">
-          <motion.h2 {...fade} className="text-3xl sm:text-4xl font-black text-center">{c.plans.title}</motion.h2>
-          {plans.length > 0 ? (
-            <div className="mt-12 grid md:grid-cols-3 gap-5">
-              {plans.map((p) => {
-                const feats = (lang === "en" ? p.features_en : p.features) ?? [];
-                return (
-                  <motion.div key={p.id} {...fade} className={`rounded-2xl p-6 border ${p.is_featured ? "border-green-500 bg-green-500/[.06]" : "border-white/10 bg-[#050f0a]"}`}>
-                    {p.badge && <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-green-500 text-black">{p.badge}</span>}
-                    <p className="mt-3 text-lg font-bold">{lang === "en" && p.name_en ? p.name_en : p.name}</p>
-                    <p className="mt-2"><span className="text-4xl font-black">{p.price}</span> <span className="text-white/55 text-sm">{p.period_label ?? c.plans.perMonth}</span></p>
-                    <ul className="mt-5 space-y-2.5">
-                      {feats.map((f) => <li key={f} className="flex gap-2 text-sm"><CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />{f}</li>)}
-                    </ul>
-                    <Link href="/login?register=1" className={`mt-6 h-11 rounded-xl font-semibold flex items-center justify-center ${p.is_featured ? "bg-green-500 text-black" : "border border-white/10 hover:bg-white/10"}`}>{c.nav.start}</Link>
-                  </motion.div>
-                );
-              })}
-            </div>
-          ) : (
-            <motion.div {...fade} className="mt-10 max-w-xl mx-auto rounded-2xl border border-white/10 bg-[#050f0a] p-6">
-              <ul className="space-y-3">{c.plans.features.map((f) => <li key={f} className="flex gap-2.5"><CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0" />{f}</li>)}</ul>
-              <Link href="/login?register=1" className="mt-6 h-11 rounded-xl bg-green-500 text-black font-semibold flex items-center justify-center">{c.plans.contact}</Link>
-            </motion.div>
-          )}
         </div>
-      </section>
+      </Section>
 
-      <section id="faq" className="max-w-3xl mx-auto px-5 py-20">
-        <motion.h2 {...fade} className="text-3xl sm:text-4xl font-black text-center">{c.faq.title}</motion.h2>
-        <div className="mt-10 space-y-3">
-          {c.faq.list.map(([q, a], i) => (
-            <div key={q} className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
-              <button onClick={() => setFaq(faq === i ? null : i)} className="w-full p-5 flex items-center justify-between gap-4 text-start font-semibold">
-                {q}<ChevronDown className={`w-5 h-5 flex-shrink-0 transition-transform ${faq === i ? "rotate-180" : ""}`} />
-              </button>
-              {faq === i && <p className="px-5 pb-5 text-white/55 leading-relaxed">{a}</p>}
-            </div>
-          ))}
+      {/* ── WHY WHATSAPP ─────────────────────────────────────────── */}
+      <Section className="py-20 px-4 sm:px-6 bg-gradient-to-b from-green-900/10 to-transparent">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl sm:text-4xl font-black text-white mb-4">{c.whyWa.title}</h2>
+            <p className="text-white/50 max-w-lg mx-auto">{c.whyWa.sub}</p>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-6">
+            {c.whyWa.items.map((item, i) => (
+              <motion.div key={i}
+                initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: "-60px" }} transition={{ delay: i * 0.1, duration: 0.5 }}
+                className="bg-white/5 border border-white/10 rounded-2xl p-7 text-center hover:border-green-500/30 transition-all">
+                <div className="text-4xl font-black text-green-400 mb-1">{item.stat}</div>
+                <div className="font-bold text-white mb-2">{item.label}</div>
+                <p className="text-white/50 text-sm">{item.body}</p>
+              </motion.div>
+            ))}
+          </div>
         </div>
-      </section>
+      </Section>
 
-      <section className="max-w-6xl mx-auto px-5 pb-24">
-        <motion.div {...fade} className="rounded-3xl p-10 text-center bg-gradient-to-br from-green-500 to-emerald-600 text-black">
-          <h2 className="text-3xl font-black">{c.cta.title}</h2>
-          <p className="mt-3 opacity-90">{c.cta.sub}</p>
-          <Link href={user ? "/shop" : "/login?register=1"} className="mt-7 inline-flex h-12 px-7 rounded-xl bg-black text-white font-bold items-center gap-2">{c.cta.btn}<Arrow className="w-4 h-4" /></Link>
-        </motion.div>
-      </section>
+      {/* ── FEATURES ─────────────────────────────────────────────── */}
+      <Section className="py-24 px-4 sm:px-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <p className="text-green-400 text-sm font-semibold uppercase tracking-widest mb-3">{c.features.label}</p>
+            <h2 className="text-3xl sm:text-4xl font-black text-white">{c.features.title}</h2>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {c.features.items.map((item, i) => (
+              <motion.div key={i}
+                initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }}
+                viewport={{ once: true, margin: "-60px" }} transition={{ delay: i * 0.05, duration: 0.5 }}
+                className="bg-white/5 border border-white/10 rounded-2xl p-6 hover:border-green-500/30 transition-all">
+                <div className="w-12 h-12 rounded-xl bg-green-500/15 flex items-center justify-center mb-4">
+                  <Zap className="w-6 h-6 text-green-400" />
+                </div>
+                <h3 className="font-bold text-white mb-2">{item.title}</h3>
+                <p className="text-white/55 text-sm leading-relaxed">{item.body}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </Section>
 
-      <footer className="border-t border-white/5 py-8 text-center text-sm text-white/55">
-        <div className="flex items-center justify-center gap-4">
-          <span>{c.footer}</span>
-          <Link href="/staff-login" className="hover:text-white">{c.nav.staff}</Link>
+      {/* ── DIFFERENTIATORS ──────────────────────────────────────── */}
+      <Section className="py-20 px-4 sm:px-6">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-gradient-to-br from-green-900/30 to-emerald-900/20 border border-green-500/20 rounded-3xl p-8 sm:p-12">
+            <div className="flex items-center gap-3 mb-8">
+              <Award className="w-7 h-7 text-green-400" />
+              <h2 className="text-2xl font-black text-white">{c.differentiators.title}</h2>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              {c.differentiators.items.map((item, i) => (
+                <div key={i} className="flex items-start gap-3">
+                  <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                  <span className="text-white/80 text-sm">{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* ── PRICING ──────────────────────────────────────────────── */}
+      <Section className="py-24 px-4 sm:px-6" id="pricing">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <p className="text-green-400 text-sm font-semibold uppercase tracking-widest mb-3">{c.pricing.label}</p>
+            <h2 className="text-3xl sm:text-4xl font-black text-white mb-4">{c.pricing.title}</h2>
+            <p className="text-white/50 max-w-md mx-auto text-sm">{c.pricing.sub}</p>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-6">
+            {plans.length > 0
+              ? plans.map((plan, i) => (
+                  <PriceCard key={plan.id}
+                    label={lang === "ar" ? plan.name : (plan.name_en || plan.name)}
+                    price={Number(plan.price).toLocaleString("en-US")}
+                    period={plan.period_label || plan.period}
+                    badge={lang === "ar" ? (plan.badge || undefined) : (plan.badge_en || plan.badge || undefined)}
+                    features={lang === "ar" ? plan.features : (plan.features_en || plan.features)}
+                    cta={lang === "ar" ? "اشترك الآن" : "Subscribe Now"}
+                    highlight={plan.is_featured}
+                    delay={i * 0.1}
+                    onSubscribe={openSubscribe}
+                  />
+                ))
+              : c.pricing.plans.map((plan, i) => (
+                  <PriceCard key={i} {...plan} delay={i * 0.1} onSubscribe={openSubscribe} />
+                ))
+            }
+          </div>
+          <p className="text-center text-white/30 text-sm mt-10">{c.pricing.note}</p>
+        </div>
+      </Section>
+
+      {/* ── TESTIMONIALS ─────────────────────────────────────────── */}
+      <Section className="py-20 px-4 sm:px-6 bg-gradient-to-b from-transparent to-green-900/10">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-14">
+            <p className="text-green-400 text-sm font-semibold uppercase tracking-widest mb-3">{c.testimonials.label}</p>
+            <h2 className="text-3xl font-black text-white">{c.testimonials.title}</h2>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-5">
+            {c.testimonials.items.map((t, i) => (
+              <motion.div key={i}
+                initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: "-60px" }} transition={{ delay: i * 0.1 }}
+                className="bg-white/5 border border-white/10 rounded-2xl p-6">
+                <p className="text-sm font-bold text-green-400 mb-3">{t.name}</p>
+                <p className="text-white/70 text-sm leading-relaxed">{t.text}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </Section>
+
+      {/* ── FAQ ──────────────────────────────────────────────────── */}
+      <Section className="py-24 px-4 sm:px-6">
+        <div className="max-w-3xl mx-auto">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl font-black text-white">{c.faq.title}</h2>
+          </div>
+          <div className="bg-white/3 border border-white/8 rounded-2xl p-6 sm:p-8">
+            {c.faq.items.map((item, i) => <FaqItem key={i} q={item.q} a={item.a} />)}
+          </div>
+        </div>
+      </Section>
+
+      {/* ── CTA BOTTOM ───────────────────────────────────────────── */}
+      <Section className="py-24 px-4 sm:px-6">
+        <div className="max-w-3xl mx-auto text-center">
+          <div className="relative bg-gradient-to-br from-green-600/25 to-emerald-900/20 border border-green-500/25 rounded-3xl p-8 sm:p-14 overflow-hidden">
+            <motion.div className="absolute inset-0 pointer-events-none"
+              animate={{ opacity: [0.3, 0.6, 0.3] }} transition={{ duration: 4, repeat: Infinity }}
+              style={{ background: "radial-gradient(ellipse 60% 50% at 50% 100%, rgba(34,197,94,0.2), transparent)" }}
+            />
+            <div className="relative z-10">
+              <h2 className="text-2xl sm:text-3xl font-black text-white mb-4">{c.cta.title}</h2>
+              <p className="text-white/55 mb-8 leading-relaxed">{c.cta.body}</p>
+              <div className="flex flex-wrap items-center justify-center gap-4">
+                <a href={`https://wa.me/${waNum}?text=${lang === "ar" ? "أريد الاشتراك في منيو فور يو" : "I want to subscribe to Menu For You"}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-2.5 px-7 py-4 bg-green-500 hover:bg-green-400 text-black font-black rounded-xl text-base transition-all shadow-2xl shadow-green-500/30 hover:scale-105">
+                  <MessageCircle className="w-5 h-5 fill-black" />
+                  {c.cta.btnStart}
+                </a>
+                <a href={`https://wa.me/${waNum}?text=${lang === "ar" ? "أريد حجز عرض مباشر" : "I want to book a live demo"}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-2.5 px-7 py-4 bg-white/10 hover:bg-white/18 border border-white/20 text-white font-bold rounded-xl text-base transition-all">
+                  <ArrowLeft className="w-5 h-5" />
+                  {c.cta.btnDemo}
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* ── FOOTER ───────────────────────────────────────────────── */}
+      <footer className="border-t border-white/8 py-12 px-4 sm:px-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-6 mb-8">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
+                <UtensilsCrossed className="w-4 h-4 text-black" />
+              </div>
+              <span className="font-black text-lg">{lang === "ar" ? "منيو فور يو" : "Menu For You"}</span>
+            </div>
+            <div className="flex items-center gap-5">
+              <a href={`https://wa.me/${waNum}`} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-sm text-white/50 hover:text-green-400 transition-colors">
+                <MessageCircle className="w-4 h-4" />
+                {c.footer.contact}
+              </a>
+              <a href="/staff-login" className="text-sm text-white/50 hover:text-white transition-colors">
+                {c.footer.email}
+              </a>
+              <a href="#pricing" className="text-sm text-white/50 hover:text-white transition-colors">
+                {c.footer.pricing}
+              </a>
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-white/25">
+            <p>{c.footer.rights}</p>
+            <div className="flex gap-4">
+              <a href="#" className="hover:text-white/50 transition-colors">{c.footer.privacy}</a>
+              <a href="#" className="hover:text-white/50 transition-colors">{c.footer.terms}</a>
+            </div>
+          </div>
         </div>
       </footer>
-    </div>
-  );
-}
 
-function Mark() {
-  return (
-    <span className="w-9 h-9 rounded-xl bg-green-500 text-black flex items-center justify-center">
-      <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-        <circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4.2" opacity=".6" />
-        <path d="M3.5 4.5v5M5.25 4.5v5M3.5 7h1.75M4.4 9.5v10" /><path d="M20.5 4.5c-1.3 1-1.9 2.6-1.9 4.4v2.1h1.9v8.5" />
-      </svg>
-    </span>
-  );
-}
+      {/* ── VIDEO MODAL ──────────────────────────────────────────── */}
+      <AnimatePresence>
+        {videoOpen && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setVideoOpen(false)}
+            className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-6">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }} onClick={(e) => e.stopPropagation()}
+              className="bg-white/5 border border-white/15 rounded-2xl p-8 text-center max-w-md w-full">
+              <Smartphone className="w-12 h-12 text-green-400 mx-auto mb-4" />
+              <h3 className="text-xl font-bold text-white mb-2">{c.modal.title}</h3>
+              <p className="text-white/50 text-sm mb-6">{c.modal.body}</p>
+              <a href={`https://wa.me/${waNum}?text=${lang === "ar" ? "أريد مشاهدة العرض التوضيحي" : "I want to see the demo"}`}
+                target="_blank" rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 px-6 py-3 bg-green-500 hover:bg-green-400 text-black font-bold rounded-xl text-sm transition-colors">
+                <MessageCircle className="w-4 h-4 fill-black" />
+                {c.modal.cta}
+              </a>
+              <button onClick={() => setVideoOpen(false)} className="mt-3 text-sm text-white/40 hover:text-white/70 transition-colors">
+                {c.modal.close}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-/** Two phones drawn in CSS: the menu, and a ticket being called. */
-function Phones({ lang }: { lang: Lang }) {
-  const ar = lang === "ar";
-  return (
-    <div className="relative h-[520px] hidden sm:block">
-      <motion.div initial={{ opacity: 0, y: 40, rotate: -6 }} animate={{ opacity: 1, y: 0, rotate: -6 }} transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
-        className="absolute top-4 start-0 w-[250px] h-[500px] rounded-[38px] border-[7px] border-[#1c2b24] bg-[#0b1411] shadow-2xl overflow-hidden">
-        <div className="h-32 bg-gradient-to-b from-green-500/30 to-transparent" />
-        <div className="-mt-10 px-4">
-          <div className="w-14 h-14 rounded-2xl bg-[#111d18] border-4 border-[#0b1411] flex items-center justify-center text-green-400 font-bold">ب</div>
-          <p className="mt-2 text-white font-bold">{ar ? "البيت الشامي" : "Bait Shami"}</p>
-          <p className="text-[11px] text-white/50">{ar ? "مشاوي ومناقيش على الفحم" : "Charcoal grills & manakish"}</p>
-          <div className="mt-3 flex gap-1.5">{(ar ? ["المقبلات", "المشاوي", "الحلويات"] : ["Mezze", "Grills", "Desserts"]).map((x, i) => <span key={x} className={`text-[10px] px-2.5 py-1 rounded-full ${i === 1 ? "bg-green-500 text-black" : "bg-white/5 text-white/60"}`}>{x}</span>)}</div>
-          {[[ar ? "مشاوي مشكل" : "Mixed grill", "79"], [ar ? "شيش طاووق" : "Shish tawook", "45"], [ar ? "كباب حلبي" : "Aleppo kebab", "52"]].map(([n, p]) => (
-            <div key={n} className="mt-2.5 p-2.5 rounded-xl bg-[#111d18] flex justify-between items-center">
-              <div><p className="text-[12px] text-white font-semibold">{n}</p><p className="text-[11px] text-green-400">{p} {ar ? "د.إ" : "AED"}</p></div>
-              <span className="w-6 h-6 rounded-full bg-green-500 text-black text-sm flex items-center justify-center">+</span>
-            </div>
-          ))}
-          <div className="mt-4 h-10 rounded-full bg-[#e0ebe6] flex items-center gap-2 px-1.5">
-            <span className="w-7 h-7 rounded-full bg-green-500 flex items-center justify-center"><Users className="w-3.5 h-3.5 text-black" /></span>
-            <span className="text-[11px] font-bold text-[#0b1411]">{ar ? "احجز دورك · 5 في الصف" : "Join · 5 in line"}</span>
-          </div>
-        </div>
-      </motion.div>
-      <motion.div initial={{ opacity: 0, y: 60, rotate: 5 }} animate={{ opacity: 1, y: 0, rotate: 5 }} transition={{ duration: 0.9, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
-        className="absolute top-16 end-0 w-[230px] h-[460px] rounded-[36px] border-[7px] border-[#1c2b24] bg-green-500 shadow-2xl overflow-hidden flex flex-col items-center justify-center text-[#04210f]">
-        <motion.div animate={{ y: [0, -6, 0] }} transition={{ repeat: Infinity, duration: 2.4 }} className="w-14 h-14 rounded-full bg-white/30 flex items-center justify-center"><Bell className="w-7 h-7" /></motion.div>
-        <p className="mt-4 font-bold text-lg">{ar ? "جاء دورك!" : "It's your turn!"}</p>
-        <p className="text-6xl font-black mt-2">A-27</p>
-        <div className="mt-6 mx-4 p-3 rounded-2xl bg-white/90 text-[11px] text-[#0b1f14] leading-relaxed shadow">
-          <p className="font-bold flex items-center gap-1"><MessageCircle className="w-3 h-3" /> WhatsApp</p>
-          {ar ? "🔔 جاء دورك يا سارة! رقمك A-27 — تفضّلي الحين." : "🔔 It's your turn, Sara! Number A-27 — please come in."}
-        </div>
-      </motion.div>
+      {/* ── SUBSCRIBE MODAL ──────────────────────────────────────── */}
+      <AnimatePresence>
+        {subscribeModal.open && (
+          <SubscribeModal
+            planName={subscribeModal.planName}
+            salesWaNum={salesWaNum}
+            onClose={closeSubscribe}
+            lang={lang}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

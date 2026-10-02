@@ -5,7 +5,7 @@
 // with no session at all and carry no phone numbers.
 
 import type { AddressInfo } from "node:net";
-import { eq, like } from "drizzle-orm";
+import { eq, like, sql } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { cleanup } from "./menu-fixtures";
 
@@ -198,6 +198,29 @@ r = await A.post("/api/customers/to-list");
 check("opted-in customers become a campaign list", r.status === 200 && r.json.added === 1 && r.json.total === 1, r.json);
 r = await A.post("/api/customers/to-list");
 check("…and running it again does not duplicate them", r.status === 200 && r.json.added === 0, r.json);
+
+// ── The platform admin makes a shop for a customer ───────────────
+r = await B.post("/api/admin/orgs", { name: "محل", ownerPhone: `9990073${tag}`, password: "secret123" });
+check("an owner cannot create shops on the platform", r.status === 403);
+await db.update(usersTable).set({ isAdmin: true }).where(like(usersTable.phone, `9990071${tag}%`));
+await A.get("/api/auth/me"); // the session picks up the admin flag
+r = await A.post("/api/admin/orgs", { name: "صالون جديد", nameEn: "New Salon", vertical: "beauty", ownerPhone: `9990073${tag}`, ownerName: "هدى", password: "secret123", plan: "pro", planDays: 30 });
+check("the admin creates a shop with its owner and plan", r.status === 201 && r.json.org.vertical === "beauty" && /new-salon/.test(r.json.org.slug), r.json?.org?.slug ?? r.json);
+const madeSlug = r.json.org.slug;
+r = await A.post("/api/admin/orgs", { name: "مكرر", ownerPhone: `9990073${tag}`, password: "secret123" });
+check("the same owner phone twice is refused", r.status === 409);
+const N = new Client();
+r = await N.post("/api/auth/login", { phone: `9990073${tag}`, password: "secret123" });
+const meN = (await N.get("/api/tenancy/me")).json;
+check("the new owner signs in straight into their shop, on the plan sold", r.status === 200 && meN.org?.slug === madeSlug && meN.plan.plan === "pro", meN.plan);
+r = await anon.get(`/api/public/m/${madeSlug}`);
+check("…and its menu address is live", r.status === 200 && r.json.org.vertical === "beauty");
+r = await anon.get("/api/plans");
+check("the home page gets its plans", r.status === 200 && Array.isArray(r.json) && r.json.length >= 3, r.json?.length);
+r = await anon.post("/api/leads", { name: "زائر", phone: "0501231234", planName: "الاحترافية", businessType: "مطعم" });
+check("a sign-up request from the home page is recorded", r.status === 201);
+await db.execute(sql`delete from subscription_leads where phone = '0501231234'`);
+await db.update(usersTable).set({ isAdmin: false }).where(like(usersTable.phone, `9990071${tag}%`));
 
 // ── Plan limits ──────────────────────────────────────────────────
 await db.update(usersTable).set({ plan: "basic" }).where(like(usersTable.phone, `9990072${tag}%`));

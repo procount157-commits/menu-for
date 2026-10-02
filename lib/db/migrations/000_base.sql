@@ -2578,6 +2578,89 @@ ALTER SEQUENCE public.staff_id_seq OWNED BY public.staff.id;
 
 
 --
+-- Name: subscription_leads; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.subscription_leads (
+    id integer NOT NULL,
+    name character varying(160),
+    phone character varying(40) NOT NULL,
+    plan_name character varying(120),
+    business_type character varying(80),
+    estimated_customers character varying(60),
+    notes text,
+    source character varying(40) DEFAULT 'landing'::character varying NOT NULL,
+    status character varying(20) DEFAULT 'new'::character varying NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: subscription_leads_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.subscription_leads_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: subscription_leads_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.subscription_leads_id_seq OWNED BY public.subscription_leads.id;
+
+
+--
+-- Name: subscription_plans; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.subscription_plans (
+    id integer NOT NULL,
+    name character varying(120) NOT NULL,
+    name_en character varying(120),
+    price numeric(10,2) NOT NULL,
+    period character varying(20) DEFAULT 'monthly'::character varying NOT NULL,
+    period_label character varying(60),
+    description text,
+    description_en text,
+    features jsonb DEFAULT '[]'::jsonb NOT NULL,
+    features_en jsonb DEFAULT '[]'::jsonb NOT NULL,
+    badge character varying(60),
+    badge_en character varying(60),
+    is_active boolean DEFAULT true NOT NULL,
+    is_featured boolean DEFAULT false NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    plan_key character varying(20),
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: subscription_plans_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.subscription_plans_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: subscription_plans_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.subscription_plans_id_seq OWNED BY public.subscription_plans.id;
+
+
+--
 -- Name: telegram_settings; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3243,6 +3326,20 @@ ALTER TABLE ONLY public.queues ALTER COLUMN id SET DEFAULT nextval('public.queue
 --
 
 ALTER TABLE ONLY public.staff ALTER COLUMN id SET DEFAULT nextval('public.staff_id_seq'::regclass);
+
+
+--
+-- Name: subscription_leads id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscription_leads ALTER COLUMN id SET DEFAULT nextval('public.subscription_leads_id_seq'::regclass);
+
+
+--
+-- Name: subscription_plans id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscription_plans ALTER COLUMN id SET DEFAULT nextval('public.subscription_plans_id_seq'::regclass);
 
 
 --
@@ -3945,6 +4042,22 @@ ALTER TABLE ONLY public.staff
 
 
 --
+-- Name: subscription_leads subscription_leads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscription_leads
+    ADD CONSTRAINT subscription_leads_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: subscription_plans subscription_plans_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscription_plans
+    ADD CONSTRAINT subscription_plans_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: telegram_settings telegram_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4472,6 +4585,13 @@ CREATE INDEX idx_segment_score ON public.contact_segments USING btree (user_id, 
 --
 
 CREATE UNIQUE INDEX idx_skills_name ON public.agent_skills USING btree (user_id, lower((name)::text));
+
+
+--
+-- Name: idx_subscription_leads_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_subscription_leads_status ON public.subscription_leads USING btree (status, created_at DESC);
 
 
 --

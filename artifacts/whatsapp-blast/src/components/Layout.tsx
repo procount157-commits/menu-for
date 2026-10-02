@@ -60,6 +60,10 @@ const NAV: Array<{ title: string; items: NavItem[] }> = [
   ] },
 ];
 
+// The pairing dialog opens by itself only where WhatsApp is the subject: a
+// shop owner opening their menu or queue should not be met by a QR code.
+const WA_PAGES = ["/connect", "/conversations", "/inbox", "/campaigns", "/follow-ups", "/contacts", "/extractor"];
+
 export default function Layout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const { user, logout } = useAuth();
@@ -106,7 +110,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-screen bg-background overflow-hidden" dir="rtl">
       {/* Global QR / reconnect modal — appears on any page when WA needs attention */}
-      <QrModal />
+      {WA_PAGES.some((p) => location.startsWith(p)) && <QrModal />}
 
       {navOpen && <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setNavOpen(false)} />}
       <aside className={cn(
@@ -246,7 +250,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             )}>
               <Store className="w-4 h-4 flex-shrink-0" />
-              المحلات (الإدارة)
+              إدارة المنصة — المحلات
             </Link>
           )}
           {user?.isAdmin && (
@@ -257,7 +261,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             )}>
               <Shield className="w-4 h-4 flex-shrink-0" />
-              إدارة المشتركين
+              الاشتراكات والخطط والكوبونات
             </Link>
           )}
         </nav>

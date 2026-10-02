@@ -7,7 +7,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Building2, ExternalLink, Loader2, LogIn, Search, ShieldAlert, ShieldCheck, SlidersHorizontal, Store, MessageCircle, Crown } from "lucide-react";
+import { Building2, Copy, ExternalLink, Plus, Loader2, LogIn, Search, ShieldAlert, ShieldCheck, SlidersHorizontal, Store, MessageCircle, Crown } from "lucide-react";
 import { get, patch, post, inputCls, labelCls } from "@/lib/shop-api";
 import { useAuth } from "@/context/AuthContext";
 import { Switch } from "@/components/ui/switch";
@@ -48,6 +48,7 @@ function Inner() {
   const [planF, setPlanF] = useState<string>("all");
   const [edit, setEdit] = useState<OrgRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -74,9 +75,15 @@ function Inner() {
   const s = stats.data;
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5">
-      <div>
-        <h1 className="text-xl font-bold flex items-center gap-2"><Crown className="w-5 h-5 text-primary" />المحلات على المنصة</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">كل المنشآت، خططها، ونشاطها.</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold flex items-center gap-2"><Crown className="w-5 h-5 text-primary" />المحلات على المنصة</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">كل المنشآت، خططها، ونشاطها.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <a href="/admin" className="inline-flex items-center gap-2 rounded-xl px-4 min-h-11 text-sm font-semibold bg-secondary hover:bg-secondary/70">الخطط والكوبونات والطلبات</a>
+          <Btn tone="gold" onClick={() => setCreating(true)}><Plus className="w-4 h-4" />محل جديد</Btn>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 2xl:grid-cols-8 gap-2">
@@ -179,6 +186,7 @@ function Inner() {
           </div>
         )}
 
+      <CreateDialog open={creating} onClose={() => setCreating(false)} onCreated={refresh} />
       <PlanDialog o={edit} onClose={() => setEdit(null)} onSave={async (o, body) => { if (await update(o, body, "حُفظت التغييرات")) setEdit(null); }} saving={!!edit && busy === `${edit.id}`} />
     </div>
   );
@@ -243,6 +251,82 @@ function PlanDialog({ o, onClose, onSave, saving }: { o: OrgRow | null; onClose:
         </div>
         <Btn tone="gold" className="w-full min-h-12" disabled={saving} onClick={save}>{saving && <Loader2 className="w-4 h-4 animate-spin" />}حفظ</Btn>
       </div>
+    </Modal>
+  );
+}
+
+/** A shop made for a customer: their account, their shop and their plan in one step. */
+function CreateDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
+  const empty = { name: "", nameEn: "", vertical: "restaurant", slug: "", ownerName: "", ownerPhone: "", password: "", plan: "pro", planDays: "30" };
+  const [f, setF] = useState(empty);
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState<{ menuUrl: string; loginUrl: string; phone: string; password: string; name: string } | null>(null);
+  const set = (k: keyof typeof empty) => (e: React.ChangeEvent<HTMLInputElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const genPass = () => setF((x) => ({ ...x, password: Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31]).join("") }));
+  const close = () => { setF(empty); setDone(null); onClose(); };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await post<{ menuUrl: string; loginUrl: string; ownerPhone: string }>("/api/admin/orgs", { ...f, planDays: Number(f.planDays) || 0 });
+      setDone({ menuUrl: r.menuUrl, loginUrl: r.loginUrl, phone: r.ownerPhone, password: f.password, name: f.name });
+      toast.success("تم إنشاء المحل");
+      onCreated();
+    } catch (e) { toast.error(errText(e)); }
+    finally { setSaving(false); }
+  };
+  const message = done ? `أهلاً 👋\nتم تجهيز منيو «${done.name}» على منيو فور يو.\n\nالمنيو: ${done.menuUrl}\nلوحة التحكم: ${done.loginUrl}\nرقم الدخول: ${done.phone}\nكلمة المرور: ${done.password}\n\nغيّر كلمة المرور بعد أول دخول.` : "";
+
+  return (
+    <Modal open={open} onOpenChange={(v) => !v && close()} title={done ? "المحل جاهز" : "محل جديد"} description={done ? "أرسل بيانات الدخول لصاحب المحل — تظهر هنا مرة واحدة." : "حساب صاحب المحل والمحل والخطة في خطوة واحدة."}>
+      {done ? (
+        <div className="space-y-3">
+          <pre className="whitespace-pre-wrap text-sm rounded-xl bg-secondary/60 p-4 leading-relaxed" dir="rtl">{message}</pre>
+          <div className="grid grid-cols-2 gap-2">
+            <Btn tone="gold" onClick={() => { void navigator.clipboard.writeText(message); toast.success("نُسخت الرسالة"); }}><Copy className="w-4 h-4" />نسخ الرسالة</Btn>
+            <a href={done.menuUrl} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-xl px-4 min-h-11 text-sm font-semibold bg-secondary"><ExternalLink className="w-4 h-4" />افتح المنيو</a>
+          </div>
+          <Btn className="w-full" onClick={close}>تم</Btn>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <div><label className={labelCls}>اسم المحل *</label><input className={inputCls} value={f.name} onChange={set("name")} placeholder="مطعم البيت الشامي" /></div>
+            <div><label className={labelCls}>الاسم بالإنجليزي</label><input className={inputCls} dir="ltr" value={f.nameEn} onChange={set("nameEn")} placeholder="Bait Shami" /></div>
+          </div>
+          <div>
+            <label className={labelCls}>نوع المحل</label>
+            <div className="grid grid-cols-4 gap-1.5">
+              {Object.entries(VERTICAL_AR).map(([k, l]) => (
+                <button key={k} type="button" onClick={() => setF((x) => ({ ...x, vertical: k }))} className={cn("h-11 rounded-lg text-sm", f.vertical === k ? "bg-primary text-primary-foreground font-semibold" : "bg-secondary")}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <div><label className={labelCls}>رابط المنيو (اختياري — يُقترح من الاسم)</label><input className={inputCls} dir="ltr" value={f.slug} onChange={(e) => setF((x) => ({ ...x, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") }))} placeholder="bait-shami" /></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><label className={labelCls}>اسم صاحب المحل</label><input className={inputCls} value={f.ownerName} onChange={set("ownerName")} /></div>
+            <div><label className={labelCls}>جواله (للدخول) *</label><input className={inputCls} dir="ltr" inputMode="tel" value={f.ownerPhone} onChange={set("ownerPhone")} placeholder="9715xxxxxxxx" /></div>
+          </div>
+          <div>
+            <label className={labelCls}>كلمة المرور *</label>
+            <div className="flex gap-2"><input className={inputCls} dir="ltr" value={f.password} onChange={set("password")} placeholder="6 أحرف على الأقل" /><Btn type="button" onClick={genPass}>توليد</Btn></div>
+          </div>
+          <div>
+            <label className={labelCls}>الخطة والمدة</label>
+            <div className="grid grid-cols-4 gap-1.5">
+              {Object.entries(PLAN_AR).map(([k, l]) => (
+                <button key={k} type="button" onClick={() => setF((x) => ({ ...x, plan: k }))} className={cn("h-11 rounded-lg text-sm", f.plan === k ? "bg-primary text-primary-foreground font-semibold" : "bg-secondary")}>{l}</button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              {[["14", "تجربة 14 يوم"], ["30", "شهر"], ["365", "سنة"], ["0", "بلا انتهاء"]].map(([v, l]) => (
+                <button key={v} type="button" onClick={() => setF((x) => ({ ...x, planDays: v! }))} className={cn("px-3 h-10 rounded-lg text-sm", f.planDays === v ? "bg-primary text-primary-foreground font-semibold" : "bg-secondary")}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <Btn tone="gold" className="w-full min-h-12" disabled={saving || !f.name.trim() || !f.ownerPhone.trim() || f.password.length < 6} onClick={save}>{saving && <Loader2 className="w-4 h-4 animate-spin" />}أنشئ المحل</Btn>
+        </div>
+      )}
     </Modal>
   );
 }

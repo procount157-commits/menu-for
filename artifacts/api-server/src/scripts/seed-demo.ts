@@ -8,7 +8,9 @@
 // Test credentials (local only — change them anywhere real):
 //   owner / super admin  phone 500000001   password demo1234
 //   sweets owner         phone 500000002   password demo1234
+//   salon owner          phone 500000003   password demo1234
 //   staff (restaurant)   shop  bait-shami  username cashier  password demo1234
+//   staff (salon)        shop  lamsa-salon username reception password demo1234
 
 import fs from "node:fs";
 import path from "node:path";
@@ -42,6 +44,7 @@ const PASSWORD = process.env["DEMO_PASSWORD"] ?? "demo1234";
 const OWNERS = [
   { phone: "500000001", name: "صاحب المنصة", admin: true, plan: "business" },
   { phone: "500000002", name: "ريم", admin: false, plan: "pro" },
+  { phone: "500000003", name: "نورة", admin: false, plan: "pro" },
 ];
 
 async function owner(o: typeof OWNERS[number]) {
@@ -169,7 +172,54 @@ async function sweets() {
   return org;
 }
 
+async function salon() {
+  const u = await owner(OWNERS[2]!);
+  const { org, branch } = await createOrg(u.id, {
+    name: "صالون لمسة", nameEn: "Lamsa Ladies Salon", vertical: "beauty", slug: "lamsa-salon",
+    tagline: "صالون نسائي — شعر، أظافر، بشرة ومكياج", address: "أبوظبي — شارع المرور", displayPhone: "02 000 0000",
+    withDefaultCategories: true,
+  });
+  const logo = await photo("logo-salon", "logo"), cover = await photo("cover-salon", "cover");
+  await db.update(orgsTable).set({
+    taglineEn: "Ladies salon — hair, nails, skin and makeup",
+    about: "صالون نسائي بخصوصية تامة. نستقبلكِ بموعد مسبق أو بالدور، وفريقنا يهتم بالتفاصيل.",
+    logoUrl: logo?.md ?? null, coverUrl: cover?.url ?? null,
+    socials: { instagram: "lamsa.salon.demo", snapchat: "lamsa.salon.demo" }, onboardedAt: new Date(), features: { reviews: true },
+  }).where(eq(orgsTable.id, org.id));
+  await db.update(branchesTable).set({
+    waPhone: "971500000003", nameEn: "Al Muroor", mapUrl: "https://maps.google.com/?q=Al+Muroor+Abu+Dhabi",
+    hours: { "0": { open: "10:00", close: "21:00" }, "1": { open: "10:00", close: "21:00" }, "2": { open: "10:00", close: "21:00" }, "3": { open: "10:00", close: "21:00" }, "4": { open: "10:00", close: "22:00" }, "5": { open: "14:00", close: "22:00" }, "6": { open: "10:00", close: "22:00" } },
+  }).where(eq(branchesTable.id, branch.id));
+  const cats = await db.select().from(menuCategoriesTable).where(eq(menuCategoriesTable.orgId, org.id));
+  const cat = (n: string) => cats.find((c) => c.name === n)!.id;
+  const length = [{ name: "طول الشعر", nameEn: "Hair length", required: true, min: 1, max: 1, choices: [{ name: "قصير", nameEn: "Short", priceDelta: 0 }, { name: "متوسط", nameEn: "Medium", priceDelta: 30 }, { name: "طويل", nameEn: "Long", priceDelta: 60 }] }];
+  const services = [
+    { k: "salon-haircut", categoryId: cat("الشعر"), name: "قص وتصفيف", nameEn: "Cut & blow-dry", price: "120", durationMin: 45, description: "قص حسب شكل الوجه مع غسيل وسشوار", descriptionEn: "A cut to suit your face, with wash and blow-dry", tags: ["popular"], options: length },
+    { k: "salon-color", categoryId: cat("الشعر"), name: "صبغة وهايلايت", nameEn: "Colour & highlights", price: "350", durationMin: 120, description: "صبغة كاملة أو بالياج بألوان خالية من الأمونيا", descriptionEn: "Full colour or balayage with ammonia-free colour", tags: ["chef"], options: length },
+    { k: "salon-keratin", categoryId: cat("الشعر"), name: "كيراتين وبروتين", nameEn: "Keratin treatment", price: "450", compareAtPrice: "550", durationMin: 150, description: "علاج لتنعيم الشعر يدوم حتى 3 أشهر", descriptionEn: "A smoothing treatment that lasts up to three months", tags: ["offer"], options: length },
+    { k: "salon-manicure", categoryId: cat("الأظافر"), name: "مانيكير جل", nameEn: "Gel manicure", price: "90", durationMin: 45, description: "تنظيف وبرد وطلاء جل يدوم أسبوعين", descriptionEn: "Clean, shape and gel polish that lasts two weeks", tags: ["popular"] },
+    { k: "salon-pedicure", categoryId: cat("الأظافر"), name: "باديكير سبا", nameEn: "Spa pedicure", price: "110", durationMin: 60, description: "نقع بالأملاح، تقشير، تدليك وطلاء", descriptionEn: "Salt soak, scrub, massage and polish" },
+    { k: "salon-facial", categoryId: cat("البشرة"), name: "تنظيف بشرة عميق", nameEn: "Deep cleansing facial", price: "220", durationMin: 60, description: "بخار، تقشير، ماسك وترطيب حسب نوع البشرة", descriptionEn: "Steam, exfoliation, mask and hydration for your skin type", tags: ["new"] },
+    { k: "salon-makeup", categoryId: cat("المكياج"), name: "مكياج سهرة", nameEn: "Evening makeup", price: "300", durationMin: 60, description: "مكياج كامل مع تثبيت ورموش", descriptionEn: "Full makeup with setting and lashes", tags: ["popular"] },
+    { k: "salon-bridal", categoryId: cat("المكياج"), name: "باقة العروس", nameEn: "Bridal package", price: "1800", durationMin: 240, description: "مكياج وتسريحة العروس مع تجربة مسبقة — بالحجز المسبق", descriptionEn: "Bridal makeup and hair with a trial beforehand — by booking", tags: ["preorder", "chef"] },
+  ];
+  for (const [n, { k, ...i }] of services.entries()) {
+    await db.insert(menuItemsTable).values({ orgId: org.id, kind: "service", sort: n, images: await images(k), ...i } as any);
+  }
+  await db.insert(offersTable).values([
+    { orgId: org.id, title: "باقة الدلال", titleEn: "Pamper package", body: "مانيكير + باديكير + تنظيف بشرة بسعر خاص أيام الأسبوع", bodyEn: "Manicure, pedicure and facial at a special weekday price", imageUrl: (await photo("salon-manicure"))?.url ?? null, sort: 0 },
+  ]);
+  await db.insert(staffTable).values({ orgId: org.id, branchId: branch.id, name: "استقبال", username: "reception", passwordHash: await bcrypt.hash(PASSWORD, 10), role: "staff" });
+  await db.update(bookingSettingsTable).set({ enabled: true, capacityPerSlot: 3, slotMin: 30, leadTimeMin: 60 }).where(eq(bookingSettingsTable.branchId, branch.id));
+  const [q] = await db.select().from(queuesTable).where(eq(queuesTable.branchId, branch.id));
+  const ctx = (await queueCtx(q!.id))!;
+  for (const [i, n] of ["مريم", "هند", "Sara"].entries()) await join(ctx, { name: n, partySize: 1, deviceId: `seed-salon-${i}` });
+  await rebuild(org.id);
+  return org;
+}
+
 const a = await restaurant();
 const b = await sweets();
-console.log(`seeded: /${a.slug} and /${b.slug}`);
+const c = await salon();
+console.log(`seeded: /${a.slug}, /${b.slug} and /${c.slug}`);
 process.exit(0);

@@ -4,7 +4,10 @@ import { Router } from "express";
 import { asc, desc, eq, sql } from "drizzle-orm";
 import { db, orgsTable, branchesTable, usersTable, PLAN_LIMITS } from "@workspace/db";
 import { requireAdmin } from "../lib/auth";
-import { attachOwner } from "../lib/tenancy/context";
+import bcrypt from "bcryptjs";
+import { randomUUID } from "node:crypto";
+import { attachOwner, TenantError } from "../lib/tenancy/context";
+import { createOrg } from "../lib/tenancy/org";
 import { getStatus } from "../lib/whatsapp";
 import { publicUrl, menuPath } from "../lib/menu/urls";
 import { logger } from "../lib/logger";
@@ -35,6 +38,43 @@ router.get("/", async (_req, res) => {
     waByOrg.set(b.orgId, w);
   }
   res.json(rows.map((r: any) => ({ ...r, wa: waByOrg.get(r.id) ?? { linked: 0, total: 0 }, menuUrl: publicUrl(menuPath(r.slug)) })));
+});
+
+/**
+ * Create a shop for a customer: the owner's account and the shop in one step,
+ * on the plan that was sold. The owner signs in with the phone and password
+ * given here and lands in a shop that already exists.
+ */
+router.post("/", async (req, res) => {
+  const b = req.body ?? {};
+  const phone = String(b.ownerPhone ?? "").replace(/[\s\-+()]/g, "").replace(/^00/, "");
+  if (!/^\d{7,15}$/.test(phone)) return res.status(400).json({ error: "رقم جوال صاحب المحل غير صالح" });
+  if (String(b.password ?? "").length < 6) return res.status(400).json({ error: "كلمة المرور 6 أحرف على الأقل" });
+  if (String(b.name ?? "").trim().length < 2) return res.status(400).json({ error: "اكتب اسم المحل" });
+  const [dup] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.phone, phone)).limit(1);
+  if (dup) return res.status(409).json({ error: "هذا الرقم مسجّل مسبقاً — ابحث عن محله في القائمة" });
+  const plan = typeof b.plan === "string" && b.plan in PLAN_LIMITS ? b.plan : "free";
+  const days = Number(b.planDays);
+  const [user] = await db.insert(usersTable).values({
+    phone, passwordHash: await bcrypt.hash(String(b.password), 10),
+    displayName: String(b.ownerName ?? "").trim() || null, isAdmin: false, status: "active",
+    plan, planExpiresAt: days > 0 ? new Date(Date.now() + days * 24 * 3_600_000) : null,
+    connectToken: randomUUID(),
+  }).returning();
+  try {
+    const { org, branch } = await createOrg(user!.id, {
+      name: b.name, nameEn: b.nameEn, vertical: b.vertical, slug: b.slug || undefined,
+      address: b.address, displayPhone: b.displayPhone,
+    });
+    await db.update(orgsTable).set({ onboardedAt: new Date() }).where(eq(orgsTable.id, org.id));
+    logger.info({ orgId: org.id, ownerId: user!.id, plan }, "admin created shop");
+    res.status(201).json({ org, branchId: branch.id, ownerPhone: phone, menuUrl: publicUrl(menuPath(org.slug)), loginUrl: publicUrl("/login") });
+  } catch (err) {
+    // No half-made account: the owner row goes if the shop could not be made.
+    await db.delete(usersTable).where(eq(usersTable.id, user!.id));
+    if (err instanceof TenantError) return res.status(err.status).json({ error: err.message });
+    throw err;
+  }
 });
 
 router.get("/platform/stats", async (_req, res) => {
