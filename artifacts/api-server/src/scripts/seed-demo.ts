@@ -6,7 +6,8 @@
 //   node --env-file=.env --import tsx artifacts/api-server/src/scripts/seed-demo.ts
 //
 // Test credentials (local only — change them anywhere real):
-//   owner / super admin  phone 500000001   password demo1234
+//   platform admin       phone 500000000   password demo1234   (no shop: /admin/orgs)
+//   restaurant owner     phone 500000001   password demo1234
 //   sweets owner         phone 500000002   password demo1234
 //   salon owner          phone 500000003   password demo1234
 //   staff (restaurant)   shop  bait-shami  username cashier  password demo1234
@@ -42,7 +43,7 @@ const images = async (key: string) => { const i = await photo(key); return i ? [
 
 const PASSWORD = process.env["DEMO_PASSWORD"] ?? "demo1234";
 const OWNERS = [
-  { phone: "500000001", name: "صاحب المنصة", admin: true, plan: "business" },
+  { phone: "500000001", name: "أبو خالد", admin: false, plan: "business" },
   { phone: "500000002", name: "ريم", admin: false, plan: "pro" },
   { phone: "500000003", name: "نورة", admin: false, plan: "pro" },
 ];
@@ -217,6 +218,10 @@ async function salon() {
   await rebuild(org.id);
   return org;
 }
+
+// The platform admin: runs the platform, owns no shop.
+await db.insert(usersTable).values({ phone: "500000000", passwordHash: await bcrypt.hash(PASSWORD, 10), displayName: "مدير المنصة", isAdmin: true, plan: "business" })
+  .onConflictDoUpdate({ target: usersTable.phone, set: { passwordHash: await bcrypt.hash(PASSWORD, 10), isAdmin: true, displayName: "مدير المنصة" } });
 
 const a = await restaurant();
 const b = await sweets();

@@ -74,6 +74,8 @@ export default function Layout({ children }: { children: ReactNode }) {
   const { data: shop } = useShopQuery();
   const switchBranch = useSwitchBranch();
   const plan = shop && !shop.needsOnboarding ? shop.plan : null;
+  // The platform admin without a shop sees only the platform's own pages.
+  const adminOnly = !!shop && !!shop.needsOnboarding;
 
   // Keep the browser tab alive: Wake Lock + session ping + 20-min reload
   useKeepAlive(true);
@@ -164,7 +166,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         )}
 
         {/* WhatsApp Status */}
-        <div className="px-4 py-3 border-b border-sidebar-border space-y-2">
+        <div className={cn("px-4 py-3 border-b border-sidebar-border space-y-2", adminOnly && "hidden")}>
           {/* Status pill */}
           <div className={cn(
             "flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium",
@@ -212,7 +214,8 @@ export default function Layout({ children }: { children: ReactNode }) {
 
         {/* Navigation */}
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {NAV.map((group) => {
+          {adminOnly && <p className="px-3 pt-2 pb-1 text-[10px] font-semibold tracking-wide text-muted-foreground/70">إدارة المنصة</p>}
+          {!adminOnly && NAV.map((group) => {
             const items = group.items.filter((it) => (!it.owner || user?.isAdmin) && (!it.feature || !plan || plan.features[it.feature] || it.feature === "marketing"));
             if (!items.length) return null;
             return (
@@ -251,6 +254,17 @@ export default function Layout({ children }: { children: ReactNode }) {
             )}>
               <Store className="w-4 h-4 flex-shrink-0" />
               إدارة المنصة — المحلات
+            </Link>
+          )}
+          {adminOnly && (
+            <Link href="/email" className={cn(
+              "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer",
+              location.startsWith("/email")
+                ? "bg-primary/15 text-primary border border-primary/20"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            )}>
+              <Mail className="w-4 h-4 flex-shrink-0" />
+              التسويق بالبريد
             </Link>
           )}
           {user?.isAdmin && (

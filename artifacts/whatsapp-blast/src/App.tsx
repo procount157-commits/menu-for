@@ -190,10 +190,28 @@ function ShopGate({ children }: { children: React.ReactNode }) {
     );
   }
   if (data.needsOnboarding) {
-    if (user?.isAdmin && (location.pathname.startsWith("/admin"))) return <>{children}</>;
+    // The platform admin runs the platform, not a shop: they get the admin
+    // pages, never the "make your shop" wizard.
+    if (user?.isAdmin) return <AdminOnlyRoutes />;
     return <Onboarding />;
   }
   return <>{children}</>;
+}
+
+/** The platform admin with no shop of their own: shops, plans, coupons, requests, email. */
+function AdminOnlyRoutes() {
+  return (
+    <Layout>
+      <Switch>
+        <Route path="/admin/orgs"     component={AdminOrgs} />
+        <Route path="/admin"          component={AdminPage} />
+        <Route path="/email/:tab/:id" component={EmailMarketing} />
+        <Route path="/email/:tab?"    component={EmailMarketing} />
+        <Route path="/settings"       component={Settings} />
+        <Route><Redirect to="/admin/orgs" /></Route>
+      </Switch>
+    </Layout>
+  );
 }
 
 /** Staff and managers: the queue, orders and bookings, in their own shell. */
