@@ -1,26 +1,28 @@
 @import "tailwindcss";
 
-@import "@fontsource/ibm-plex-sans-arabic/400.css";
-@import "@fontsource/ibm-plex-sans-arabic/500.css";
-@import "@fontsource/ibm-plex-sans-arabic/600.css";
-@import "@fontsource/ibm-plex-sans-arabic/700.css";
-@import "@fontsource/reem-kufi/500.css";
-@import "@fontsource/reem-kufi/700.css";
+/* Cairo — the font of the dashboard and of Flow Hub — self-hosted. */
+@import "@fontsource/cairo/400.css";
+@import "@fontsource/cairo/500.css";
+@import "@fontsource/cairo/600.css";
+@import "@fontsource/cairo/700.css";
+@import "@fontsource/cairo/800.css";
+@import "@fontsource/cairo/900.css";
+
 
 /* ── Tokens ─────────────────────────────────────────────────────
    Set per shop by lib/theme.ts from the org's template and brand colour.
-   These defaults are the noir template, so the page never flashes white. */
+   These defaults are Flow Hub's deep green, so the page never flashes white. */
 :root {
-  --bg: #0d0c0a;
-  --surface: #17150f;
-  --surface-2: #1f1c15;
-  --text: #f4efe4;
-  --muted: #a59d8b;
-  --line: rgba(244, 239, 228, 0.09);
-  --brand: #c9a24a;
-  --brand-ink: #1a1305;
-  --brand-soft: rgba(201, 162, 74, 0.14);
-  --ok: #3fbf7f;
+  --bg: #0b1411;
+  --surface: #111d18;
+  --surface-2: #17261f;
+  --text: #e0ebe6;
+  --muted: #81988c;
+  --line: rgba(255, 255, 255, 0.08);
+  --brand: #22c55e;
+  --brand-ink: #04150b;
+  --brand-soft: rgba(34, 197, 94, 0.14);
+  --ok: #22c55e;
   --danger: #e5484d;
   --radius: 18px;
   --shadow: 0 10px 40px -12px rgba(0, 0, 0, 0.55);
@@ -41,8 +43,8 @@
   --color-brand-soft: var(--brand-soft);
   --color-ok: var(--ok);
   --color-danger: var(--danger);
-  --font-sans: "IBM Plex Sans Arabic", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Reem Kufi", "IBM Plex Sans Arabic", serif;
+  --font-sans: "Cairo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Cairo", system-ui, sans-serif;
 }
 
 html, body {
@@ -56,7 +58,7 @@ html, body {
 body { overscroll-behavior-y: none; }
 html[dir="ltr"] body { letter-spacing: 0.005em; }
 
-.font-display { font-family: var(--font-display); letter-spacing: 0; }
+.font-display { font-family: var(--font-display); font-weight: 900; letter-spacing: -0.01em; }
 .tabular { font-variant-numeric: tabular-nums; }
 .no-scrollbar { scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -65,7 +67,7 @@ html[dir="ltr"] body { letter-spacing: 0.005em; }
 /* ── Motion ─────────────────────────────────────────────────────
    transform and opacity only: smooth on a three-year-old Android. */
 
-.reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.6s var(--ease-out), transform 0.6s var(--ease-out); transition-delay: calc(var(--i, 0) * 45ms); }
+.reveal { opacity: 0; transform: translateY(12px); transition: opacity 0.45s var(--ease-out), transform 0.45s var(--ease-out); transition-delay: calc(var(--i, 0) * 35ms); }
 .reveal.in { opacity: 1; transform: none; }
 
 @keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }

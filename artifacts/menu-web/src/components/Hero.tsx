@@ -84,7 +84,7 @@ export function Hero({ menu, lang }: { menu: PublicMenu; lang: Lang }) {
             )}
           </div>
         </div>
-        <h1 className="font-display text-[34px] leading-[1.15] mt-4 animate-rise" style={{ animationDelay: "120ms" }}>{pick(lang, org.name, org.nameEn)}</h1>
+        <h1 className="font-display text-[32px] leading-[1.2] mt-4 animate-rise" style={{ animationDelay: "120ms" }}>{pick(lang, org.name, org.nameEn)}</h1>
         {(org.tagline || org.taglineEn) && (
           <p className="text-muted mt-1.5 text-[15px] leading-relaxed animate-rise" style={{ animationDelay: "160ms" }}>{pick(lang, org.tagline, org.taglineEn)}</p>
         )}
@@ -102,10 +102,6 @@ export function Hero({ menu, lang }: { menu: PublicMenu; lang: Lang }) {
               <Icon name="phone" className="w-4 h-4 text-brand" /><span dir="ltr">{branch.displayPhone}</span>
             </a>
           )}
-          {Object.entries(org.socials ?? {}).slice(0, 3).map(([k, v]) => (
-            <a key={k} href={v.startsWith("http") ? v : k === "instagram" ? `https://instagram.com/${v.replace(/^@/, "")}` : v} target="_blank" rel="noreferrer"
-              className="btn-ghost h-9 px-3.5 text-sm flex items-center capitalize">{k}</a>
-          ))}
         </div>
       </div>
     </header>

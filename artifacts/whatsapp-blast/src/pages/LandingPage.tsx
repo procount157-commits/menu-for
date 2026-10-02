@@ -140,76 +140,85 @@ export default function LandingPage() {
   }, []);
 
   return (
-    <div dir={lang === "ar" ? "rtl" : "ltr"} className="min-h-screen bg-background text-foreground overflow-x-hidden">
-      <header className="sticky top-0 z-40 backdrop-blur-xl bg-background/75 border-b border-border/60">
+    <div dir={lang === "ar" ? "rtl" : "ltr"} className="min-h-screen bg-[#050f0a] text-white overflow-x-hidden"
+      style={{ fontFamily: lang === "ar" ? "'Cairo', sans-serif" : "'Inter', sans-serif" }}>
+      <header className="sticky top-0 z-40 backdrop-blur-xl bg-black/40 border-b border-white/5">
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center gap-6">
           <Link href="/" className="flex items-center gap-2.5">
             <Mark />
             <span className="font-bold">{lang === "ar" ? "منيو فور يو" : "Menu For You"}</span>
           </Link>
-          <nav className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
-            <a href="#how" className="hover:text-foreground">{c.nav.how}</a>
-            <a href="#features" className="hover:text-foreground">{c.nav.features}</a>
-            <a href="#plans" className="hover:text-foreground">{c.nav.plans}</a>
-            <a href="#faq" className="hover:text-foreground">{c.nav.faq}</a>
+          <nav className="hidden md:flex items-center gap-6 text-sm text-white/55">
+            <a href="#how" className="hover:text-white">{c.nav.how}</a>
+            <a href="#features" className="hover:text-white">{c.nav.features}</a>
+            <a href="#plans" className="hover:text-white">{c.nav.plans}</a>
+            <a href="#faq" className="hover:text-white">{c.nav.faq}</a>
           </nav>
           <div className="flex-1" />
-          <button onClick={() => setLang(lang === "ar" ? "en" : "ar")} className="h-9 px-3 rounded-lg text-sm text-muted-foreground hover:text-foreground flex items-center gap-1.5"><Languages className="w-4 h-4" />{lang === "ar" ? "EN" : "ع"}</button>
+          <button onClick={() => setLang(lang === "ar" ? "en" : "ar")} className="h-9 px-3 rounded-lg text-sm text-white/55 hover:text-white flex items-center gap-1.5"><Languages className="w-4 h-4" />{lang === "ar" ? "EN" : "ع"}</button>
           {user ? (
-            <Link href="/shop" className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-semibold flex items-center">{c.nav.dashboard}</Link>
+            <Link href="/shop" className="h-10 px-4 rounded-xl bg-green-500 text-black text-sm font-semibold flex items-center">{c.nav.dashboard}</Link>
           ) : (
             <>
-              <Link href="/login" className="hidden sm:flex h-10 px-4 rounded-xl text-sm font-semibold items-center hover:bg-muted">{c.nav.login}</Link>
-              <Link href="/login?register=1" className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-semibold flex items-center">{c.nav.start}</Link>
+              <Link href="/login" className="hidden sm:flex h-10 px-4 rounded-xl text-sm font-semibold items-center hover:bg-white/10">{c.nav.login}</Link>
+              <Link href="/login?register=1" className="h-10 px-4 rounded-xl bg-green-500 text-black text-sm font-semibold flex items-center">{c.nav.start}</Link>
             </>
           )}
         </div>
       </header>
 
       <section className="relative">
-        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(60% 50% at 75% 10%, hsl(var(--primary) / .16), transparent 60%), radial-gradient(40% 40% at 10% 60%, hsl(var(--primary) / .08), transparent 60%)" }} />
+        <motion.div className="absolute inset-0 pointer-events-none"
+          animate={{ background: [
+            "radial-gradient(ellipse 80% 60% at 50% 40%, rgba(34,197,94,0.15) 0%, transparent 70%)",
+            "radial-gradient(ellipse 80% 60% at 55% 35%, rgba(16,185,129,0.18) 0%, transparent 70%)",
+            "radial-gradient(ellipse 80% 60% at 45% 45%, rgba(34,197,94,0.12) 0%, transparent 70%)",
+          ] }}
+          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }} />
+        <div className="absolute inset-0 pointer-events-none opacity-[0.04]"
+          style={{ backgroundImage: "linear-gradient(#22c55e 1px, transparent 1px), linear-gradient(90deg, #22c55e 1px, transparent 1px)", backgroundSize: "60px 60px" }} />
         <div className="relative max-w-6xl mx-auto px-5 pt-14 pb-20 grid lg:grid-cols-[1.1fr_.9fr] gap-14 items-center">
           <div>
-            <motion.p {...fade} className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-primary/10 text-primary"><Sparkles className="w-3.5 h-3.5" />{c.hero.kicker}</motion.p>
-            <motion.h1 {...fade} transition={{ ...fade.transition, delay: 0.05 }} className="mt-5 text-4xl sm:text-5xl lg:text-[56px] font-extrabold leading-[1.15] tracking-tight">
-              {c.hero.title[0]} <span className="text-primary">{c.hero.title[1]}</span><br className="hidden sm:block" /> {c.hero.title[2]}
+            <motion.p {...fade} className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-green-500/10 text-green-400"><Sparkles className="w-3.5 h-3.5" />{c.hero.kicker}</motion.p>
+            <motion.h1 {...fade} transition={{ ...fade.transition, delay: 0.05 }} className="mt-5 text-4xl sm:text-5xl lg:text-[56px] font-black leading-[1.15] tracking-tight">
+              {c.hero.title[0]} <span className="text-transparent bg-clip-text bg-gradient-to-l from-green-400 to-emerald-300">{c.hero.title[1]}</span><br className="hidden sm:block" /> {c.hero.title[2]}
             </motion.h1>
-            <motion.p {...fade} transition={{ ...fade.transition, delay: 0.1 }} className="mt-5 text-lg text-muted-foreground leading-relaxed max-w-xl">{c.hero.sub}</motion.p>
+            <motion.p {...fade} transition={{ ...fade.transition, delay: 0.1 }} className="mt-5 text-lg text-white/55 leading-relaxed max-w-xl">{c.hero.sub}</motion.p>
             <motion.div {...fade} transition={{ ...fade.transition, delay: 0.15 }} className="mt-8 flex flex-wrap gap-3">
-              <Link href={user ? "/shop" : "/login?register=1"} className="h-12 px-6 rounded-xl bg-primary text-primary-foreground font-semibold flex items-center gap-2 shadow-lg shadow-primary/20 hover:brightness-110 transition">{c.hero.cta}<Arrow className="w-4 h-4" /></Link>
-              {demo && <a href={demo} target="_blank" rel="noreferrer" className="h-12 px-6 rounded-xl border border-border font-semibold flex items-center gap-2 hover:bg-muted transition"><QrCode className="w-4 h-4" />{c.hero.demo}</a>}
+              <Link href={user ? "/shop" : "/login?register=1"} className="h-12 px-6 rounded-xl bg-green-500 text-black font-semibold flex items-center gap-2 shadow-lg shadow-green-500/30 hover:brightness-110 transition">{c.hero.cta}<Arrow className="w-4 h-4" /></Link>
+              {demo && <a href={demo} target="_blank" rel="noreferrer" className="h-12 px-6 rounded-xl border border-white/10 font-semibold flex items-center gap-2 hover:bg-white/10 transition"><QrCode className="w-4 h-4" />{c.hero.demo}</a>}
             </motion.div>
-            <p className="mt-5 text-sm text-muted-foreground">{c.hero.note}</p>
+            <p className="mt-5 text-sm text-white/55">{c.hero.note}</p>
           </div>
           <Phones lang={lang} />
         </div>
       </section>
 
       <section id="how" className="max-w-6xl mx-auto px-5 py-20">
-        <motion.h2 {...fade} className="text-3xl font-bold text-center">{c.how.title}</motion.h2>
+        <motion.h2 {...fade} className="text-3xl sm:text-4xl font-black text-center">{c.how.title}</motion.h2>
         <div className="mt-12 grid md:grid-cols-3 gap-5">
           {c.how.steps.map((s, i) => (
-            <motion.div key={i} {...fade} transition={{ ...fade.transition, delay: i * 0.08 }} className="relative rounded-2xl border border-border bg-card p-6">
-              <span className="absolute -top-4 start-6 w-9 h-9 rounded-xl bg-primary text-primary-foreground font-bold flex items-center justify-center">{i + 1}</span>
-              <div className="mt-3 w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center">{[<QrCode key="a" />, <Clock key="b" />, <Bell key="c" />][i]}</div>
+            <motion.div key={i} {...fade} transition={{ ...fade.transition, delay: i * 0.08 }} className="relative rounded-2xl border border-white/10 bg-white/5 p-6">
+              <span className="absolute -top-4 start-6 w-9 h-9 rounded-xl bg-green-500 text-black font-bold flex items-center justify-center">{i + 1}</span>
+              <div className="mt-3 w-12 h-12 rounded-xl bg-green-500/10 text-green-400 flex items-center justify-center">{[<QrCode key="a" />, <Clock key="b" />, <Bell key="c" />][i]}</div>
               <h3 className="mt-4 text-lg font-bold">{s.t}</h3>
-              <p className="mt-2 text-muted-foreground leading-relaxed">{s.d}</p>
+              <p className="mt-2 text-white/55 leading-relaxed">{s.d}</p>
             </motion.div>
           ))}
         </div>
       </section>
 
-      <section id="features" className="bg-card/40 border-y border-border/60">
+      <section id="features" className="bg-white/[.02] border-y border-white/5">
         <div className="max-w-6xl mx-auto px-5 py-20">
-          <motion.h2 {...fade} className="text-3xl font-bold text-center">{c.features.title}</motion.h2>
+          <motion.h2 {...fade} className="text-3xl sm:text-4xl font-black text-center">{c.features.title}</motion.h2>
           <div className="mt-12 grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {c.features.list.map((f, i) => {
               const I = ICON[f.i];
               return (
-                <motion.div key={f.t} {...fade} transition={{ ...fade.transition, delay: (i % 4) * 0.06 }} className="rounded-2xl bg-background border border-border p-5 hover:border-primary/40 transition-colors">
-                  <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center"><I className="w-5 h-5" /></div>
+                <motion.div key={f.t} {...fade} transition={{ ...fade.transition, delay: (i % 4) * 0.06 }} className="rounded-2xl bg-[#050f0a] border border-white/10 p-5 hover:border-green-500/40 transition-colors">
+                  <div className="w-11 h-11 rounded-xl bg-green-500/10 text-green-400 flex items-center justify-center"><I className="w-5 h-5" /></div>
                   <h3 className="mt-4 font-bold">{f.t}</h3>
-                  <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">{f.d}</p>
+                  <p className="mt-1.5 text-sm text-white/55 leading-relaxed">{f.d}</p>
                 </motion.div>
               );
             })}
@@ -218,83 +227,83 @@ export default function LandingPage() {
       </section>
 
       <section className="max-w-6xl mx-auto px-5 py-20">
-        <motion.h2 {...fade} className="text-3xl font-bold text-center">{c.verticals.title}</motion.h2>
+        <motion.h2 {...fade} className="text-3xl sm:text-4xl font-black text-center">{c.verticals.title}</motion.h2>
         <div className="mt-10 grid grid-cols-2 lg:grid-cols-4 gap-4">
           {c.verticals.list.map(([t, d], i) => {
             const I = VERT_ICON[i]!;
             return (
-              <motion.div key={t} {...fade} transition={{ ...fade.transition, delay: i * 0.06 }} className="rounded-2xl border border-border p-6 text-center bg-gradient-to-b from-primary/[.06] to-transparent">
-                <I className="w-8 h-8 mx-auto text-primary" />
+              <motion.div key={t} {...fade} transition={{ ...fade.transition, delay: i * 0.06 }} className="rounded-2xl border border-white/10 p-6 text-center bg-gradient-to-b from-green-500/[.06] to-transparent">
+                <I className="w-8 h-8 mx-auto text-green-400" />
                 <p className="mt-3 font-bold text-lg">{t}</p>
-                <p className="text-sm text-muted-foreground mt-1">{d}</p>
+                <p className="text-sm text-white/55 mt-1">{d}</p>
               </motion.div>
             );
           })}
         </div>
-        <motion.div {...fade} className="mt-12 rounded-3xl border border-primary/25 bg-primary/[.06] p-8 grid md:grid-cols-[auto_1fr] gap-6 items-start">
-          <div className="w-14 h-14 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center"><MessageCircle className="w-7 h-7" /></div>
+        <motion.div {...fade} className="mt-12 rounded-3xl border border-green-500/25 bg-green-500/[.06] p-8 grid md:grid-cols-[auto_1fr] gap-6 items-start">
+          <div className="w-14 h-14 rounded-2xl bg-green-500 text-black flex items-center justify-center"><MessageCircle className="w-7 h-7" /></div>
           <div>
             <h3 className="text-xl font-bold">{c.honest.title}</h3>
-            <p className="mt-2 text-muted-foreground leading-relaxed">{c.honest.body}</p>
+            <p className="mt-2 text-white/55 leading-relaxed">{c.honest.body}</p>
           </div>
         </motion.div>
       </section>
 
-      <section id="plans" className="bg-card/40 border-y border-border/60">
+      <section id="plans" className="bg-white/[.02] border-y border-white/5">
         <div className="max-w-6xl mx-auto px-5 py-20">
-          <motion.h2 {...fade} className="text-3xl font-bold text-center">{c.plans.title}</motion.h2>
+          <motion.h2 {...fade} className="text-3xl sm:text-4xl font-black text-center">{c.plans.title}</motion.h2>
           {plans.length > 0 ? (
             <div className="mt-12 grid md:grid-cols-3 gap-5">
               {plans.map((p) => {
                 const feats = (lang === "en" ? p.features_en : p.features) ?? [];
                 return (
-                  <motion.div key={p.id} {...fade} className={`rounded-2xl p-6 border ${p.is_featured ? "border-primary bg-primary/[.06]" : "border-border bg-background"}`}>
-                    {p.badge && <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-primary text-primary-foreground">{p.badge}</span>}
+                  <motion.div key={p.id} {...fade} className={`rounded-2xl p-6 border ${p.is_featured ? "border-green-500 bg-green-500/[.06]" : "border-white/10 bg-[#050f0a]"}`}>
+                    {p.badge && <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-green-500 text-black">{p.badge}</span>}
                     <p className="mt-3 text-lg font-bold">{lang === "en" && p.name_en ? p.name_en : p.name}</p>
-                    <p className="mt-2"><span className="text-4xl font-extrabold">{p.price}</span> <span className="text-muted-foreground text-sm">{p.period_label ?? c.plans.perMonth}</span></p>
+                    <p className="mt-2"><span className="text-4xl font-black">{p.price}</span> <span className="text-white/55 text-sm">{p.period_label ?? c.plans.perMonth}</span></p>
                     <ul className="mt-5 space-y-2.5">
-                      {feats.map((f) => <li key={f} className="flex gap-2 text-sm"><CheckCircle2 className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />{f}</li>)}
+                      {feats.map((f) => <li key={f} className="flex gap-2 text-sm"><CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />{f}</li>)}
                     </ul>
-                    <Link href="/login?register=1" className={`mt-6 h-11 rounded-xl font-semibold flex items-center justify-center ${p.is_featured ? "bg-primary text-primary-foreground" : "border border-border hover:bg-muted"}`}>{c.nav.start}</Link>
+                    <Link href="/login?register=1" className={`mt-6 h-11 rounded-xl font-semibold flex items-center justify-center ${p.is_featured ? "bg-green-500 text-black" : "border border-white/10 hover:bg-white/10"}`}>{c.nav.start}</Link>
                   </motion.div>
                 );
               })}
             </div>
           ) : (
-            <motion.div {...fade} className="mt-10 max-w-xl mx-auto rounded-2xl border border-border bg-background p-6">
-              <ul className="space-y-3">{c.plans.features.map((f) => <li key={f} className="flex gap-2.5"><CheckCircle2 className="w-5 h-5 text-primary flex-shrink-0" />{f}</li>)}</ul>
-              <Link href="/login?register=1" className="mt-6 h-11 rounded-xl bg-primary text-primary-foreground font-semibold flex items-center justify-center">{c.plans.contact}</Link>
+            <motion.div {...fade} className="mt-10 max-w-xl mx-auto rounded-2xl border border-white/10 bg-[#050f0a] p-6">
+              <ul className="space-y-3">{c.plans.features.map((f) => <li key={f} className="flex gap-2.5"><CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0" />{f}</li>)}</ul>
+              <Link href="/login?register=1" className="mt-6 h-11 rounded-xl bg-green-500 text-black font-semibold flex items-center justify-center">{c.plans.contact}</Link>
             </motion.div>
           )}
         </div>
       </section>
 
       <section id="faq" className="max-w-3xl mx-auto px-5 py-20">
-        <motion.h2 {...fade} className="text-3xl font-bold text-center">{c.faq.title}</motion.h2>
+        <motion.h2 {...fade} className="text-3xl sm:text-4xl font-black text-center">{c.faq.title}</motion.h2>
         <div className="mt-10 space-y-3">
           {c.faq.list.map(([q, a], i) => (
-            <div key={q} className="rounded-2xl border border-border bg-card overflow-hidden">
+            <div key={q} className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
               <button onClick={() => setFaq(faq === i ? null : i)} className="w-full p-5 flex items-center justify-between gap-4 text-start font-semibold">
                 {q}<ChevronDown className={`w-5 h-5 flex-shrink-0 transition-transform ${faq === i ? "rotate-180" : ""}`} />
               </button>
-              {faq === i && <p className="px-5 pb-5 text-muted-foreground leading-relaxed">{a}</p>}
+              {faq === i && <p className="px-5 pb-5 text-white/55 leading-relaxed">{a}</p>}
             </div>
           ))}
         </div>
       </section>
 
       <section className="max-w-6xl mx-auto px-5 pb-24">
-        <motion.div {...fade} className="rounded-3xl p-10 text-center bg-gradient-to-br from-primary to-[hsl(32_55%_38%)] text-primary-foreground">
-          <h2 className="text-3xl font-extrabold">{c.cta.title}</h2>
+        <motion.div {...fade} className="rounded-3xl p-10 text-center bg-gradient-to-br from-green-500 to-emerald-600 text-black">
+          <h2 className="text-3xl font-black">{c.cta.title}</h2>
           <p className="mt-3 opacity-90">{c.cta.sub}</p>
-          <Link href={user ? "/shop" : "/login?register=1"} className="mt-7 inline-flex h-12 px-7 rounded-xl bg-background text-foreground font-semibold items-center gap-2">{c.cta.btn}<Arrow className="w-4 h-4" /></Link>
+          <Link href={user ? "/shop" : "/login?register=1"} className="mt-7 inline-flex h-12 px-7 rounded-xl bg-black text-white font-bold items-center gap-2">{c.cta.btn}<Arrow className="w-4 h-4" /></Link>
         </motion.div>
       </section>
 
-      <footer className="border-t border-border/60 py-8 text-center text-sm text-muted-foreground">
+      <footer className="border-t border-white/5 py-8 text-center text-sm text-white/55">
         <div className="flex items-center justify-center gap-4">
           <span>{c.footer}</span>
-          <Link href="/staff-login" className="hover:text-foreground">{c.nav.staff}</Link>
+          <Link href="/staff-login" className="hover:text-white">{c.nav.staff}</Link>
         </div>
       </footer>
     </div>
@@ -303,7 +312,7 @@ export default function LandingPage() {
 
 function Mark() {
   return (
-    <span className="w-9 h-9 rounded-xl bg-primary text-primary-foreground flex items-center justify-center">
+    <span className="w-9 h-9 rounded-xl bg-green-500 text-black flex items-center justify-center">
       <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
         <circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4.2" opacity=".6" />
         <path d="M3.5 4.5v5M5.25 4.5v5M3.5 7h1.75M4.4 9.5v10" /><path d="M20.5 4.5c-1.3 1-1.9 2.6-1.9 4.4v2.1h1.9v8.5" />
@@ -318,30 +327,30 @@ function Phones({ lang }: { lang: Lang }) {
   return (
     <div className="relative h-[520px] hidden sm:block">
       <motion.div initial={{ opacity: 0, y: 40, rotate: -6 }} animate={{ opacity: 1, y: 0, rotate: -6 }} transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
-        className="absolute top-4 start-0 w-[250px] h-[500px] rounded-[38px] border-[7px] border-[#2a2620] bg-[#0d0c0a] shadow-2xl overflow-hidden">
-        <div className="h-32 bg-gradient-to-b from-primary/30 to-transparent" />
+        className="absolute top-4 start-0 w-[250px] h-[500px] rounded-[38px] border-[7px] border-[#1c2b24] bg-[#0b1411] shadow-2xl overflow-hidden">
+        <div className="h-32 bg-gradient-to-b from-green-500/30 to-transparent" />
         <div className="-mt-10 px-4">
-          <div className="w-14 h-14 rounded-2xl bg-[#17150f] border-4 border-[#0d0c0a] flex items-center justify-center text-primary font-bold">ب</div>
+          <div className="w-14 h-14 rounded-2xl bg-[#111d18] border-4 border-[#0b1411] flex items-center justify-center text-green-400 font-bold">ب</div>
           <p className="mt-2 text-white font-bold">{ar ? "البيت الشامي" : "Bait Shami"}</p>
           <p className="text-[11px] text-white/50">{ar ? "مشاوي ومناقيش على الفحم" : "Charcoal grills & manakish"}</p>
-          <div className="mt-3 flex gap-1.5">{(ar ? ["المقبلات", "المشاوي", "الحلويات"] : ["Mezze", "Grills", "Desserts"]).map((x, i) => <span key={x} className={`text-[10px] px-2.5 py-1 rounded-full ${i === 1 ? "bg-primary text-[#1a1305]" : "bg-white/5 text-white/60"}`}>{x}</span>)}</div>
+          <div className="mt-3 flex gap-1.5">{(ar ? ["المقبلات", "المشاوي", "الحلويات"] : ["Mezze", "Grills", "Desserts"]).map((x, i) => <span key={x} className={`text-[10px] px-2.5 py-1 rounded-full ${i === 1 ? "bg-green-500 text-black" : "bg-white/5 text-white/60"}`}>{x}</span>)}</div>
           {[[ar ? "مشاوي مشكل" : "Mixed grill", "79"], [ar ? "شيش طاووق" : "Shish tawook", "45"], [ar ? "كباب حلبي" : "Aleppo kebab", "52"]].map(([n, p]) => (
-            <div key={n} className="mt-2.5 p-2.5 rounded-xl bg-[#17150f] flex justify-between items-center">
-              <div><p className="text-[12px] text-white font-semibold">{n}</p><p className="text-[11px] text-primary">{p} {ar ? "د.إ" : "AED"}</p></div>
-              <span className="w-6 h-6 rounded-full bg-primary text-[#1a1305] text-sm flex items-center justify-center">+</span>
+            <div key={n} className="mt-2.5 p-2.5 rounded-xl bg-[#111d18] flex justify-between items-center">
+              <div><p className="text-[12px] text-white font-semibold">{n}</p><p className="text-[11px] text-green-400">{p} {ar ? "د.إ" : "AED"}</p></div>
+              <span className="w-6 h-6 rounded-full bg-green-500 text-black text-sm flex items-center justify-center">+</span>
             </div>
           ))}
-          <div className="mt-4 h-10 rounded-full bg-[#f4efe4] flex items-center gap-2 px-1.5">
-            <span className="w-7 h-7 rounded-full bg-primary flex items-center justify-center"><Users className="w-3.5 h-3.5 text-[#1a1305]" /></span>
-            <span className="text-[11px] font-bold text-[#0d0c0a]">{ar ? "احجز دورك · 5 في الصف" : "Join · 5 in line"}</span>
+          <div className="mt-4 h-10 rounded-full bg-[#e0ebe6] flex items-center gap-2 px-1.5">
+            <span className="w-7 h-7 rounded-full bg-green-500 flex items-center justify-center"><Users className="w-3.5 h-3.5 text-black" /></span>
+            <span className="text-[11px] font-bold text-[#0b1411]">{ar ? "احجز دورك · 5 في الصف" : "Join · 5 in line"}</span>
           </div>
         </div>
       </motion.div>
       <motion.div initial={{ opacity: 0, y: 60, rotate: 5 }} animate={{ opacity: 1, y: 0, rotate: 5 }} transition={{ duration: 0.9, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
-        className="absolute top-16 end-0 w-[230px] h-[460px] rounded-[36px] border-[7px] border-[#2a2620] bg-[#3fbf7f] shadow-2xl overflow-hidden flex flex-col items-center justify-center text-[#04210f]">
+        className="absolute top-16 end-0 w-[230px] h-[460px] rounded-[36px] border-[7px] border-[#1c2b24] bg-green-500 shadow-2xl overflow-hidden flex flex-col items-center justify-center text-[#04210f]">
         <motion.div animate={{ y: [0, -6, 0] }} transition={{ repeat: Infinity, duration: 2.4 }} className="w-14 h-14 rounded-full bg-white/30 flex items-center justify-center"><Bell className="w-7 h-7" /></motion.div>
         <p className="mt-4 font-bold text-lg">{ar ? "جاء دورك!" : "It's your turn!"}</p>
-        <p className="text-6xl font-extrabold mt-2">A-27</p>
+        <p className="text-6xl font-black mt-2">A-27</p>
         <div className="mt-6 mx-4 p-3 rounded-2xl bg-white/90 text-[11px] text-[#0b1f14] leading-relaxed shadow">
           <p className="font-bold flex items-center gap-1"><MessageCircle className="w-3 h-3" /> WhatsApp</p>
           {ar ? "🔔 جاء دورك يا سارة! رقمك A-27 — تفضّلي الحين." : "🔔 It's your turn, Sara! Number A-27 — please come in."}

@@ -7,7 +7,7 @@ import type { PublicImage } from "@workspace/menu-shared";
 
 type IconName =
   | "cart" | "plus" | "minus" | "x" | "clock" | "users" | "pin" | "phone" | "wa" | "search" | "globe" | "chevron"
-  | "check" | "bell" | "calendar" | "ticket" | "flame" | "leaf" | "star" | "sparkle" | "trash" | "map" | "arrow" | "info";
+  | "check" | "bell" | "calendar" | "ticket" | "flame" | "leaf" | "star" | "sparkle" | "trash" | "map" | "arrow" | "info" | "dish" | "grid" | "list";
 
 const P: Record<IconName, ReactNode> = {
   cart: <><path d="M3 4h2l2.2 10.2a2 2 0 0 0 2 1.6h7.4a2 2 0 0 0 2-1.5L20 8H6.2" /><circle cx="10" cy="20" r="1.3" /><circle cx="17" cy="20" r="1.3" /></>,
@@ -34,6 +34,9 @@ const P: Record<IconName, ReactNode> = {
   map: <path d="m9 5-5 2v12l5-2 6 2 5-2V5l-5 2-6-2Zm0 0v12m6-10v12" />,
   arrow: <path d="M19 12H5m6-6-6 6 6 6" />,
   info: <><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5M12 8h.01" /></>,
+  dish: <><path d="M4 15.5a8 8 0 0 1 16 0" /><path d="M2.5 15.5h19M12 7.5V5.5M10.5 5.5h3" /><path d="M5 18.5h14" /></>,
+  grid: <><rect x="4" y="4" width="7" height="7" rx="1.6" /><rect x="13" y="4" width="7" height="7" rx="1.6" /><rect x="4" y="13" width="7" height="7" rx="1.6" /><rect x="13" y="13" width="7" height="7" rx="1.6" /></>,
+  list: <path d="M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01" />,
 };
 
 export function Icon({ name, className = "w-5 h-5", strokeWidth = 1.8, style }: { name: IconName; className?: string; strokeWidth?: number; style?: CSSProperties }) {
@@ -60,11 +63,12 @@ export function Img({ img, alt, className = "", sizes = "md", fallback, eager = 
   const [loaded, setLoaded] = useState(false);
   const src = img ? (sizes === "sm" ? img.sm ?? img.md ?? img.url : sizes === "md" ? img.md ?? img.url : img.url) : null;
   if (!src) {
-    const letter = monogram(fallback ?? alt);
+    // No photo yet: a quiet plate on the brand colour, never a broken image.
     return (
       <div ref={imgRef} className={`relative overflow-hidden flex items-center justify-center ${className}`}
-        style={{ background: "radial-gradient(120% 120% at 30% 20%, var(--brand-soft), transparent 60%), var(--surface-2)" }}>
-        <span className="font-display text-brand/70" style={{ fontSize: "clamp(22px, 32%, 64px)" }}>{letter}</span>
+        style={{ background: "radial-gradient(120% 120% at 30% 20%, var(--brand-soft), transparent 62%), var(--surface-2)" }}>
+        <Icon name="dish" className="w-[34%] h-[34%] max-w-12 max-h-12" strokeWidth={1.4} style={{ color: "var(--brand)", opacity: 0.55 }} />
+        {fallback ? <span className="sr-only">{fallback}</span> : null}
       </div>
     );
   }

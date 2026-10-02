@@ -2355,7 +2355,7 @@ CREATE TABLE public.orgs (
     about text,
     logo_url text,
     cover_url text,
-    theme jsonb DEFAULT '{"brand": "#c9a24a", "template": "noir"}'::jsonb NOT NULL,
+    theme jsonb DEFAULT '{"brand": "#22c55e", "template": "noir"}'::jsonb NOT NULL,
     default_lang character varying(2) DEFAULT 'ar'::character varying NOT NULL,
     currency character varying(3) DEFAULT 'AED'::character varying NOT NULL,
     timezone character varying(40) DEFAULT 'Asia/Dubai'::character varying NOT NULL,

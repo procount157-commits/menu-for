@@ -26,8 +26,8 @@ export const orgsTable = pgTable("orgs", {
   about:       text("about"),
   logoUrl:     text("logo_url"),
   coverUrl:    text("cover_url"),
-  // { template: "noir"|"cream"|"clean"|"rose", brand: "#c9a24a", font?: string }
-  theme:       jsonb("theme").$type<OrgTheme>().notNull().default({ template: "noir", brand: "#c9a24a" }),
+  // { template: "noir"|"cream"|"clean"|"rose", brand: "#22c55e", font?: string }
+  theme:       jsonb("theme").$type<OrgTheme>().notNull().default({ template: "noir", brand: "#22c55e" }),
   defaultLang: varchar("default_lang", { length: 2 }).notNull().default("ar"),
   currency:    varchar("currency", { length: 3 }).notNull().default("AED"),
   timezone:    varchar("timezone", { length: 40 }).notNull().default("Asia/Dubai"),

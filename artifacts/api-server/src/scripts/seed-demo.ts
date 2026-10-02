@@ -10,6 +10,8 @@
 //   sweets owner         phone 500000002   password demo1234
 //   staff (restaurant)   shop  bait-shami  username cashier  password demo1234
 
+import fs from "node:fs";
+import path from "node:path";
 import bcrypt from "bcryptjs";
 import { eq, inArray } from "drizzle-orm";
 import {
@@ -19,6 +21,22 @@ import {
 import { createOrg } from "../lib/tenancy/org";
 import { queueCtx, join, callNext } from "../lib/queue/engine";
 import { rebuild } from "../lib/menu/knowledge-sync";
+import { storeImage } from "../lib/menu/images";
+
+// Demo photos live in seed-assets/ (generated once, committed as WebP) and go
+// through the same pipeline as an owner's upload.
+const ASSETS = path.resolve(import.meta.dirname, "../../seed-assets");
+const cache = new Map<string, Awaited<ReturnType<typeof storeImage>>>();
+async function photo(key: string, kind: "menu" | "logo" | "cover" | "offer" = "menu") {
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const file = path.join(ASSETS, `${key}.webp`);
+  if (!fs.existsSync(file)) return null;
+  const img = await storeImage(fs.readFileSync(file), kind);
+  cache.set(key, img);
+  return img;
+}
+const images = async (key: string) => { const i = await photo(key); return i ? [{ url: i.url, sm: i.sm, md: i.md, blur: i.blur }] : []; };
 
 const PASSWORD = process.env["DEMO_PASSWORD"] ?? "demo1234";
 const OWNERS = [
@@ -50,36 +68,66 @@ async function restaurant() {
     tagline: "مشاوي ومناقيش على الفحم منذ 1998", address: "شارع الشيخ زايد، دبي", displayPhone: "04 000 0000",
     withDefaultCategories: false,
   });
-  await db.update(orgsTable).set({ taglineEn: "Charcoal grills and manakish since 1998", about: "مطعم شامي عائلي — المشاوي على الفحم والخبز من التنور.", onboardedAt: new Date(), features: { reviews: true } }).where(eq(orgsTable.id, org.id));
-  await db.update(branchesTable).set({ waPhone: "971500000001", nameEn: "Sheikh Zayed Rd" }).where(eq(branchesTable.id, branch.id));
+  const logo = await photo("logo-shami", "logo"), cover = await photo("cover-restaurant", "cover");
+  await db.update(orgsTable).set({
+    taglineEn: "Charcoal grills and manakish since 1998",
+    about: "مطعم شامي عائلي منذ 1998 — المشاوي على الفحم، الخبز من التنور، والمقبلات تُحضّر كل صباح. نستقبلكم للجلسات العائلية والعزائم.",
+    logoUrl: logo?.md ?? null, coverUrl: cover?.url ?? null,
+    socials: { instagram: "baitshami.demo", tiktok: "baitshami.demo" },
+    onboardedAt: new Date(), features: { reviews: true },
+  }).where(eq(orgsTable.id, org.id));
+  await db.update(branchesTable).set({
+    waPhone: "971500000001", nameEn: "Sheikh Zayed Rd",
+    mapUrl: "https://maps.google.com/?q=Sheikh+Zayed+Road+Dubai",
+    hours: { "0": { open: "11:00", close: "00:00" }, "1": { open: "11:00", close: "00:00" }, "2": { open: "11:00", close: "00:00" }, "3": { open: "11:00", close: "00:00" }, "4": { open: "11:00", close: "01:00" }, "5": { open: "13:00", close: "01:00" }, "6": { open: "11:00", close: "01:00" } },
+  }).where(eq(branchesTable.id, branch.id));
+  const catImg = async (key: string) => (await photo(key))?.md ?? null;
   const cats = await db.insert(menuCategoriesTable).values([
-    { orgId: org.id, name: "المقبلات", nameEn: "Mezze", sort: 0 },
-    { orgId: org.id, name: "المشاوي", nameEn: "Grills", sort: 1 },
-    { orgId: org.id, name: "المناقيش", nameEn: "Manakish", sort: 2 },
-    { orgId: org.id, name: "الحلويات", nameEn: "Desserts", sort: 3 },
-    { orgId: org.id, name: "المشروبات", nameEn: "Drinks", sort: 4 },
+    { orgId: org.id, name: "المقبلات", nameEn: "Mezze", sort: 0, imageUrl: await catImg("hummus") },
+    { orgId: org.id, name: "المشاوي", nameEn: "Grills", sort: 1, imageUrl: await catImg("mixed-grill") },
+    { orgId: org.id, name: "المناقيش", nameEn: "Manakish", sort: 2, imageUrl: await catImg("zaatar-manousheh") },
+    { orgId: org.id, name: "الحلويات", nameEn: "Desserts", sort: 3, imageUrl: await catImg("kunafa") },
+    { orgId: org.id, name: "المشروبات", nameEn: "Drinks", sort: 4, imageUrl: await catImg("mint-lemonade") },
   ]).returning();
   const [mezze, grills, manakish, dessert, drinks] = cats;
   const items = [
-    { categoryId: mezze!.id, name: "حمص بيروتي", nameEn: "Beiruti hummus", price: "22", description: "حمص ناعم بالطحينة والكمون وزيت الزيتون", tags: ["vegetarian", "popular"] },
-    { categoryId: mezze!.id, name: "متبل", nameEn: "Moutabal", price: "22", description: "باذنجان مشوي على الفحم بالطحينة", tags: ["vegetarian"] },
-    { categoryId: mezze!.id, name: "فتوش", nameEn: "Fattoush", price: "24", description: "خضار طازجة مع خبز محمّص ودبس الرمان", tags: ["vegetarian"] },
-    { categoryId: mezze!.id, name: "كبة مقلية", nameEn: "Fried kibbeh", price: "28", description: "4 قطع محشوة لحم وصنوبر", options: extras },
-    { categoryId: grills!.id, name: "مشاوي مشكل", nameEn: "Mixed grill", price: "79", compareAtPrice: "89", description: "شيش طاووق، كباب، لحم — مع الخبز والثومية", tags: ["chef", "popular"], options: size },
-    { categoryId: grills!.id, name: "شيش طاووق", nameEn: "Shish tawook", price: "45", description: "صدر دجاج متبّل على الفحم", options: [...size, ...extras] },
-    { categoryId: grills!.id, name: "كباب حلبي", nameEn: "Aleppo kebab", price: "52", description: "لحم غنم مفروم بالبهارات الحلبية", tags: ["spicy"], options: size },
-    { categoryId: manakish!.id, name: "منقوشة زعتر", nameEn: "Zaatar manousheh", price: "12", tags: ["vegetarian"] },
-    { categoryId: manakish!.id, name: "منقوشة جبنة", nameEn: "Cheese manousheh", price: "16", options: extras },
-    { categoryId: manakish!.id, name: "لحم بعجين", nameEn: "Lahm bi ajeen", price: "18" },
-    { categoryId: dessert!.id, name: "كنافة نابلسية", nameEn: "Nabulsi kunafa", price: "26", description: "بالجبنة النابلسية والقطر", tags: ["popular"] },
-    { categoryId: dessert!.id, name: "مهلبية", nameEn: "Muhallabia", price: "18", tags: ["new"] },
-    { categoryId: drinks!.id, name: "ليموناضة بالنعناع", nameEn: "Mint lemonade", price: "16", options: size },
-    { categoryId: drinks!.id, name: "عيران", nameEn: "Ayran", price: "9" },
+    { k: "hummus", categoryId: mezze!.id, name: "حمص بيروتي", nameEn: "Beiruti hummus", price: "22", calories: 320, allergens: ["سمسم"],
+      description: "حمص ناعم بالطحينة والكمون وزيت الزيتون البكر، يُقدّم مع خبز التنور الساخن", descriptionEn: "Silky hummus with tahini, cumin and extra-virgin olive oil, served with hot tannour bread", tags: ["vegetarian", "popular"] },
+    { k: "moutabal", categoryId: mezze!.id, name: "متبل", nameEn: "Moutabal", price: "22", calories: 260, allergens: ["سمسم"],
+      description: "باذنجان مشوي على الفحم بالطحينة واللبن وحب الرمان", descriptionEn: "Charcoal-smoked aubergine with tahini, yoghurt and pomegranate", tags: ["vegetarian"] },
+    { k: "fattoush", categoryId: mezze!.id, name: "فتوش", nameEn: "Fattoush", price: "24", calories: 210, allergens: ["قمح"],
+      description: "خضار طازجة مع خبز محمّص، سماق ودبس الرمان", descriptionEn: "Crisp vegetables, toasted bread, sumac and pomegranate molasses", tags: ["vegetarian", "new"] },
+    { k: "kibbeh", categoryId: mezze!.id, name: "كبة مقلية", nameEn: "Fried kibbeh", price: "28", calories: 410, allergens: ["قمح", "صنوبر"],
+      description: "4 قطع محشوة لحم غنم وصنوبر، تُقدّم مع لبن بالخيار", descriptionEn: "Four pieces stuffed with lamb and pine nuts, with cucumber yoghurt", options: extras },
+    { k: "mixed-grill", categoryId: grills!.id, name: "مشاوي مشكل", nameEn: "Mixed grill", price: "79", compareAtPrice: "89", calories: 980,
+      description: "شيش طاووق، كباب حلبي وأوصال لحم على الفحم — مع الخبز والثومية والمخلل", descriptionEn: "Shish tawook, Aleppo kebab and lamb cubes over charcoal — with bread, toum and pickles", tags: ["chef", "popular"], options: size },
+    { k: "shish-tawook", categoryId: grills!.id, name: "شيش طاووق", nameEn: "Shish tawook", price: "45", calories: 620,
+      description: "صدر دجاج متبّل باللبن والليمون على الفحم، مع ثومية وبطاطا", descriptionEn: "Chicken breast marinated in yoghurt and lemon, with toum and fries", tags: ["popular"], options: [...size, ...extras] },
+    { k: "aleppo-kebab", categoryId: grills!.id, name: "كباب حلبي", nameEn: "Aleppo kebab", price: "52", calories: 700,
+      description: "لحم غنم مفروم بالفليفلة الحلبية، مع بصل بالسماق وطماطم مشوية", descriptionEn: "Minced lamb with Aleppo pepper, sumac onions and grilled tomato", tags: ["spicy"], options: size },
+    { k: "zaatar-manousheh", categoryId: manakish!.id, name: "منقوشة زعتر", nameEn: "Zaatar manousheh", price: "12", calories: 340, allergens: ["قمح", "سمسم"],
+      description: "زعتر بلدي وزيت زيتون على عجينة تُخبز عند الطلب", descriptionEn: "Wild thyme and olive oil on dough baked to order", tags: ["vegetarian"] },
+    { k: "cheese-manousheh", categoryId: manakish!.id, name: "منقوشة جبنة", nameEn: "Cheese manousheh", price: "16", calories: 430, allergens: ["قمح", "حليب"],
+      description: "جبنة عكاوي ذائبة مع حبة البركة", descriptionEn: "Melted akkawi cheese with nigella seeds", tags: ["popular"], options: extras },
+    { k: "lahm-bi-ajeen", categoryId: manakish!.id, name: "لحم بعجين", nameEn: "Lahm bi ajeen", price: "18", calories: 460, allergens: ["قمح", "صنوبر"],
+      description: "لحم غنم مفروم مع طماطم وصنوبر على عجينة رقيقة، مع عصرة ليمون", descriptionEn: "Minced lamb, tomato and pine nuts on thin dough, with a squeeze of lemon" },
+    { k: "kunafa", categoryId: dessert!.id, name: "كنافة نابلسية", nameEn: "Nabulsi kunafa", price: "26", calories: 520, allergens: ["قمح", "حليب", "فستق"],
+      description: "بالجبنة النابلسية والقطر والفستق الحلبي — تُقدّم ساخنة", descriptionEn: "Nabulsi cheese, syrup and pistachio — served hot", tags: ["popular"] },
+    { k: "muhallabia", categoryId: dessert!.id, name: "مهلبية", nameEn: "Muhallabia", price: "18", calories: 240, allergens: ["حليب", "فستق"],
+      description: "مهلبية بماء الورد والفستق", descriptionEn: "Milk pudding with rose water and pistachio", tags: ["new"] },
+    { k: "mint-lemonade", categoryId: drinks!.id, name: "ليموناضة بالنعناع", nameEn: "Mint lemonade", price: "16", calories: 140,
+      description: "ليمون طازج ونعناع مثلّج", descriptionEn: "Fresh lemon blended with mint and ice", tags: ["popular"], options: size },
+    { k: "ayran", categoryId: drinks!.id, name: "عيران", nameEn: "Ayran", price: "9", calories: 90, allergens: ["حليب"],
+      description: "لبن بارد بالنعناع", descriptionEn: "Chilled yoghurt drink with mint" },
   ];
-  const rows = await db.insert(menuItemsTable).values(items.map((i, n) => ({ orgId: org.id, sort: n, ...i } as any))).returning();
+  const rows = [];
+  for (const [n, { k, ...i }] of items.entries()) {
+    const [row] = await db.insert(menuItemsTable).values({ orgId: org.id, sort: n, images: await images(k), ...i } as any).returning();
+    rows.push(row!);
+  }
   await db.insert(offersTable).values([
-    { orgId: org.id, title: "غداء العائلة", titleEn: "Family lunch", body: "مشاوي مشكل كبير + مقبلتين + مشروبات لـ4 بـ199 درهم", itemId: rows[4]!.id },
-    { orgId: org.id, title: "كنافة على الحساب", titleEn: "Kunafa on us", body: "مع كل طلب فوق 150 درهم يوم الجمعة" },
+    { orgId: org.id, title: "غداء العائلة", titleEn: "Family lunch", body: "مشاوي مشكل كبير + مقبلتين + 4 مشروبات", bodyEn: "Large mixed grill, two mezze and four drinks", imageUrl: (await photo("offer-family", "offer"))?.url ?? null, itemId: rows[4]!.id, sort: 0 },
+    { orgId: org.id, title: "الكنافة علينا", titleEn: "Kunafa on us", body: "كنافة نابلسية مع كل طلب مشاوي يوم الجمعة", bodyEn: "A kunafa with every grill order on Fridays", itemId: rows[10]!.id, sort: 1 },
   ]);
   await db.insert(staffTable).values({ orgId: org.id, branchId: branch.id, name: "سالم", username: "cashier", passwordHash: await bcrypt.hash(PASSWORD, 10), role: "staff" });
   await db.insert(staffTable).values({ orgId: org.id, name: "منى", username: "manager", passwordHash: await bcrypt.hash(PASSWORD, 10), role: "manager" });
@@ -101,15 +149,20 @@ async function sweets() {
     name: "حلويات الريم", nameEn: "Al Reem Sweets", vertical: "sweets", slug: "alreem-sweets",
     tagline: "صواني وحلويات شرقية للمناسبات", withDefaultCategories: true,
   });
-  await db.update(orgsTable).set({ onboardedAt: new Date() }).where(eq(orgsTable.id, org.id));
-  await db.update(branchesTable).set({ waPhone: "971500000002" }).where(eq(branchesTable.id, branch.id));
+  const logo = await photo("logo-sweets", "logo"), cover = await photo("cover-sweets", "cover");
+  await db.update(orgsTable).set({
+    onboardedAt: new Date(), taglineEn: "Trays and Arabic sweets for every occasion",
+    about: "حلويات شرقية تُحضّر يومياً، وصواني للمناسبات بالطلب المسبق.",
+    logoUrl: logo?.md ?? null, coverUrl: cover?.url ?? null, socials: { instagram: "alreem.sweets.demo" },
+  }).where(eq(orgsTable.id, org.id));
+  await db.update(branchesTable).set({ waPhone: "971500000002", address: "العين — شارع خليفة", mapUrl: "https://maps.google.com/?q=Al+Ain" }).where(eq(branchesTable.id, branch.id));
   const cats = await db.select().from(menuCategoriesTable).where(eq(menuCategoriesTable.orgId, org.id));
   const trays = cats.find((c) => c.name === "الصواني")!;
   const cakes = cats.find((c) => c.name === "الكيك")!;
   await db.insert(menuItemsTable).values([
-    { orgId: org.id, categoryId: trays.id, name: "صينية كنافة", nameEn: "Kunafa tray", price: "180", description: "تكفي 15 شخص — تُطلب قبل يوم", tags: ["preorder", "popular"], options: [{ name: "الحجم", required: true, min: 1, max: 1, choices: [{ name: "وسط (10 أشخاص)", priceDelta: -50 }, { name: "كبير (15 شخص)", priceDelta: 0 }, { name: "عائلي (25 شخص)", priceDelta: 90 }] }] },
-    { orgId: org.id, categoryId: trays.id, name: "صينية لقيمات", nameEn: "Luqaimat tray", price: "120", tags: ["preorder"] },
-    { orgId: org.id, categoryId: cakes.id, name: "كيكة زعفران", nameEn: "Saffron cake", price: "140", description: "بالزعفران والهيل — اكتب الاسم في الملاحظات", tags: ["new"] },
+    { orgId: org.id, categoryId: trays.id, name: "صينية كنافة", nameEn: "Kunafa tray", price: "180", description: "كنافة بالجبنة والفستق — تكفي 15 شخص، تُطلب قبل يوم", descriptionEn: "Cheese kunafa with pistachio — serves 15, order a day ahead", tags: ["preorder", "popular"], allergens: ["قمح", "حليب", "فستق"], images: await images("kunafa-tray"), options: [{ name: "الحجم", nameEn: "Size", required: true, min: 1, max: 1, choices: [{ name: "وسط (10 أشخاص)", priceDelta: -50 }, { name: "كبير (15 شخص)", priceDelta: 0 }, { name: "عائلي (25 شخص)", priceDelta: 90 }] }] },
+    { orgId: org.id, categoryId: trays.id, name: "صينية لقيمات", nameEn: "Luqaimat tray", price: "120", description: "لقيمات مقرمشة بدبس التمر والسمسم", descriptionEn: "Crisp luqaimat with date syrup and sesame", tags: ["preorder", "popular"], allergens: ["قمح", "سمسم"], images: await images("luqaimat-tray") },
+    { orgId: org.id, categoryId: cakes.id, name: "كيكة زعفران", nameEn: "Saffron cake", price: "140", description: "بالزعفران والهيل — اكتب الاسم في الملاحظات", descriptionEn: "Saffron and cardamom — write the name in the notes", tags: ["new"], allergens: ["قمح", "حليب", "بيض"], images: await images("saffron-cake") },
   ] as any);
   await db.update(bookingSettingsTable).set({ enabled: true }).where(eq(bookingSettingsTable.branchId, branch.id));
   await rebuild(org.id);

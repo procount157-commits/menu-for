@@ -5,13 +5,20 @@
 import { useEffect, useState } from "react";
 import { formatEta, type PublicMenu, type PublicQueue } from "@workspace/menu-shared";
 import { Icon, Sheet, Spinner, Stepper, toast } from "./ui";
-import { api, go, openWhatsApp, recall, remember, useLive } from "@/lib/api";
+import { api, ApiError, forget, go, openWhatsApp, recall, remember, useLive } from "@/lib/api";
 import { pick, t, type Lang } from "@/lib/i18n";
 
 export function QueueFab({ menu, lang, onOpen, cartVisible }: { menu: PublicMenu; lang: Lang; onOpen: () => void; cartVisible: boolean }) {
   const q0 = menu.queues[0];
   const { data: q } = useLive<PublicQueue>(q0 ? `/api/public/queues/${q0.id}/stream` : null, q0 ? `/api/public/queues/${q0.id}` : null, q0 ?? null, 15_000);
-  const [held] = useState(() => recall("ticket", menu.org.slug)[0] ?? null);
+  const [held, setHeld] = useState<string | null>(() => recall("ticket", menu.org.slug)[0] ?? null);
+  // A remembered ticket that was served, left, or no longer exists is not "your ticket".
+  useEffect(() => {
+    if (!held) return;
+    api<{ status: string }>(`/api/public/tickets/${held}`)
+      .then((tk) => { if (!["waiting", "called", "serving"].includes(tk.status)) { forget("ticket", menu.org.slug, held); setHeld(null); } })
+      .catch((e) => { if (e instanceof ApiError && e.status === 404) { forget("ticket", menu.org.slug, held); setHeld(null); } });
+  }, [held, menu.org.slug]);
   const [bump, setBump] = useState(0);
   const [prev, setPrev] = useState(q?.waiting);
   useEffect(() => { if (q && prev !== undefined && q.waiting !== prev) setBump((n) => n + 1); setPrev(q?.waiting); }, [q?.waiting]); // eslint-disable-line

@@ -26,7 +26,7 @@ const VERTICALS: Array<{ id: Vertical; icon: typeof Coffee; title: string; sub: 
   { id: "beauty", icon: Scissors, title: "صالون تجميل", sub: "خدمات لها مدة، مواعيد، الدور" },
 ];
 
-const BRAND_SWATCHES = ["#c9a24a", "#b5651d", "#7c5a3a", "#c2577a", "#8e3b46", "#2f6f5e", "#3b5b8e", "#111111"];
+const BRAND_SWATCHES = ["#22c55e", "#c9a24a", "#b5651d", "#7c5a3a", "#c2577a", "#8e3b46", "#2f6f5e", "#3b5b8e", "#111111"];
 
 const STEPS = ["الاسم", "النشاط", "الرابط", "الهوية", "تم"] as const;
 
@@ -50,7 +50,7 @@ export default function Onboarding() {
   const [slugTouched, setSlugTouched] = useState(false);
   const [slugCheck, setSlugCheck] = useState<SlugState>({ state: "idle" });
   const [template, setTemplate] = useState<Template>("noir");
-  const [brand, setBrand] = useState("#c9a24a");
+  const [brand, setBrand] = useState("#22c55e");
   const [logo, setLogo] = useState<File | null>(null);
   const [address, setAddress] = useState("");
   const [displayPhone, setDisplayPhone] = useState("");

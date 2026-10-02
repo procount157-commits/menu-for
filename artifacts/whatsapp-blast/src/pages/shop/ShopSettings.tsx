@@ -159,7 +159,7 @@ function SaveBar({ dirty, busy, onSave, onReset }: { dirty: boolean; busy: boole
 
 // ── الهوية ────────────────────────────────────────────────────────
 
-const BRAND_SWATCHES = ["#c9a24a", "#b5651d", "#7c5a3a", "#c2577a", "#8e3b46", "#2f6f5e", "#3b5b8e", "#111111"];
+const BRAND_SWATCHES = ["#22c55e", "#c9a24a", "#b5651d", "#7c5a3a", "#c2577a", "#8e3b46", "#2f6f5e", "#3b5b8e", "#111111"];
 
 function LookTab() {
   const shop = useShop();

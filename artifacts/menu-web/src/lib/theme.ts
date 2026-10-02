@@ -6,7 +6,7 @@ import { TEMPLATES, type Template } from "@workspace/menu-shared";
 
 function hexToRgb(h: string): [number, number, number] {
   const m = h.replace("#", "").match(/^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
-  return m ? [parseInt(m[1]!, 16), parseInt(m[2]!, 16), parseInt(m[3]!, 16)] : [201, 162, 74];
+  return m ? [parseInt(m[1]!, 16), parseInt(m[2]!, 16), parseInt(m[3]!, 16)] : [34, 197, 94];
 }
 
 function luminance([r, g, b]: [number, number, number]) {
@@ -16,9 +16,10 @@ function luminance([r, g, b]: [number, number, number]) {
 
 export function applyTheme(theme: { template?: Template; brand?: string } | null | undefined) {
   const tpl = TEMPLATES[(theme?.template ?? "noir") as Template] ?? TEMPLATES.noir;
-  const brand = /^#[0-9a-f]{6}$/i.test(theme?.brand ?? "") ? theme!.brand! : "#c9a24a";
+  const brand = /^#[0-9a-f]{6}$/i.test(theme?.brand ?? "") ? theme!.brand! : "#22c55e";
   const rgb = hexToRgb(brand);
-  const ink = luminance(rgb) > 0.45 ? "#17120a" : "#ffffff";
+  // Flow Hub sets black on its green; the same rule gives white on a deep brand colour.
+  const ink = luminance(rgb) > 0.36 ? "#04150b" : "#ffffff";
   const root = document.documentElement.style;
   const mix = (a: string, b: string, p: number) => `color-mix(in srgb, ${a} ${p}%, ${b})`;
   root.setProperty("--bg", tpl.bg);

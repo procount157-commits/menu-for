@@ -375,10 +375,7 @@ importers:
 
   artifacts/menu-web:
     devDependencies:
-      '@fontsource/ibm-plex-sans-arabic':
-        specifier: ^5.3.0
-        version: 5.3.0
-      '@fontsource/reem-kufi':
+      '@fontsource/cairo':
         specifier: ^5.3.0
         version: 5.3.0
       '@tailwindcss/vite':
@@ -1741,11 +1738,8 @@ packages:
   '@floating-ui/utils@0.2.11':
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
 
-  '@fontsource/ibm-plex-sans-arabic@5.3.0':
-    resolution: {integrity: sha512-ZZ4g+JDgQY0NqSh4o0MNWU1sHQmtcee1g++aKAwyJvZxnT5y51JXsN1cIXnaQaMd40dcbK6QFYa+Z1LbaiNuqA==}
-
-  '@fontsource/reem-kufi@5.3.0':
-    resolution: {integrity: sha512-LO5YIWIQeZWb4oSpm9eAoGqLHMLvBknVamRBFQHuz+suz3TjXiO5bhE/ITlCswENbNpYKMkMPcpf6yzWDWVJoQ==}
+  '@fontsource/cairo@5.3.0':
+    resolution: {integrity: sha512-MdY6+gee1DVz4eUvx1Dd8Y1f50WcRELRKwKBarYZA3zT8dMhkuTWbcoE1LzezAy97h/9rob87s02NI6L8MaDgA==}
 
   '@gerrit0/mini-shiki@3.23.0':
     resolution: {integrity: sha512-bEMORlG0cqdjVyCEuU0cDQbORWX+kYCeo0kV1lbxF5bt4r7SID2l9bqsxJEM0zndaxpOUT7riCyIVEuqq/Ynxg==}
@@ -6255,9 +6249,7 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
-  '@fontsource/ibm-plex-sans-arabic@5.3.0': {}
-
-  '@fontsource/reem-kufi@5.3.0': {}
+  '@fontsource/cairo@5.3.0': {}
 
   '@gerrit0/mini-shiki@3.23.0':
     dependencies:
