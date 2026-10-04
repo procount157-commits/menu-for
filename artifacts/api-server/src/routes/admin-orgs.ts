@@ -13,6 +13,7 @@ import { getStatus } from "../lib/whatsapp";
 import { publicUrl, menuPath } from "../lib/menu/urls";
 import { logger } from "../lib/logger";
 import { churnRisk } from "../lib/growth/churn";
+import { platformMetrics } from "../lib/growth/platform-metrics";
 import { rewardShopReferral, setReferredBy } from "../lib/growth/shop-referrals";
 
 const router = Router();
@@ -138,6 +139,11 @@ router.delete("/llm-keys/:id", async (req, res) => {
   await db.delete(llmKeysTable).where(eq(llmKeysTable.id, Number(req.params.id)));
   invalidateChannelKeys();
   res.json({ ok: true });
+});
+
+/** The platform in numbers: money, the signup-to-paying funnel, cohorts, daily activity, leads, adoption. */
+router.get("/metrics", async (_req, res) => {
+  res.json(await platformMetrics());
 });
 
 router.get("/platform/stats", async (_req, res) => {

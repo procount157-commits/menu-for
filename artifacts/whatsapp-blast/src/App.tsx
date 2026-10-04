@@ -50,6 +50,7 @@ import WaAuto from "@/pages/shop/WaAuto";
 import Deals from "@/pages/shop/Deals";
 import Gifts from "@/pages/shop/Gifts";
 import AdminOrgs from "@/pages/shop/AdminOrgs";
+import AdminMetrics from "@/pages/shop/AdminMetrics";
 import StaffLogin from "@/pages/shop/StaffLogin";
 import StaffLayout from "@/components/shop/StaffLayout";
 import { useShopQuery } from "@/lib/shop-api";
@@ -207,6 +208,7 @@ function AdminOnlyRoutes() {
     <Layout>
       <Switch>
         <Route path="/admin/orgs"     component={AdminOrgs} />
+        <Route path="/admin/metrics"  component={AdminMetrics} />
         <Route path="/admin"          component={AdminPage} />
         <Route path="/email/:tab/:id" component={EmailMarketing} />
         <Route path="/email/:tab?"    component={EmailMarketing} />
@@ -260,6 +262,7 @@ function AuthenticatedRoutes() {
           <Route path="/gifts"          component={Gifts} />
           <Route path="/qr"             component={QrKit} />
           <Route path="/admin/orgs"     component={AdminOrgs} />
+          <Route path="/admin/metrics"  component={AdminMetrics} />
           <Route path="/dashboard"      component={Dashboard} />
           <Route path="/connect"        component={Connect} />
           <Route path="/contacts"       component={ContactsList} />

@@ -259,6 +259,10 @@ check("every owner has a link that brings other shops", /^M[A-Z0-9]{5}$/.test(re
 r = await A.post("/api/admin/orgs", { name: "صالون جديد", nameEn: "New Salon", vertical: "beauty", ownerPhone: `9990073${tag}`, ownerName: "هدى", password: "secret123", plan: "pro", planDays: 30, referralCode: refOfB.code });
 check("the admin creates a shop with its owner and plan", r.status === 201 && r.json.org.vertical === "beauty" && /new-salon/.test(r.json.org.slug), r.json?.org?.slug ?? r.json);
 const madeSlug = r.json.org.slug;
+r = await A.get("/api/admin/orgs/metrics");
+check("the admin sees the platform in numbers", r.status === 200 && typeof r.json.money.mrr === "number" && r.json.funnel.length === 6, r.json?.money);
+r = await B.get("/api/admin/orgs/metrics");
+check("…and an owner does not", r.status === 403);
 const bStats = (await B.get("/api/growth/shop-referral")).json.stats;
 check("a shop created by the admin with that code on a paid plan earns both a month", bStats.brought === 1 && bStats.rewarded === 1, bStats);
 r = await A.get("/api/admin/orgs");

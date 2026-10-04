@@ -24,6 +24,7 @@ import { subscriptionLeadsTable } from "@workspace/db";
 import { validBirthday, shouldAskBirthday, saveBirthday, birthdayToday, birthdayMessage, runBirthdays } from "../growth/birthday";
 import { createOrg, DEFAULT_FEATURES } from "../tenancy/org";
 import { buildPairs, oneTap, pairsFor } from "../growth/upsell";
+import { platformMetrics, monthly } from "../growth/platform-metrics";
 import { addStamp, loyaltyFor, loyaltyStats, rewardText, loyaltyPrefs } from "../growth/loyalty";
 import { cleanup, makeShop } from "./menu-fixtures";
 
@@ -395,6 +396,14 @@ const fu = fold("sidUp", [{ k: "upsell", id: shop.items[1]!.id }], new Set([shop
 check("an add from the suggestion counts as an add and as an upsell", fu.get(shop.items[1]!.id)?.adds === 1 && fu.get(shop.items[1]!.id)?.upsells === 1);
 await record(o14!, shop.branch.id, fu);
 check("…and shows in the menu analytics", (await menuReport(o14!, [shop.branch.id], 7)).funnel.upsells === 1);
+
+// ── 21. The platform in numbers ───────────────────────────────────
+check("a yearly price counts monthly", monthly(1200, "yearly") === 100 && monthly(199, "monthly") === 199);
+const pmx = await platformMetrics();
+check("the funnel runs from signing up to paying, never growing", pmx.funnel.length === 6 && pmx.funnel[0]!.key === "signed" && pmx.funnel.at(-1)!.key === "paying" && pmx.funnel[1]!.n <= pmx.funnel[0]!.n && pmx.funnel[5]!.n <= pmx.funnel[0]!.n, pmx.funnel.map((f) => f.n));
+check("monthly revenue is the paying shops' plan prices", pmx.money.paying >= 1 && pmx.money.mrr >= 99 && pmx.money.arr === pmx.money.mrr * 12, pmx.money);
+check("six signup months, thirty days of activity", pmx.cohorts.length === 6 && pmx.daily.length === 30);
+check("adoption counts the shops that switched each tool on", pmx.adoption.length === 7 && pmx.adoption.every((a) => a.n >= 0));
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

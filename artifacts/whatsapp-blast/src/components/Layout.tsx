@@ -261,6 +261,17 @@ export default function Layout({ children }: { children: ReactNode }) {
               إدارة المنصة — المحلات
             </Link>
           )}
+          {user?.isAdmin && (
+            <Link href="/admin/metrics" className={cn(
+              "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer",
+              location.startsWith("/admin/metrics")
+                ? "bg-primary/15 text-primary border border-primary/20"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            )}>
+              <BarChart3 className="w-4 h-4 flex-shrink-0" />
+              أرقام المنصة
+            </Link>
+          )}
           {adminOnly && (
             <Link href="/email" className={cn(
               "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer",
