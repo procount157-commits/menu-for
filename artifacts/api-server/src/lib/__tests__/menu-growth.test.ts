@@ -12,6 +12,8 @@ import { cleanDeal, resolveDeal, createPersonalCode, liveDeals } from "../growth
 import { orderMessage } from "../orders/service";
 import { shopDealsTable } from "@workspace/db";
 import { fold, record, menuReport, lookedNotBought } from "../growth/menu-stats";
+import { createGift, giftByCode, giftProblem, spendGift, giftMessage, giftView, listGifts } from "../growth/gifts";
+import { giftCardsTable, ordersTable } from "@workspace/db";
 import { cleanup, makeShop } from "./menu-fixtures";
 
 let pass = 0, total = 0;
@@ -180,6 +182,38 @@ const burgerRow = mr.items.find((i) => i.item_id === shop.items[0]!.id);
 check("the burger was looked at 13 times and ordered once", burgerRow?.views === 13 && burgerRow.ordered === 1, burgerRow);
 check("looked at a lot, rarely ordered, is flagged", lookedNotBought([{ views: 40, ordered: 1, n: "a" }, { views: 40, ordered: 10, n: "b" }, { views: 5, ordered: 0, n: "c" }] as any).map((x: any) => x.n).join() === "a");
 check("orders by hour are there for the peak", mr.byHour.reduce((a, h) => a + h.orders, 0) === mr.funnel.orders);
+
+// ── 6. Gift cards ─────────────────────────────────────────────────
+await db.update(branchesTable).set({ alertPhones: [] }).where(eq(branchesTable.id, shop.branch.id));
+const gc = await createGift(org0!, shop.branch, { amount: 100, recipientName: "نورة", recipientPhone: "0500000601", buyerName: "أختها", message: "كل عام وأنتِ بخير" }, "صاحب المحل");
+check("a gift card has a code, its full balance and a year of life", /^G[A-Z0-9]{6}$/.test(gc.code) && Number(gc.balance) === 100 && !!gc.expiresAt && gc.expiresAt.getTime() > Date.now() + 300 * 86_400_000);
+const gn = await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.kind, "gift_card")));
+check("…and is sent to the recipient's WhatsApp with the buyer's words and the link", gn.length === 1 && gn[0]!.phone === "971500000601" && gn[0]!.class === "consented" && gn[0]!.text.includes("كل عام وأنتِ بخير") && gn[0]!.text.includes(`/g/${gc.token}`) && gn[0]!.text.includes("من أختها"));
+check("the message names the amount", giftMessage(gc, org0!).includes("100 د.إ"));
+let threw2 = "";
+try { await createGift(org0!, shop.branch, { amount: 0 }, "x"); } catch (e) { threw2 = (e as Error).message; }
+check("a zero card is refused", /بين/.test(threw2));
+check("the code is found however it is typed", (await giftByCode(shop.org.id, gc.code.toLowerCase()))?.id === gc.id && (await giftByCode(shop.org.id, "NOTACODE")) === null);
+check("spending at the counter takes it off", !!(await spendGift(gc.id, 30, { note: "كاشير" })) && Number((await giftByCode(shop.org.id, gc.code))!.balance) === 70);
+check("…and never more than is there", (await spendGift(gc.id, 71)) === null);
+await db.update(shopDealsTable).set({ isActive: false }).where(eq(shopDealsTable.orgId, shop.org.id));
+const og = await createOrder(org0!, shop.branch, { type: "pickup", couponCode: gc.code, lines: [{ itemId: shop.items[1]!.id, qty: 2 }] });
+check("in the cart, the card pays the order", Number(og.giftAmount) === 36 && og.giftCardId === gc.id && Number((await giftByCode(shop.org.id, gc.code))!.balance) === 34);
+check("…and the WhatsApp order shows it and leaves nothing to pay", orderMessage(og, org0!).includes("بطاقة هدية: −36") && orderMessage(og, org0!).includes("الإجمالي: 0"));
+const og2 = await createOrder(org0!, shop.branch, { type: "pickup", couponCode: gc.code, lines: [{ itemId: shop.items[1]!.id, qty: 3 }] });
+check("a bigger order uses what is left, and the rest is paid", Number(og2.giftAmount) === 34 && Number((await giftByCode(shop.org.id, gc.code))!.balance) === 0 && (await giftByCode(shop.org.id, gc.code))!.status === "used");
+threw2 = "";
+try { await createOrder(org0!, shop.branch, { type: "pickup", couponCode: gc.code, lines: [{ itemId: shop.items[1]!.id, qty: 1 }] }); } catch (e) { threw2 = (e as Error).message; }
+check("an empty card says so", /صفر/.test(threw2));
+await setOrderStatus(shop.org.id, [shop.branch.id], og2.id, "cancelled");
+const back = (await giftByCode(shop.org.id, gc.code))!;
+check("cancelling the order gives the card its amount back", Number(back.balance) === 34 && back.status === "active");
+await db.update(giftCardsTable).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(giftCardsTable.id, gc.id));
+check("an expired card cannot be spent", giftProblem((await giftByCode(shop.org.id, gc.code))!) === "انتهت صلاحية البطاقة" && (await spendGift(gc.id, 1)) === null);
+const gv = await giftView(gc.token);
+check("the card's page shows the balance, the message and the problem", gv?.balance === 34 && gv.message === "كل عام وأنتِ بخير" && gv.problem === "انتهت صلاحية البطاقة");
+const lg = await listGifts(shop.org.id);
+check("the shop sees what was sold and what is still owed", lg.stats.sold === 100 && lg.stats.outstanding === 0 && lg.stats.count === 1, lg.stats);
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

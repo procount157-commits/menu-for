@@ -17,13 +17,15 @@ const TicketPage = lazy(() => import("./pages/Ticket"));
 const OrderPage = lazy(() => import("./pages/Order"));
 const BookingPage = lazy(() => import("./pages/Booking"));
 const DisplayPage = lazy(() => import("./pages/Display"));
+const GiftPage = lazy(() => import("./pages/Gift"));
 
 type Boot =
   | { kind: "menu"; path: string; data: PublicMenu }
   | { kind: "ticket"; path: string; data: PublicTicket }
   | { kind: "order"; path: string; data: PublicOrderView }
   | { kind: "booking"; path: string; data: PublicBookingView }
-  | { kind: "display"; path: string; data: PublicDisplay };
+  | { kind: "display"; path: string; data: PublicDisplay }
+  | { kind: "gift"; path: string; data: any };
 
 declare global { interface Window { __MFY__?: Boot } }
 
@@ -37,6 +39,7 @@ function route(path: string): { kind: Boot["kind"] | "none"; key: string; api: s
   if (a === "o" && b) return { kind: "order", key: b, api: `/api/public/orders/${b}` };
   if (a === "b" && b) return { kind: "booking", key: b, api: `/api/public/bookings/${b}` };
   if (a === "d" && b) return { kind: "display", key: b, api: `/api/public/display/${b}` };
+  if (a === "g" && b) return { kind: "gift", key: b, api: `/api/public/gifts/${b}` };
   return { kind: "menu", key: parts.slice(0, 2).join("/"), api: `/api/public/m/${parts.slice(0, 2).join("/")}` };
 }
 
@@ -73,6 +76,7 @@ function App() {
     case "order": return <OrderPage token={r.key} initial={data} />;
     case "booking": return <BookingPage token={r.key} initial={data} />;
     case "display": return <DisplayPage token={r.key} initial={data} />;
+    case "gift": return <GiftPage initial={data} />;
     default: return <NotFound />;
   }
 }

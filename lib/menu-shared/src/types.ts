@@ -110,6 +110,8 @@ export interface PublicMenu {
   deals: PublicDeal[];
   /** Whether the shop has codes a customer could type. */
   hasCodes: boolean;
+  /** «أهدِ بطاقة» on the menu: the shop sells gift cards. */
+  gifts: boolean;
   queues: PublicQueue[];
   booking: { enabled: boolean; maxParty: number; slotMin: number; maxDaysAhead: number; services: boolean } | null;
   ordering: { enabled: boolean; types: Array<"dine_in" | "pickup" | "delivery" | "preorder"> };
@@ -160,6 +162,7 @@ export interface PublicOrderView {
   items: Array<{ name: string; nameEn?: string | null; qty: number; unitPrice: number; options: Array<{ group: string; choice: string }>; note?: string; lineTotal: number }>;
   subtotal: number;
   discount: number;
+  giftAmount: number;
   total: number;
   dealTitle: string | null;
   scheduledFor: string | null;

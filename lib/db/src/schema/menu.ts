@@ -280,6 +280,9 @@ export const ordersTable = pgTable("orders", {
   discount:     numeric("discount", { precision: 10, scale: 2 }).notNull().default("0"),
   dealId:       integer("deal_id"),
   dealTitle:    varchar("deal_title", { length: 80 }),
+  // Paid in part with a gift card (refunded to the card if the order is cancelled).
+  giftCardId:   integer("gift_card_id"),
+  giftAmount:   numeric("gift_amount", { precision: 10, scale: 2 }).notNull().default("0"),
   notes:        text("notes"),
   scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
   // pending (link opened, no message yet) → received → preparing → ready → completed · cancelled

@@ -5,7 +5,7 @@
 
 import type { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { CalendarDays, ClipboardList, LogOut, Users, BarChart3, BookOpen, ListOrdered, ChevronDown, Store, Tag } from "lucide-react";
+import { CalendarDays, ClipboardList, LogOut, Users, BarChart3, BookOpen, ListOrdered, ChevronDown, Store, Tag, Gift } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useShop, useSwitchBranch } from "@/lib/shop-api";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -23,6 +23,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
     { href: "/queue", label: "الصف", icon: ListOrdered },
     { href: "/orders", label: "الطلبات", icon: ClipboardList },
     { href: "/bookings", label: "الحجوزات", icon: CalendarDays },
+    { href: "/gifts", label: "الهدايا", icon: Gift },
     ...(manager ? [
       { href: "/menu", label: "المنيو", icon: BookOpen },
       { href: "/customers", label: "الزبائن", icon: Users },

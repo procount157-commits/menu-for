@@ -51,7 +51,7 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
   // A typed code replaces the timed deal; with none, the best running deal applies.
   const [codeOpen, setCodeOpen] = useState(false);
   const [code, setCode] = useState("");
-  const [applied, setApplied] = useState<{ code: string; title: string; discount: number } | null>(null);
+  const [applied, setApplied] = useState<{ code: string; title: string; discount: number; kind?: "gift" } | null>(null);
   const [checking, setChecking] = useState(false);
   const auto = useMemo(() => {
     let best: { title: string; discount: number } | null = null;
@@ -62,17 +62,21 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
     if (!c.trim()) { setApplied(null); return; }
     setChecking(true);
     try {
-      const r = await api<{ title: string; discount: number; code: string }>("/api/public/deals/check", { json: { slug: menu.org.slug, branch: menu.branch.slug, code: c, subtotal: p.subtotal, phone: phone.trim() || null } });
-      setApplied({ code: r.code, title: r.title, discount: r.discount });
+      const r = await api<{ title: string; discount: number; code: string; kind?: "gift" }>("/api/public/deals/check", { json: { slug: menu.org.slug, branch: menu.branch.slug, code: c, subtotal: p.subtotal, phone: phone.trim() || null } });
+      setApplied({ code: r.code, title: r.title, discount: r.discount, kind: r.kind });
       if (!quiet) toast(t("codeApplied", lang), "ok");
     } catch (e) { setApplied(null); if (!quiet) toast((e as Error).message); }
     finally { setChecking(false); }
   };
   // The cart changed: the code's discount is worked out again.
   useEffect(() => { if (applied) void checkCode(applied.code, true); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [p.subtotal]);
-  const discount = applied ? applied.discount : auto?.discount ?? 0;
-  const dealTitle = applied ? applied.title : auto?.title ?? null;
-  const total = Math.round((p.subtotal - discount) * 100) / 100;
+  // A gift card pays after the timed deal; a coupon replaces it.
+  const gift = applied?.kind === "gift" ? applied : null;
+  const coupon = applied && !gift ? applied : null;
+  const discount = coupon ? coupon.discount : auto?.discount ?? 0;
+  const dealTitle = coupon ? coupon.title : auto?.title ?? null;
+  const giftOff = gift ? Math.min(gift.discount, Math.max(0, p.subtotal - discount)) : 0;
+  const total = Math.round((p.subtotal - discount - giftOff) * 100) / 100;
 
   useEffect(() => { if (table) { setType("dine_in"); setTable(table); } }, [table]);
 
@@ -214,10 +218,11 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
               <button type="button" onClick={() => setCodeOpen(true)} className="text-sm font-semibold mb-3 flex items-center gap-1.5" style={{ color: "var(--brand)" }}><Icon name="plus" className="w-4 h-4" />{t("haveCode", lang)}</button>
             )
           )}
-          {discount > 0 && (
+          {(discount > 0 || giftOff > 0) && (
             <div className="space-y-1 mb-2 text-sm">
               <div className="flex justify-between text-muted"><span>{t("subtotal", lang)}</span><span className="tabular">{formatMoney(p.subtotal, menu.org.currency, lang)}</span></div>
-              <div className="flex justify-between font-semibold" style={{ color: "var(--ok)" }}><span>🏷️ {dealTitle}</span><span className="tabular">−{formatMoney(discount, menu.org.currency, lang)}</span></div>
+              {discount > 0 && <div className="flex justify-between font-semibold" style={{ color: "var(--ok)" }}><span>🏷️ {dealTitle}</span><span className="tabular">−{formatMoney(discount, menu.org.currency, lang)}</span></div>}
+              {giftOff > 0 && <div className="flex justify-between font-semibold" style={{ color: "var(--ok)" }}><span>🎁 {t("giftCard", lang)}</span><span className="tabular">−{formatMoney(giftOff, menu.org.currency, lang)}</span></div>}
             </div>
           )}
           <div className="flex items-center justify-between mb-3 text-[15px]">

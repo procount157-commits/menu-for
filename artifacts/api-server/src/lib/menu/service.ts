@@ -99,7 +99,8 @@ export async function publicMenu(org: Org, branch: Branch): Promise<PublicMenu> 
     categories: cats.map((c) => ({ id: c.id, name: c.name, nameEn: c.nameEn, imageUrl: c.imageUrl })),
     items: pubItems,
     deals: await liveDeals(org, branch.id),
-    hasCodes: await hasCodes(org.id),
+    hasCodes: (await hasCodes(org.id)) || !!org.features?.gifts,
+    gifts: !!org.features?.gifts,
     offers: offers.map((o) => ({ id: o.id, title: o.title, titleEn: o.titleEn, body: o.body, bodyEn: o.bodyEn, imageUrl: o.imageUrl, itemId: o.itemId, endsAt: o.endsAt?.toISOString() ?? null })),
     queues: plan.features.queue ? await Promise.all(queues.map((q) => publicQueue({ queue: q, branch, org }))) : [],
     booking: plan.features.booking && bk?.enabled

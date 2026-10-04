@@ -69,3 +69,35 @@ export const menuStatsDailyTable = pgTable("menu_stats_daily", {
   primaryKey({ columns: [t.orgId, t.branchId, t.day, t.itemId] }),
   index("idx_menu_stats_org_day").on(t.orgId, t.day),
 ]);
+
+/** A gift card: an amount sent to someone's WhatsApp, spent in one go or bit by bit. */
+export const giftCardsTable = pgTable("gift_cards", {
+  id:             serial("id").primaryKey(),
+  orgId:          integer("org_id").notNull().references(() => orgsTable.id, { onDelete: "cascade" }),
+  code:           varchar("code", { length: 24 }).notNull(),
+  token:          varchar("token", { length: 32 }).notNull().unique(),
+  amount:         numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  balance:        numeric("balance", { precision: 10, scale: 2 }).notNull(),
+  buyerName:      varchar("buyer_name", { length: 80 }),
+  buyerPhone:     varchar("buyer_phone", { length: 40 }),
+  recipientName:  varchar("recipient_name", { length: 80 }),
+  recipientPhone: varchar("recipient_phone", { length: 40 }),
+  message:        text("message"),
+  // active | used | void
+  status:         varchar("status", { length: 10 }).notNull().default("active"),
+  expiresAt:      timestamp("expires_at", { withTimezone: true }),
+  createdBy:      varchar("created_by", { length: 80 }),
+  createdAt:      timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [uniqueIndex("uq_gift_card_code").on(t.orgId, t.code)]);
+
+export const giftCardUsesTable = pgTable("gift_card_uses", {
+  id:         serial("id").primaryKey(),
+  giftCardId: integer("gift_card_id").notNull().references(() => giftCardsTable.id, { onDelete: "cascade" }),
+  amount:     numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  orderId:    integer("order_id"),
+  note:       varchar("note", { length: 200 }),
+  byWho:      varchar("by_who", { length: 80 }),
+  createdAt:  timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("idx_gift_card_uses").on(t.giftCardId, t.createdAt)]);
+
+export type GiftCard = typeof giftCardsTable.$inferSelect;

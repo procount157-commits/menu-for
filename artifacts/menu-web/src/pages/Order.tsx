@@ -79,13 +79,14 @@ export default function OrderPage({ token, initial }: { token: string; initial: 
               </li>
             ))}
           </ul>
-          {o.discount > 0 && (
+          {(o.discount > 0 || o.giftAmount > 0) && (
             <div className="mt-4 pt-3 border-t space-y-1 text-sm" style={{ borderColor: "var(--line)" }}>
               <div className="flex justify-between text-muted"><span>{t("subtotal", lang)}</span><span className="tabular">{formatMoney(o.subtotal, o.org.currency, lang)}</span></div>
-              <div className="flex justify-between font-semibold" style={{ color: "var(--ok)" }}><span>🏷️ {o.dealTitle}</span><span className="tabular">−{formatMoney(o.discount, o.org.currency, lang)}</span></div>
+              {o.discount > 0 && <div className="flex justify-between font-semibold" style={{ color: "var(--ok)" }}><span>🏷️ {o.dealTitle}</span><span className="tabular">−{formatMoney(o.discount, o.org.currency, lang)}</span></div>}
+              {o.giftAmount > 0 && <div className="flex justify-between font-semibold" style={{ color: "var(--ok)" }}><span>🎁 {t("giftCard", lang)}</span><span className="tabular">−{formatMoney(o.giftAmount, o.org.currency, lang)}</span></div>}
             </div>
           )}
-          <div className={`${o.discount > 0 ? "mt-2 pt-2" : "mt-4 pt-4 border-t"} flex justify-between font-bold`} style={{ borderColor: "var(--line)" }}>
+          <div className={`${o.discount > 0 || o.giftAmount > 0 ? "mt-2 pt-2" : "mt-4 pt-4 border-t"} flex justify-between font-bold`} style={{ borderColor: "var(--line)" }}>
             <span>{t("total", lang)}</span><span className="tabular">{formatMoney(o.total ?? o.subtotal, o.org.currency, lang)}</span>
           </div>
         </section>

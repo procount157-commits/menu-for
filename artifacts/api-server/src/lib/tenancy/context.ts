@@ -161,6 +161,7 @@ export function withTenant(roles: Role[], fn: (req: Request, res: Response, t: T
 export const ALL: Role[] = ["owner", "manager", "staff"];
 export const MANAGERS: Role[] = ["owner", "manager"];
 export const OWNER: Role[] = ["owner"];
+export const ANYONE: Role[] = ["owner", "manager", "staff"];
 
 // ── Staff may reach only what they need ───────────────────────────
 // Default deny. Every Flow Hub route checks only `requireAuth`, which a staff
@@ -181,6 +182,9 @@ const STAFF_ALLOW: Array<[string, RegExp]> = [
   ["GET",  /^\/menu\/(items|categories)$/],
   ["PATCH", /^\/menu\/availability$/],
   ["*",    /^\/public\//],
+  // At the counter: find a gift card by its code and take an amount off it.
+  ["GET",  /^\/gifts\/code\/[^/]+$/],
+  ["POST", /^\/gifts\/\d+\/redeem$/],
   ["GET",  /^\/healthz$/],
   ["GET",  /^\/ping$/],
 ];
@@ -197,6 +201,8 @@ const MANAGER_ALLOW: Array<[string, RegExp]> = [
   ["POST", /^\/menu\/(import|import-photo|import-rows|translate)$/],
   ["*",    /^\/deals(\/|$)/],
   ["GET",  /^\/growth\/menu-stats$/],
+  ["GET",  /^\/gifts$/],
+  ["POST", /^\/gifts$/],
 ];
 
 export function staffGuard(req: Request, res: Response, next: NextFunction) {

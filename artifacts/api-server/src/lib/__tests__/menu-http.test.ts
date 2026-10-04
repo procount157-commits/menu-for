@@ -161,6 +161,8 @@ for (const [what, p] of [
   ["prepare a campaign", S.post("/api/wa-auto/autopilot/run")],
   ["read the platform's model keys", S.get("/api/admin/orgs/llm-keys")],
   ["open the coupons", S.get("/api/deals")],
+  ["list the gift cards", S.get("/api/gifts")],
+  ["sell a gift card", S.post("/api/gifts", { amount: 50 })],
   ["open the weekly report", S.get("/api/growth/report")],
 ] as const) {
   const x = await p;
@@ -185,6 +187,15 @@ r = await anon.post("/api/public/events", { slug: `alpha-${tag}`, sid: "httptest
 check("the menu reports what is looked at, anonymously", r.status === 204);
 r = await A.get("/api/growth/menu-stats?days=7");
 check("…and the business owner sees it in menu analytics", r.status === 200 && r.json.locked === false && r.json.funnel.menuViews >= 1 && r.json.funnel.adds >= 1, r.json?.funnel);
+r = await S.get("/api/gifts/code/GABCDEF");
+check("staff can look a gift card up at the counter", r.status === 404 && /رمز/.test(r.json.error));
+r = await A.post("/api/gifts", { amount: 75, recipientName: "سعاد" });
+check("the business owner sells a gift card", r.status === 201 && /^G[A-Z0-9]{6}$/.test(r.json.code) && r.json.url.includes("/g/"), r.json);
+const giftCode = r.json.code, giftId = r.json.id;
+r = await S.post(`/api/gifts/${giftId}/redeem`, { amount: 25 });
+check("…and staff take an amount off it", r.status === 200 && r.json.balance === 50, r.json);
+r = await anon.post("/api/public/deals/check", { slug: `alpha-${tag}`, code: giftCode.toLowerCase(), subtotal: 30 });
+check("the cart recognises a gift card code", r.status === 200 && r.json.kind === "gift" && r.json.discount === 30, r.json);
 r = await M.get(`/api/deals`);
 check("a manager runs the coupons", r.status === 200 && Array.isArray(r.json.deals));
 

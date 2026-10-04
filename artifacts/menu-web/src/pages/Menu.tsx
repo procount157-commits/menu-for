@@ -138,6 +138,7 @@ export default function MenuPage({ initial }: { initial: PublicMenu }) {
       )}
 
       {!q && <Deals menu={menu} lang={lang} />}
+      {!q && menu.gifts && <GiveGift menu={menu} lang={lang} />}
       {!q && <Offers menu={menu} lang={lang} onItem={(id) => { const it = items.find((x) => x.id === id); if (it) open(it, null); }} />}
       {!q && <CategoryTiles sections={sections} lang={lang} onPick={jump} />}
       <FeaturedRail items={featured} currency={menu.org.currency} lang={lang} onOpen={open} title={t("tag_popular", lang)} />
@@ -275,6 +276,23 @@ function CategoryBar({ sections, lang, view, setView }: { sections: SectionData[
           <Icon name={view === "grid" ? "list" : "grid"} className="w-[18px] h-[18px]" />
         </button>
       </div>
+    </div>
+  );
+}
+
+/** «أهدِ بطاقة»: the customer asks the shop on WhatsApp; the shop takes payment and sends the card. */
+function GiveGift({ menu, lang }: { menu: PublicMenu; lang: Lang }) {
+  const phone = String(menu.branch.waPhone ?? "").replace(/\D/g, "");
+  if (phone.length < 8) return null;
+  const text = lang === "ar" ? "مرحباً، أبي بطاقة هدية من محلكم 🎁\nالقيمة: \nلـ (الاسم ورقم الواتساب): \nرسالتي له: " : "Hi, I'd like a gift card 🎁\nAmount: \nFor (name and WhatsApp number): \nMy message: ";
+  return (
+    <div className="px-4 mt-3">
+      <a href={`https://wa.me/${phone}?text=${encodeURIComponent(text)}`} target="_blank" rel="noopener noreferrer"
+        className="rounded-2xl px-4 py-3 flex items-center gap-3" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
+        <span className="text-2xl" aria-hidden>🎁</span>
+        <div className="flex-1 min-w-0"><p className="font-bold">{t("giveGift", lang)}</p><p className="text-xs text-muted mt-0.5">{t("giveGiftSub", lang)}</p></div>
+        <Icon name="wa" className="w-5 h-5" style={{ color: "#25D366" }} />
+      </a>
     </div>
   );
 }

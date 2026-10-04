@@ -14,6 +14,7 @@ import { createOrder, orderByToken, orderView, orderMessage, orderTotal, OrderEr
 import { slotsFor, createBooking, bookingByToken, bookingView, bookingMessage, setBookingStatus, BookingError } from "../lib/booking/service";
 import { normalisePhone } from "../lib/customers";
 import { resolveDeal } from "../lib/growth/deals";
+import { giftByCode, giftProblem, giftView } from "../lib/growth/gifts";
 import { fold, record } from "../lib/growth/menu-stats";
 import { stream } from "../lib/realtime";
 import { limit } from "../lib/rate-limit";
@@ -171,10 +172,26 @@ router.post("/deals/check", limit("deal", 30, 10 * 60_000), async (req, res) => 
   const s = await shop(String(b.slug ?? ""), b.branch ? String(b.branch) : undefined);
   if (!s) return res.status(404).json({ error: "المحل غير موجود" });
   const subtotal = Math.max(0, Number(b.subtotal) || 0);
+  // A gift card in the same box: it pays what is left after the timed deal.
+  const gift = await giftByCode(s.org.id, String(b.code ?? ""));
+  if (gift) {
+    const problem = giftProblem(gift);
+    if (problem) return res.status(400).json({ error: problem });
+    const auto = await resolveDeal(s.org, s.branch.id, subtotal, {});
+    const off = auto && !("error" in auto) ? auto.discount : 0;
+    return res.json({ ok: true, kind: "gift", title: "بطاقة هدية", code: gift.code, balance: Number(gift.balance), discount: Math.round(Math.min(Number(gift.balance), subtotal - off) * 100) / 100 });
+  }
   const r = await resolveDeal(s.org, s.branch.id, subtotal, { code: String(b.code ?? ""), phone: normalisePhone(b.phone, s.org.currency) });
   if (!r) return res.status(400).json({ error: "الكود غير صحيح أو منتهي" });
   if ("error" in r) return res.status(400).json({ error: r.error });
   res.json({ ok: true, title: r.deal.title, discount: r.discount, code: r.deal.code });
+});
+
+router.get("/gifts/:token", limit("ticket", 600, 60_000), async (req, res) => {
+  const v = await giftView(String(req.params.token));
+  if (!v) return res.status(404).json({ error: "البطاقة غير موجودة" });
+  res.setHeader("Cache-Control", "no-store");
+  res.json(v);
 });
 
 router.get("/orders/:token", limit("ticket", 600, 60_000), async (req, res) => {

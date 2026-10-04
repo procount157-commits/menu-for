@@ -48,6 +48,7 @@ import Messages from "@/pages/shop/Messages";
 import Reports from "@/pages/shop/Reports";
 import WaAuto from "@/pages/shop/WaAuto";
 import Deals from "@/pages/shop/Deals";
+import Gifts from "@/pages/shop/Gifts";
 import AdminOrgs from "@/pages/shop/AdminOrgs";
 import StaffLogin from "@/pages/shop/StaffLogin";
 import StaffLayout from "@/components/shop/StaffLayout";
@@ -229,6 +230,7 @@ function StaffRoutes() {
         {user?.role === "manager" && <Route path="/customers" component={Customers} />}
         {user?.role === "manager" && <Route path="/reports" component={Reports} />}
         {user?.role === "manager" && <Route path="/deals" component={Deals} />}
+        <Route path="/gifts"     component={Gifts} />
         <Route><Redirect to="/queue" /></Route>
       </Switch>
     </StaffLayout>
@@ -255,6 +257,7 @@ function AuthenticatedRoutes() {
           <Route path="/messages"       component={Messages} />
           <Route path="/wa-auto"        component={WaAuto} />
           <Route path="/deals"          component={Deals} />
+          <Route path="/gifts"          component={Gifts} />
           <Route path="/qr"             component={QrKit} />
           <Route path="/admin/orgs"     component={AdminOrgs} />
           <Route path="/dashboard"      component={Dashboard} />

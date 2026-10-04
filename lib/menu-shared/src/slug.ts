@@ -10,6 +10,7 @@ export const RESERVED_SLUGS = new Set([
   "dashboard", "connect", "contacts", "campaigns", "follow-ups", "knowledge", "assistant", "board", "browser",
   "meetings", "ops", "employees", "conversations", "inbox", "extractor", "wa-link", "email", "arena", "settings",
   "diagnostics", "admin", "login", "logout", "register", "signup", "wa", "home", "staff", "staff-login",
+  "g", "r", "gifts", "deals", "wa-auto", "invite", "reports", "orders", "bookings", "customers", "messages", "qr",
   "orders", "bookings", "branches", "customers", "qr", "reports", "onboarding", "templates", "messages",
   "shop", "store", "studio", "app", "account", "billing", "plans", "pricing",
   // server and site

@@ -13,6 +13,7 @@ import { RESERVED_SLUGS } from "@workspace/menu-shared";
 import { orgBySlug, branchFor, publicMenu } from "./service";
 import { ticketByToken, ticketView } from "../queue/engine";
 import { orderByToken, orderView } from "../orders/service";
+import { giftView } from "../growth/gifts";
 import { bookingByToken, bookingView } from "../booking/service";
 import { displayView } from "../../routes/menu-public";
 import { publicBase, rememberOrigin } from "./urls";
@@ -105,6 +106,11 @@ export function mountMenuWeb(app: Express) {
     const v = b ? await bookingView(b) : null;
     if (!v) return render(res, { title: "منيو فور يو", noindex: true }, null, 404);
     render(res, { ...shopMeta({ ...v.org, tagline: null, about: null, coverUrl: null }, "حجز"), noindex: true }, { kind: "booking", path: req.path, data: v });
+  }));
+  app.get("/g/:token", wrap(async (req, res) => {
+    const v = await giftView(String(req.params.token));
+    if (!v) return render(res, { title: "منيو فور يو", noindex: true }, null, 404);
+    render(res, { title: `بطاقة هدية — ${v.org.name}`, description: `بطاقة هدية بقيمة ${v.amount}`, image: v.org.coverUrl ?? v.org.logoUrl, icon: v.org.logoUrl, lang: v.org.defaultLang, noindex: true }, { kind: "gift", path: req.path, data: v });
   }));
   app.get("/d/:token", wrap(async (req, res) => {
     const v = await displayView(String(req.params.token));

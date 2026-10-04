@@ -38,6 +38,7 @@ import adminOrgsRouter from "./admin-orgs";
 import waAutoRouter from "./wa-auto";
 import growthRouter from "./growth";
 import dealsRouter from "./deals";
+import giftsRouter from "./gifts";
 import { staffGuard } from "../lib/tenancy/context";
 
 const router: IRouter = Router();
@@ -58,6 +59,7 @@ router.use(shopAdminRouter);
 router.use(waAutoRouter);
 router.use(growthRouter);
 router.use(dealsRouter);
+router.use(giftsRouter);
 router.use("/admin/orgs", adminOrgsRouter);
 router.use("/admin", adminRouter);
 router.use("/whatsapp", whatsappRouter);

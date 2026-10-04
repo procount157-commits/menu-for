@@ -5,7 +5,7 @@
 // the order is `pending` and the kitchen does not see it as real.
 
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
-import { db, ordersTable, branchesTable, orgsTable, notificationsTable, type Order, type Org, type Branch } from "@workspace/db";
+import { db, ordersTable, branchesTable, orgsTable, notificationsTable, giftCardUsesTable, type Order, type Org, type Branch } from "@workspace/db";
 import { priceCart, formatMoney, waMeLink, formatClock, formatDayLabel, localDate, type CartLineInput, type PublicOrderView } from "@workspace/menu-shared";
 import { priceableItems } from "../menu/service";
 import { freshCode, todayFor } from "../queue/engine";
@@ -16,7 +16,8 @@ import { enqueue, cancelQueued } from "../notify/outbox";
 import { renderFor, type TemplateKey } from "../notify/templates";
 import { publicUrl, orderPath } from "../menu/urls";
 import { alertShop } from "../notify/alerts";
-import { resolveDeal, claimUse } from "../growth/deals";
+import { resolveDeal, claimUse, releaseUse } from "../growth/deals";
+import { giftByCode, giftProblem, spendGift, refundGift } from "../growth/gifts";
 
 export class OrderError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -45,10 +46,10 @@ export interface NewOrder {
 }
 
 /** What the customer pays. */
-export const orderTotal = (o: Pick<Order, "subtotal" | "discount">) => Math.round((Number(o.subtotal) - Number(o.discount ?? 0)) * 100) / 100;
+export const orderTotal = (o: Pick<Order, "subtotal" | "discount"> & { giftAmount?: string | null }) => Math.round((Number(o.subtotal) - Number(o.discount ?? 0) - Number(o.giftAmount ?? 0)) * 100) / 100;
 
 /** The WhatsApp message a customer sends to place the order. */
-export function orderMessage(o: Pick<Order, "code" | "type" | "tableLabel" | "items" | "subtotal" | "discount" | "dealTitle" | "notes" | "scheduledFor" | "customerName" | "address">, org: Pick<Org, "currency" | "timezone">, lang: "ar" | "en" = "ar"): string {
+export function orderMessage(o: Pick<Order, "code" | "type" | "tableLabel" | "items" | "subtotal" | "discount" | "dealTitle" | "giftAmount" | "notes" | "scheduledFor" | "customerName" | "address">, org: Pick<Org, "currency" | "timezone">, lang: "ar" | "en" = "ar"): string {
   const t = o.type as OrderType;
   const L: string[] = [];
   L.push(lang === "ar" ? `🧾 طلب جديد #${o.code}` : `🧾 New order #${o.code}`);
@@ -68,6 +69,7 @@ export function orderMessage(o: Pick<Order, "code" | "type" | "tableLabel" | "it
     L.push(`${lang === "ar" ? "المجموع" : "Subtotal"}: ${formatMoney(Number(o.subtotal), org.currency, lang)}`);
     L.push(`${o.dealTitle ?? (lang === "ar" ? "الخصم" : "Discount")}: −${formatMoney(Number(o.discount), org.currency, lang)}`);
   }
+  if (Number(o.giftAmount) > 0) L.push(`${lang === "ar" ? "🎁 بطاقة هدية" : "🎁 Gift card"}: −${formatMoney(Number(o.giftAmount), org.currency, lang)}`);
   L.push(`${lang === "ar" ? "الإجمالي" : "Total"}: ${formatMoney(orderTotal(o), org.currency, lang)}`);
   if (o.customerName) L.push(`${lang === "ar" ? "الاسم" : "Name"}: ${o.customerName}`);
   if (o.address) L.push(`${lang === "ar" ? "العنوان" : "Address"}: ${o.address}`);
@@ -90,10 +92,20 @@ export async function createOrder(org: Org, branch: Branch, input: NewOrder): Pr
   if (type === "preorder" && !scheduledFor) throw new OrderError(400, "اختر موعد الاستلام");
   if (type === "delivery" && !String(input.address ?? "").trim()) throw new OrderError(400, "اكتب عنوان التوصيل");
   const phone = normalisePhone(input.phone, org.currency);
-  const deal = await resolveDeal(org, branch.id, priced.subtotal, { code: input.couponCode, phone });
+  // The code box takes a coupon or a gift card; a gift card pays after the timed deal.
+  const gift = input.couponCode ? await giftByCode(org.id, input.couponCode) : null;
+  const deal = await resolveDeal(org, branch.id, priced.subtotal, { code: gift ? null : input.couponCode, phone });
   if (deal && "error" in deal) throw new OrderError(400, deal.error);
   if (deal && !(await claimUse(deal.deal.id))) throw new OrderError(400, "انتهى عدد مرات استخدام هذا العرض");
   const discount = deal ? deal.discount : 0;
+  let giftAmount = 0, giftUse: number | null = null;
+  if (gift) {
+    const problem = giftProblem(gift);
+    if (problem) { if (deal) await releaseUse(deal.deal.id); throw new OrderError(400, problem); }
+    giftAmount = Math.round(Math.min(Number(gift.balance), priced.subtotal - discount) * 100) / 100;
+    giftUse = await spendGift(gift.id, giftAmount, { note: "طلب من المنيو" });
+    if (giftAmount > 0 && !giftUse) { if (deal) await releaseUse(deal.deal.id); throw new OrderError(400, "رصيد البطاقة تغيّر — حدّث الصفحة"); }
+  }
   const code = await freshCode(org.id, todayFor(org));
   const [o] = await db.insert(ordersTable).values({
     orgId: org.id, branchId: branch.id, code, token: newToken(16), type,
@@ -102,12 +114,14 @@ export async function createOrder(org: Org, branch: Branch, input: NewOrder): Pr
     phone, address: String(input.address ?? "").trim().slice(0, 300) || null,
     items: priced.lines, subtotal: String(priced.subtotal),
     discount: String(discount), dealId: deal?.deal.id ?? null, dealTitle: deal?.deal.title ?? null,
+    giftCardId: gift && giftAmount > 0 ? gift.id : null, giftAmount: String(giftAmount),
     notes: String(input.notes ?? "").trim().slice(0, 500) || null,
     // A number typed at checkout makes the order real at once: the customer
     // gets it on WhatsApp without having to send anything. With no number,
     // it waits for their WhatsApp message (the wa.me link).
     scheduledFor, status: phone ? "received" : "pending", marketingOptIn: !!input.marketingOptIn,
   }).returning();
+  if (giftUse) await db.update(giftCardUsesTable).set({ orderId: o!.id }).where(eq(giftCardUsesTable.id, giftUse));
   publish(`orders:${branch.id}`);
   if (phone) {
     await touchCustomer(org.id, phone, { name: o!.customerName, order: { total: orderTotal(o!), itemIds: priced.lines.map((l) => l.itemId) }, optIn: o!.marketingOptIn, branchId: branch.id });
@@ -157,7 +171,7 @@ export async function orderView(o: Order): Promise<PublicOrderView | null> {
   return {
     code: o.code, token: o.token, status: o.status, type: o.type, tableLabel: o.tableLabel,
     items: o.items.map((l) => ({ name: l.name, nameEn: l.nameEn, qty: l.qty, unitPrice: l.unitPrice, options: l.options.map((x) => ({ group: x.group, choice: x.choice })), note: l.note, lineTotal: l.lineTotal })),
-    subtotal: Number(o.subtotal), discount: Number(o.discount), total: orderTotal(o), dealTitle: o.dealTitle, scheduledFor: o.scheduledFor?.toISOString() ?? null,
+    subtotal: Number(o.subtotal), discount: Number(o.discount), giftAmount: Number(o.giftAmount), total: orderTotal(o), dealTitle: o.dealTitle, scheduledFor: o.scheduledFor?.toISOString() ?? null,
     whatsappLinked: o.phoneVerified,
     waLink: waMeLink(c.branch.waPhone, orderMessage(o, c.org, lang)),
     createdAt: o.createdAt.toISOString(),
@@ -222,6 +236,11 @@ export async function setOrderStatus(orgId: number, branchIds: number[], id: num
     await touchCustomer(o.orgId, u!.phone, { name: o.customerName, order: { total: orderTotal(o), itemIds: o.items.map((l) => l.itemId) }, branchId: o.branchId });
   }
   if (status === "completed" || status === "cancelled") await cancelQueued("order", o.id);
+  // A cancelled order gives back what it took: the coupon's use, the gift card's amount.
+  if (status === "cancelled") {
+    if (o.dealId) await releaseUse(o.dealId);
+    if (o.giftCardId && Number(o.giftAmount) > 0) await refundGift(o.giftCardId, Number(o.giftAmount), o.id);
+  }
   const key = STATUS_NOTIFY[status];
   if (key && !(status === "received" && o.status !== "pending")) await notifyOrder(u!, key);
   publish(`orders:${o.branchId}`);
