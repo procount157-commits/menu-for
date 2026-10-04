@@ -34,7 +34,8 @@ const last = joined.find((t) => t.number === 20)!;
 let v = (await ticketView(last))!;
 check("number 20 has 19 ahead", v.ahead === 19, v.ahead);
 check("…and a real wait", !v.eta.soon && v.eta.high > v.eta.low, v.eta);
-check("the public view carries no phone and no other names", !JSON.stringify(v).includes("زبون 2") && !("phone" in v));
+// Which name drew number 20 depends on the race, so compare against the others' exact names.
+check("the public view carries no phone and no other names", !joined.filter((t) => t.id !== last.id).some((t) => JSON.stringify(v).includes(`"${t.customerName}"`)) && !("phone" in v));
 
 // ── Two staff press «التالي» together, twenty times ──────────────
 const calls = await Promise.all(Array.from({ length: 20 }, (_, i) => callNext(ctx, i % 2 ? 101 : 102)));
