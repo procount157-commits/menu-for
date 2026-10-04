@@ -4,6 +4,7 @@ import { useGetWhatsappStatus } from "@workspace/api-client-react";
 import { useAuth } from "@/context/AuthContext";
 import { useKeepAlive } from "@/hooks/use-keep-alive";
 import QrModal from "./QrModal";
+import { UpgradeDialog } from "./shop/Upgrade";
 import {
   LayoutDashboard, QrCode, Users, Megaphone, Bot,
   Wifi, WifiOff, Loader2, LogOut, Shield, User, TrendingUp, Download, BarChart3,
@@ -116,6 +117,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     <div className="flex h-screen bg-background overflow-hidden" dir="rtl">
       {/* Global QR / reconnect modal — appears on any page when WA needs attention */}
       {WA_PAGES.some((p) => location.startsWith(p)) && <QrModal />}
+      {!adminOnly && <UpgradeDialog />}
 
       {navOpen && <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setNavOpen(false)} />}
       <aside className={cn(

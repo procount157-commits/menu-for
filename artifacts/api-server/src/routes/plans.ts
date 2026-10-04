@@ -11,7 +11,7 @@ router.get("/", async (_req, res) => {
   const { rows } = await pool.query(`
     SELECT id, name, name_en, price, period, period_label,
            description, description_en, features, features_en,
-           badge, badge_en, is_featured, sort_order
+           badge, badge_en, is_featured, sort_order, plan_key
     FROM subscription_plans
     WHERE is_active = true
     ORDER BY sort_order ASC, id ASC

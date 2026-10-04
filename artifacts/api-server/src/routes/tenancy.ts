@@ -1,5 +1,6 @@
 // ── The shop, its branches and its staff ──────────────────────────
 
+import { usageOf, requestUpgrade } from "../lib/growth/upgrade";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
@@ -53,6 +54,7 @@ router.get("/tenancy/me", requireAuth, async (req, res) => {
           menuUrl: publicUrl(menuPath(t.org.slug, b.slug)),
         })),
       plan,
+      usage: await usageOf(t.org.id),
       wa: waState(t.waUserId),
       links: {
         menu: publicUrl(menuPath(t.org.slug, t.branch.slug)),
@@ -314,6 +316,11 @@ router.post("/staff-auth/login", async (req, res) => {
 router.get("/tenancy/queues", requireAuth, withTenant(ALL, async (_req, res, t) => {
   const qs = await db.select().from(queuesTable).where(and(eq(queuesTable.branchId, t.branch.id), eq(queuesTable.isActive, true))).orderBy(asc(queuesTable.sort), asc(queuesTable.id));
   res.json(qs);
+}));
+
+/** «اطلب الترقية» — lands in the admin's subscription requests with the shop and the reason. */
+router.post("/tenancy/upgrade-request", requireAuth, withTenant(OWNER, async (req, res, t) => {
+  res.json(await requestUpgrade(t.org, req.body?.plan, req.body?.reason));
 }));
 
 export default router;

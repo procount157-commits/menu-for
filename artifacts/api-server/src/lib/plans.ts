@@ -89,6 +89,8 @@ export type MenuFeature = "queue" | "booking" | "notify" | "marketing" | "displa
 export type MenuLimit = "branches" | "items" | "staff";
 
 /** Menu For You's side of the plan, for an org owner (or any account in the org). */
+export type MenuPlan = Awaited<ReturnType<typeof menuPlan>>;
+
 export async function menuPlan(userId: number) {
   const p = await planStatus(userId);
   const known = (p.plan in PLAN_LIMITS ? p.plan : "free") as PlanName;

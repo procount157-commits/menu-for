@@ -13,6 +13,7 @@ import { formatMoney } from "@workspace/menu-shared";
 import { cn } from "@/lib/utils";
 import { get, useShop, useSwitchBranch } from "@/lib/shop-api";
 import { CopyButton, PageHeader, Skel, btnGhost, btnPrimary, isQrDone } from "@/components/shop/setup/kit";
+import { askUpgrade } from "@/components/shop/Upgrade";
 
 interface LiveBranch {
   id: number; name: string; isActive: boolean; waiting: number; served: number; noShows: number; avgWait: number | null;
@@ -130,6 +131,37 @@ function NextSteps() {
   );
 }
 
+/** How close each limit is; from 80% it says so and offers the next plan. */
+function PlanUsage() {
+  const shop = useShop();
+  const L = shop.plan.limits, U = shop.usage;
+  if (!U) return null;
+  const rows = ([["الفروع", U.branches, L.branches], ["الأصناف", U.items, L.items], ["الموظفون", U.staff, L.staff]] as const).filter(([, , l]) => l > 0);
+  const near = rows.filter(([, u, l]) => u / l >= 0.8);
+  const top = shop.plan.plan === "business";
+  if (!rows.length && top) return null;
+  return (
+    <section className={cn("rounded-2xl border p-4 sm:p-5", near.length ? "border-amber-500/40 bg-amber-500/5" : "border-card-border bg-card")}>
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <h3 className="font-semibold flex-1">خطتك: {shop.plan.planName}</h3>
+        {!top && <button onClick={() => askUpgrade(near.length ? `وصلت ${near.map(([n]) => n).join(" و")} لحد خطتك تقريباً.` : "")} className={cn(btnPrimary, "text-xs px-3 py-1.5")}><TrendingUp className="w-3.5 h-3.5" />ارفع خطتك</button>}
+      </div>
+      <div className="grid sm:grid-cols-3 gap-3">
+        {rows.map(([n, u, l]) => {
+          const pct = Math.min(100, Math.round((u / l) * 100));
+          return (
+            <div key={n}>
+              <div className="flex justify-between text-xs mb-1"><span className="text-muted-foreground">{n}</span><span className={cn("tabular-nums", pct >= 100 ? "text-red-300" : pct >= 80 ? "text-amber-300" : "")}>{u} / {l}</span></div>
+              <div className="h-2 rounded-full bg-muted overflow-hidden"><div className={cn("h-full rounded-full", pct >= 100 ? "bg-red-400" : pct >= 80 ? "bg-amber-400" : "bg-primary")} style={{ width: `${pct}%` }} /></div>
+            </div>
+          );
+        })}
+      </div>
+      {near.length > 0 && <p className="text-xs text-amber-200/90 mt-3">{near.some(([, u, l]) => u >= l) ? "وصلت للحد — لن تقدر تضيف أكثر في هذه الخطة." : "قربت من الحد."} الخطة الأعلى تفتح المزيد مع أدوات تبيع أكثر.</p>}
+    </section>
+  );
+}
+
 export default function ShopHome() {
   const shop = useShop();
   const live = useQuery<Live>({ queryKey: ["/api/reports/live"], queryFn: () => get("/api/reports/live"), refetchInterval: 20_000 });
@@ -156,6 +188,8 @@ export default function ShopHome() {
       </section>
 
       <NextSteps />
+
+      {shop.role === "owner" && <PlanUsage />}
 
       <div className="space-y-4">
         {live.isLoading && [0, 1].map((i) => <Skel key={i} className="h-64 rounded-2xl" />)}

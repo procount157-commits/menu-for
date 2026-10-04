@@ -162,6 +162,7 @@ for (const [what, p] of [
   ["read the platform's model keys", S.get("/api/admin/orgs/llm-keys")],
   ["open the coupons", S.get("/api/deals")],
   ["list the gift cards", S.get("/api/gifts")],
+  ["ask for an upgrade", S.post("/api/tenancy/upgrade-request", { plan: "pro" })],
   ["sell a gift card", S.post("/api/gifts", { amount: 50 })],
   ["open the weekly report", S.get("/api/growth/report")],
 ] as const) {
@@ -283,6 +284,13 @@ r = await B.post("/api/branches", { name: "فرع ثاني" });
 check("the basic plan stops at one branch", r.status === 402 && r.json.plan === true, r.json);
 r = await B.patch("/api/booking-settings", { enabled: true });
 check("…and has no bookings", r.status === 402);
+r = await B.get("/api/tenancy/me");
+check("the shop knows how close it is to each limit", r.json.usage?.branches === 1 && r.json.plan.limits.branches === 1, r.json.usage);
+r = await B.post("/api/branches", { name: "فرع ثالث" });
+check("hitting a limit answers «higher plan», which opens the upgrade dialog", r.status === 402 && r.json.plan === true);
+r = await B.post("/api/tenancy/upgrade-request", { plan: "pro", reason: "الفروع" });
+check("…and the owner can ask for it", r.status === 200 && r.json.plan === "pro");
+await db.execute(sql`delete from subscription_leads where source = 'in_app' and notes like ${"%beta-" + tag + "%"}`);
 r = await B.post("/api/campaigns", { name: "x", message: "x" });
 check("…and no campaigns", r.status === 402 || r.status === 400, `${r.status}`);
 r = await B.patch("/api/wa-auto/autopilot", { enabled: true });

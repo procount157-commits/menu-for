@@ -25,6 +25,8 @@ export async function api<T = any>(path: string, init: RequestInit & { json?: un
   const text = await r.text();
   let body: any = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+  // «This is in a higher plan»: the upgrade dialog opens wherever the owner is.
+  if (r.status === 402 && body?.plan && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("mfy:upgrade", { detail: { reason: body.error } }));
   if (!r.ok) throw new ApiError(r.status, body?.error ?? `فشل الطلب (${r.status})`, body);
   return body as T;
 }
@@ -79,6 +81,7 @@ export interface ShopMe {
   };
   branches: ShopBranch[];
   plan: Plan;
+  usage: { branches: number; items: number; staff: number };
   /** Bookings are on for this branch and in the plan. */
   booking: { enabled: boolean };
   wa: WaState;

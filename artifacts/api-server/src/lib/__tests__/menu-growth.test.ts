@@ -17,6 +17,8 @@ import { giftCardsTable, ordersTable } from "@workspace/db";
 import { referralCodeFor, friendDiscount, referralStats } from "../growth/referrals";
 import { customerReferralsTable } from "@workspace/db";
 import { churnRisk, type ChurnInput } from "../growth/churn";
+import { nudges, suggestedPlan, usageOf, requestUpgrade } from "../growth/upgrade";
+import { subscriptionLeadsTable } from "@workspace/db";
 import { validBirthday, shouldAskBirthday, saveBirthday, birthdayToday, birthdayMessage, runBirthdays } from "../growth/birthday";
 import { cleanup, makeShop } from "./menu-fixtures";
 
@@ -283,6 +285,19 @@ check("a week with no orders, queue or bookings is high", churnRisk({ ...healthy
 check("WhatsApp never linked and an empty menu are named", churnRisk({ ...healthy, wa: { linked: 0, total: 1 }, items: 1 }, NOWC).reasons.join() === "واتساب غير مربوط,المنيو شبه فارغ");
 check("a shop that never finished setting up is one to watch", churnRisk({ ...healthy, onboarded_at: null, created_at: ago9(5) }, NOWC).reasons.includes("لم يكمل تجهيز المحل"));
 check("a suspended shop is not chased", churnRisk({ ...healthy, status: "suspended", plan_expires_at: ago9(9) }, NOWC).level === "ok");
+
+// ── 10. Upgrade at the limit ──────────────────────────────────────
+const nz = nudges({ branches: 3, items: 10, staff: 8 }, { branches: 3, items: -1, staff: 10 });
+check("limits at 80% or more are named, fullest first; unlimited never", nz.map((x) => `${x.key}:${x.full}`).join() === "branches:true,staff:false", nz);
+check("the next plan up is suggested", suggestedPlan("free") === "pro" && suggestedPlan("basic") === "pro" && suggestedPlan("pro") === "business" && suggestedPlan("business") === null);
+const us = await usageOf(shop.org.id);
+check("usage counts the shop's branches, items and staff", us.branches === 1 && us.items === 3 && us.staff === 0, us);
+await requestUpgrade(org8!, "business", "وصلت الفروع لحد خطتك");
+await requestUpgrade(org8!, "business", "مرة ثانية");
+const [ownerU] = await db.select().from(usersTable).where(eq(usersTable.id, shop.user.id));
+const leads = await db.select().from(subscriptionLeadsTable).where(and(eq(subscriptionLeadsTable.phone, ownerU!.phone), eq(subscriptionLeadsTable.source, "in_app")));
+check("«اطلب الترقية» lands in the admin's requests with the shop and the reason — once", leads.length === 1 && leads[0]!.planName === "الأعمال" && leads[0]!.notes!.includes(shop.org.slug) && leads[0]!.notes!.includes("مرة ثانية"));
+await db.delete(subscriptionLeadsTable).where(eq(subscriptionLeadsTable.phone, ownerU!.phone));
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);
