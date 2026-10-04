@@ -16,7 +16,7 @@ const router = Router();
 
 // ── Orders ────────────────────────────────────────────────────────
 
-const orderRow = (o: Awaited<ReturnType<typeof listOrders>>[number]) => ({ ...o, subtotal: Number(o.subtotal) });
+const orderRow = (o: Awaited<ReturnType<typeof listOrders>>[number]) => ({ ...o, subtotal: Number(o.subtotal), discount: Number(o.discount), total: Number(o.subtotal) - Number(o.discount) });
 
 router.get("/orders", requireAuth, withTenant(ALL, async (req, res, t) => {
   const status = req.query.status ? String(req.query.status).split(",") : undefined;

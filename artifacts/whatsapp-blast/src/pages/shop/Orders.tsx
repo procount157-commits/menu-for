@@ -21,7 +21,7 @@ type OrderType = "dine_in" | "pickup" | "delivery" | "preorder";
 interface OrderLine { itemId: number; name: string; nameEn?: string | null; qty: number; unitPrice: number; options: Array<{ group: string; choice: string; priceDelta: number }>; note?: string; lineTotal: number }
 interface Order {
   id: number; code: string; token: string; type: OrderType; tableLabel: string | null; customerName: string | null;
-  phone: string | null; phoneVerified: boolean; address: string | null; items: OrderLine[]; subtotal: number; notes: string | null;
+  phone: string | null; phoneVerified: boolean; address: string | null; items: OrderLine[]; subtotal: number; discount?: number; total?: number; dealTitle?: string | null; notes: string | null;
   scheduledFor: string | null; status: OrderStatus; createdAt: string; updatedAt: string;
 }
 
@@ -132,7 +132,7 @@ export default function Orders() {
 
   const history = [...by.completed, ...by.cancelled].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
   const today = orders.filter((o) => o.status !== "pending" && o.status !== "cancelled");
-  const revenue = today.reduce((s, o) => s + o.subtotal, 0);
+  const revenue = today.reduce((s, o) => s + (o.total ?? o.subtotal), 0);
 
   return (
     <div className="h-full flex flex-col">
@@ -228,7 +228,8 @@ function OrderCard({ o, now, money, tz, busy, onMove, onCopy, compact }: {
           </div>
         </div>
         <div className="text-left shrink-0">
-          <div className="font-bold tabular-nums text-sm">{money(o.subtotal)}</div>
+          <div className="font-bold tabular-nums text-sm">{money(o.total ?? o.subtotal)}</div>
+          {!!o.discount && <div className="text-[10px] text-emerald-300" title={o.dealTitle ?? ""}>🏷️ −{money(o.discount)}</div>}
           <div className={cn("text-[11px] tabular-nums flex items-center gap-1 justify-end", stale ? "text-amber-400" : "text-muted-foreground")}><Clock className="w-3 h-3" />{done ? clock(o.updatedAt, tz) : ago(age)}</div>
         </div>
       </header>

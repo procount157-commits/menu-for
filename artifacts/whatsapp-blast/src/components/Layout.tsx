@@ -8,7 +8,7 @@ import {
   LayoutDashboard, QrCode, Users, Megaphone, Bot,
   Wifi, WifiOff, Loader2, LogOut, Shield, User, TrendingUp, Download, BarChart3,
   MessageCircle, MessagesSquare, MessageSquare, BookOpen, RefreshCw, Sparkles, Settings2, Activity, Clock, Brain, Users2, Radar, LayoutGrid, Globe, Mail, Target,
-  Store, ListOrdered, ShoppingBag, CalendarDays, UtensilsCrossed, Contact, ChevronDown, ExternalLink, Building2, Undo2, Zap } from "lucide-react";
+  Store, ListOrdered, ShoppingBag, CalendarDays, UtensilsCrossed, Contact, ChevronDown, ExternalLink, Building2, Undo2, Zap, Tag } from "lucide-react";
 import { useShopQuery, useSwitchBranch, post } from "@/lib/shop-api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -23,6 +23,7 @@ const NAV: Array<{ title: string; items: NavItem[] }> = [
     { href: "/orders",        label: "الطلبات",            icon: ShoppingBag },
     { href: "/bookings",      label: "الحجوزات",           icon: CalendarDays, feature: "booking" },
     { href: "/menu",          label: "المنيو",             icon: UtensilsCrossed },
+    { href: "/deals",         label: "العروض والكوبونات",  icon: Tag },
     { href: "/customers",     label: "الزبائن",            icon: Contact },
     { href: "/reports",       label: "التقارير",           icon: BarChart3 },
   ] },

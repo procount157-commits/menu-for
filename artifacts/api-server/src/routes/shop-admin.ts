@@ -46,7 +46,7 @@ router.get("/customers/:phone", requireAuth, withTenant(MANAGERS, async (req, re
     db.select().from(ordersTable).where(and(eq(ordersTable.orgId, t.org.id), eq(ordersTable.phone, phone))).orderBy(desc(ordersTable.createdAt)).limit(50),
     db.select().from(bookingsTable).where(and(eq(bookingsTable.orgId, t.org.id), eq(bookingsTable.phone, phone))).orderBy(desc(bookingsTable.startsAt)).limit(50),
   ]);
-  res.json({ customer: { ...c, totalSpent: Number(c.totalSpent) }, tickets, orders: orders.map((o) => ({ ...o, subtotal: Number(o.subtotal) })), bookings });
+  res.json({ customer: { ...c, totalSpent: Number(c.totalSpent) }, tickets, orders: orders.map((o) => ({ ...o, subtotal: Number(o.subtotal) - Number(o.discount) })), bookings });
 }));
 
 router.patch("/customers/:phone", requireAuth, withTenant(OWNER, async (req, res, t) => {
@@ -143,7 +143,7 @@ router.get("/reports/overview", requireAuth, withTenant(MANAGERS, async (req, re
     SELECT to_char((created_at AT TIME ZONE ${tz}) - interval '4 hours', 'YYYY-MM-DD') AS day, branch_id,
       count(*) FILTER (WHERE status <> 'pending' AND status <> 'cancelled')::int AS orders,
       count(*) FILTER (WHERE status = 'pending')::int AS abandoned,
-      coalesce(sum(subtotal) FILTER (WHERE status <> 'pending' AND status <> 'cancelled'), 0)::float AS revenue
+      coalesce(sum(subtotal - discount) FILTER (WHERE status <> 'pending' AND status <> 'cancelled'), 0)::float AS revenue
     FROM orders WHERE org_id = ${t.org.id} AND branch_id IN (${ids}) AND created_at >= ${since}
     GROUP BY 1, 2 ORDER BY 1`);
 
@@ -200,7 +200,7 @@ router.get("/reports/live", requireAuth, withTenant(MANAGERS, async (_req, res, 
     const [o] = await db.select({
       n: sql<number>`count(*) filter (where status not in ('pending','cancelled'))::int`,
       open: sql<number>`count(*) filter (where status in ('received','preparing','ready'))::int`,
-      revenue: sql<number>`coalesce(sum(subtotal) filter (where status not in ('pending','cancelled')), 0)::float`,
+      revenue: sql<number>`coalesce(sum(subtotal - discount) filter (where status not in ('pending','cancelled')), 0)::float`,
     }).from(ordersTable).where(and(eq(ordersTable.branchId, b.id), gte(ordersTable.createdAt, dayStart)));
     const [bk] = await db.select({ n: sql<number>`count(*)::int` }).from(bookingsTable)
       .where(and(eq(bookingsTable.branchId, b.id), gte(bookingsTable.startsAt, dayStart), sql`${bookingsTable.startsAt} < ${new Date(dayStart.getTime() + 24 * 3_600_000)}`, sql`${bookingsTable.status} not in ('cancelled')`));

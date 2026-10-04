@@ -61,6 +61,18 @@ export interface PublicItem {
 
 export interface PublicCategory { id: number; name: string; nameEn: string | null; imageUrl: string | null }
 
+export interface PublicDeal {
+  id: number;
+  title: string;
+  label: string;
+  kind: "pct" | "amount";
+  value: number;
+  minSubtotal: number;
+  maxDiscount: number | null;
+  toTime: string | null;
+  endsAt: string | Date | null;
+}
+
 export interface PublicOffer {
   id: number;
   title: string;
@@ -94,6 +106,10 @@ export interface PublicMenu {
   categories: PublicCategory[];
   items: PublicItem[];
   offers: PublicOffer[];
+  /** Timed deals running right now — they apply by themselves at checkout. */
+  deals: PublicDeal[];
+  /** Whether the shop has codes a customer could type. */
+  hasCodes: boolean;
   queues: PublicQueue[];
   booking: { enabled: boolean; maxParty: number; slotMin: number; maxDaysAhead: number; services: boolean } | null;
   ordering: { enabled: boolean; types: Array<"dine_in" | "pickup" | "delivery" | "preorder"> };
@@ -143,6 +159,9 @@ export interface PublicOrderView {
   tableLabel: string | null;
   items: Array<{ name: string; nameEn?: string | null; qty: number; unitPrice: number; options: Array<{ group: string; choice: string }>; note?: string; lineTotal: number }>;
   subtotal: number;
+  discount: number;
+  total: number;
+  dealTitle: string | null;
   scheduledFor: string | null;
   whatsappLinked: boolean;
   waLink: string | null;

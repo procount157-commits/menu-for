@@ -7,7 +7,10 @@ import { weekWindow, reportDue, formatReport, tipFor, ownerPhone, cleanPrefs, co
 import { cleanReviewUrl, reviewStats } from "../growth/reviews";
 import { handleCustomerMessage } from "../notify/inbound";
 import { reorderLines, lastOrderOf, orderView } from "../orders/service";
-import { queueCommand } from "@workspace/menu-shared";
+import { queueCommand, dealOpen, dealDiscount, bestAutoDeal, normaliseCode, type Deal } from "@workspace/menu-shared";
+import { cleanDeal, resolveDeal, createPersonalCode, liveDeals } from "../growth/deals";
+import { orderMessage } from "../orders/service";
+import { shopDealsTable } from "@workspace/db";
 import { cleanup, makeShop } from "./menu-fixtures";
 
 let pass = 0, total = 0;
@@ -111,6 +114,54 @@ check("on WhatsApp, «نفس الطلب» is answered with a link that refills t
 await handleCustomerMessage(shop.branch.waUserId, "971500000499", "المعتاد");
 rr = await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.phone, "971500000499")));
 check("…and a number with no past order gets the menu instead", rr.length === 1 && !rr[0]!.text.includes("reorder=") && rr[0]!.text.includes("ما لقينا"));
+
+// ── 4. Coupons and timed deals ────────────────────────────────────
+const D = (x: Partial<Deal>): Deal => ({ id: 1, code: null, title: "ساعة سعيدة", kind: "pct", value: 15, minSubtotal: 0, maxDiscount: null, days: [], fromTime: null, toTime: null, startsAt: null, endsAt: null, maxUses: null, uses: 0, isActive: true, ...x });
+const TZ = "Asia/Dubai";
+const thu = (hhmm: string) => new Date(`2026-10-01T${hhmm}:00+04:00`); // a Thursday
+check("a 15:00–18:00 deal runs at 16:30", dealOpen(D({ fromTime: "15:00", toTime: "18:00" }), TZ, thu("16:30")));
+check("…not at 18:00 or 14:59", !dealOpen(D({ fromTime: "15:00", toTime: "18:00" }), TZ, thu("18:00")) && !dealOpen(D({ fromTime: "15:00", toTime: "18:00" }), TZ, thu("14:59")));
+check("a late-night window wraps past midnight, counted to the day it opened", dealOpen(D({ fromTime: "22:00", toTime: "02:00", days: [4] }), TZ, new Date("2026-10-02T01:00:00+04:00")) && !dealOpen(D({ fromTime: "22:00", toTime: "02:00", days: [5] }), TZ, new Date("2026-10-02T01:00:00+04:00")));
+check("days limit it", !dealOpen(D({ days: [0, 1] }), TZ, thu("12:00")) && dealOpen(D({ days: [4] }), TZ, thu("12:00")));
+check("an ended, used-up or switched-off deal does not run", !dealOpen(D({ endsAt: thu("10:00") }), TZ, thu("12:00")) && !dealOpen(D({ maxUses: 5, uses: 5 }), TZ, thu("12:00")) && !dealOpen(D({ isActive: false }), TZ, thu("12:00")));
+check("15% of 80 is 12; nothing below the minimum; capped at its maximum", dealDiscount(D({}), 80) === 12 && dealDiscount(D({ minSubtotal: 100 }), 80) === 0 && dealDiscount(D({ maxDiscount: 10 }), 80) === 10);
+check("an amount off never exceeds the order", dealDiscount(D({ kind: "amount", value: 50 }), 30) === 30);
+check("the best automatic deal wins; coded and personal ones never apply alone", bestAutoDeal([D({ id: 1, value: 10 }), D({ id: 2, value: 20 }), D({ id: 3, value: 50, code: "X" }), D({ id: 4, value: 60, phone: "971" })], 100, TZ, thu("12:00"))?.deal.id === 2);
+check("codes are typed any way", normaliseCode(" ramadan 20 ") === "RAMADAN20");
+check("the owner's form: a deal with no code needs hours, days or an end", !cleanDeal({ title: "خصم", value: 10 }).ok && cleanDeal({ title: "خصم", value: 10, fromTime: "15:00", toTime: "18:00" }).ok);
+check("…a percentage stays under 90, both hours or neither", !cleanDeal({ title: "x", value: 95, code: "AB1" }).ok && !cleanDeal({ title: "x", value: 10, code: "AB1", fromTime: "15:00" }).ok);
+check("…and the code is cleaned", (cleanDeal({ title: "x", value: 10, code: "eid 25" }) as any).row.code === "EID25");
+
+await db.update(usersTable).set({ plan: "pro" }).where(eq(usersTable.id, shop.user.id));
+const [hh] = await db.insert(shopDealsTable).values({ orgId: shop.org.id, title: "خصم الأسبوع", kind: "pct", value: "10", endsAt: new Date(Date.now() + 86_400_000) }).returning();
+const live = await liveDeals(org0!, shop.branch.id);
+check("a running automatic deal is on the public menu", live.length === 1 && live[0]!.title === "خصم الأسبوع" && live[0]!.label === "خصم 10%");
+const o10 = await createOrder(org0!, shop.branch, { type: "pickup", lines: [{ itemId: shop.items[1]!.id, qty: 5 }] });
+check("with no code, the automatic deal applies by itself", Number(o10.discount) === 9 && o10.dealTitle === "خصم الأسبوع" && Number(o10.subtotal) === 90);
+check("the WhatsApp order shows the discount and what to pay", orderMessage(o10, org0!).includes("خصم الأسبوع: −9") && orderMessage(o10, org0!).includes("الإجمالي: 81"));
+await db.insert(shopDealsTable).values({ orgId: shop.org.id, code: "EID25", title: "عرض العيد", kind: "amount", value: "25", minSubtotal: "50", maxUses: 2, oncePerPhone: true });
+let rd = await resolveDeal(org0!, shop.branch.id, 40, { code: "eid25", phone: "971500000501" });
+check("a code below its minimum says so", !!rd && "error" in rd && /الحد الأدنى/.test(rd.error), rd);
+rd = await resolveDeal(org0!, shop.branch.id, 90, { code: "EID25" });
+check("a once-per-phone code needs the number", !!rd && "error" in rd && /رقم/.test(rd.error));
+const oc = await createOrder(org0!, shop.branch, { type: "pickup", phone: "0500000501", couponCode: "eid25", lines: [{ itemId: shop.items[1]!.id, qty: 5 }] });
+check("a typed code replaces the automatic deal", Number(oc.discount) === 25 && oc.dealTitle === "عرض العيد");
+let threw = "";
+try { await createOrder(org0!, shop.branch, { type: "pickup", phone: "0500000501", couponCode: "EID25", lines: [{ itemId: shop.items[1]!.id, qty: 5 }] }); } catch (e) { threw = (e as Error).message; }
+check("…and the same phone cannot use it twice", /من قبل/.test(threw), threw);
+await createOrder(org0!, shop.branch, { type: "pickup", phone: "0500000502", couponCode: "EID25", lines: [{ itemId: shop.items[1]!.id, qty: 5 }] });
+threw = "";
+try { await createOrder(org0!, shop.branch, { type: "pickup", phone: "0500000503", couponCode: "EID25", lines: [{ itemId: shop.items[1]!.id, qty: 5 }] }); } catch (e) { threw = (e as Error).message; }
+check("a code limited to 2 uses stops at 2", /انتهى/.test(threw), threw);
+threw = "";
+try { await createOrder(org0!, shop.branch, { type: "pickup", couponCode: "NOPE", lines: [{ itemId: shop.items[1]!.id, qty: 1 }] }); } catch (e) { threw = (e as Error).message; }
+check("a wrong code stops the order with a reason (not a silent full price)", /غير صحيح/.test(threw));
+const pc = await createPersonalCode(shop.org.id, "971500000504", { title: "هدية", kind: "pct", value: 20, days: 7, source: "birthday", prefix: "BD" });
+rd = await resolveDeal(org0!, shop.branch.id, 90, { code: pc.code, phone: "971500000505" });
+check("a personal code works only for its own phone", !!rd && "error" in rd && /رقم آخر/.test(rd.error));
+rd = await resolveDeal(org0!, shop.branch.id, 90, { code: pc.code!, phone: "971500000504" });
+check("…and does for it", !!rd && !("error" in rd) && rd.discount === 18);
+await db.update(shopDealsTable).set({ isActive: false }).where(eq(shopDealsTable.id, hh!.id));
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

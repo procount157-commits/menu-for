@@ -32,7 +32,7 @@ export async function shopContext(waUserId: number): Promise<string> {
       n: sql<number>`count(*) filter (where status not in ('pending','cancelled'))::int`,
       open: sql<number>`count(*) filter (where status in ('received','preparing','ready'))::int`,
       pending: sql<number>`count(*) filter (where status = 'pending')::int`,
-      revenue: sql<number>`coalesce(sum(subtotal) filter (where status not in ('pending','cancelled')), 0)::float`,
+      revenue: sql<number>`coalesce(sum(subtotal - discount) filter (where status not in ('pending','cancelled')), 0)::float`,
     }).from(ordersTable).where(and(eq(ordersTable.branchId, b.id), gte(ordersTable.createdAt, dayStart)));
     const [bk] = await db.select({ n: sql<number>`count(*)::int` }).from(bookingsTable)
       .where(and(eq(bookingsTable.branchId, b.id), gte(bookingsTable.startsAt, dayStart), sql`${bookingsTable.startsAt} < ${new Date(dayStart.getTime() + 24 * 3_600_000)}`, sql`${bookingsTable.status} <> 'cancelled'`));

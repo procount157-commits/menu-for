@@ -160,6 +160,8 @@ for (const [what, p] of [
   ["change the shop's alert phones", S.patch("/api/wa-auto/alerts", { phones: ["0501234567"] })],
   ["prepare a campaign", S.post("/api/wa-auto/autopilot/run")],
   ["read the platform's model keys", S.get("/api/admin/orgs/llm-keys")],
+  ["open the coupons", S.get("/api/deals")],
+  ["open the weekly report", S.get("/api/growth/report")],
 ] as const) {
   const x = await p;
   check(`staff cannot ${what}`, x.status === 403, `${x.status}`);
@@ -179,6 +181,8 @@ r = await M.get(`/api/campaigns`);
 check("…nor the campaigns", r.status === 403);
 r = await M.get(`/api/wa-auto`);
 check("…nor the WhatsApp automation", r.status === 403);
+r = await M.get(`/api/deals`);
+check("a manager runs the coupons", r.status === 200 && Array.isArray(r.json.deals));
 
 // ── WhatsApp, as the owner runs it ───────────────────────────────
 await A.patch(`/api/menu/availability`, { itemId: itemA.id, available: true });

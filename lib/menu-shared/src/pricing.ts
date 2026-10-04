@@ -39,7 +39,7 @@ export interface PricedLine {
 export const MAX_QTY = 99;
 export const MAX_LINES = 60;
 
-const money = (n: number) => Math.round(n * 100) / 100;
+export const money = (n: number) => Math.round(n * 100) / 100;
 
 export function priceLine(item: PriceableItem, input: CartLineInput): { ok: true; line: PricedLine } | { ok: false; error: string } {
   const qty = Math.floor(Number(input.qty));

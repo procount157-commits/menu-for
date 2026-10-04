@@ -10,9 +10,10 @@ import { orgBySlug, branchFor, publicMenu } from "../lib/menu/service";
 import {
   queueCtx, publicQueue, join, ticketByToken, ticketView, transition, joinMessage, snapshot, etaAt, QueueError,
 } from "../lib/queue/engine";
-import { createOrder, orderByToken, orderView, orderMessage, OrderError } from "../lib/orders/service";
+import { createOrder, orderByToken, orderView, orderMessage, orderTotal, OrderError } from "../lib/orders/service";
 import { slotsFor, createBooking, bookingByToken, bookingView, bookingMessage, setBookingStatus, BookingError } from "../lib/booking/service";
 import { normalisePhone } from "../lib/customers";
+import { resolveDeal } from "../lib/growth/deals";
 import { stream } from "../lib/realtime";
 import { limit } from "../lib/rate-limit";
 import { rememberOrigin, joinKey, publicUrl, menuPath } from "../lib/menu/urls";
@@ -135,10 +136,23 @@ router.post("/orders", limit("order", 20, 10 * 60_000), async (req, res) => {
     const o = await createOrder(s.org, s.branch, {
       lines: b.lines, type: b.type, tableLabel: b.tableLabel, customerName: b.customerName,
       phone: b.phone, address: b.address, notes: b.notes, scheduledFor: b.scheduledFor, marketingOptIn: !!b.marketingOptIn,
+      couponCode: b.couponCode,
     });
     const lang = b.lang === "en" ? "en" : (s.org.defaultLang === "en" ? "en" : "ar");
-    res.status(201).json({ code: o.code, token: o.token, status: o.status, subtotal: Number(o.subtotal), waLink: waMeLink(s.branch.waPhone, orderMessage(o, s.org, lang)) });
+    res.status(201).json({ code: o.code, token: o.token, status: o.status, subtotal: Number(o.subtotal), discount: Number(o.discount), total: orderTotal(o), waLink: waMeLink(s.branch.waPhone, orderMessage(o, s.org, lang)) });
   } catch (err) { fail(res, err); }
+});
+
+/** Check a coupon before checkout: what it takes off this cart, or why not. */
+router.post("/deals/check", limit("deal", 30, 10 * 60_000), async (req, res) => {
+  const b = req.body ?? {};
+  const s = await shop(String(b.slug ?? ""), b.branch ? String(b.branch) : undefined);
+  if (!s) return res.status(404).json({ error: "المحل غير موجود" });
+  const subtotal = Math.max(0, Number(b.subtotal) || 0);
+  const r = await resolveDeal(s.org, s.branch.id, subtotal, { code: String(b.code ?? ""), phone: normalisePhone(b.phone, s.org.currency) });
+  if (!r) return res.status(400).json({ error: "الكود غير صحيح أو منتهي" });
+  if ("error" in r) return res.status(400).json({ error: r.error });
+  res.json({ ok: true, title: r.deal.title, discount: r.discount, code: r.deal.code });
 });
 
 router.get("/orders/:token", limit("ticket", 600, 60_000), async (req, res) => {

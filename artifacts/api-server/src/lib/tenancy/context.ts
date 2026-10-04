@@ -195,6 +195,7 @@ const MANAGER_ALLOW: Array<[string, RegExp]> = [
   ["*",    /^\/menu\/(items|categories|offers)(\/|$)/],
   ["POST", /^\/menu\/images$/],
   ["POST", /^\/menu\/(import|import-photo|import-rows|translate)$/],
+  ["*",    /^\/deals(\/|$)/],
 ];
 
 export function staffGuard(req: Request, res: Response, next: NextFunction) {

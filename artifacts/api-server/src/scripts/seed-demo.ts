@@ -18,7 +18,7 @@ import path from "node:path";
 import bcrypt from "bcryptjs";
 import { eq, inArray } from "drizzle-orm";
 import {
-  db, customersTable, usersTable, orgsTable, branchesTable, menuCategoriesTable, menuItemsTable, offersTable, staffTable,
+  db, customersTable, shopDealsTable, usersTable, orgsTable, branchesTable, menuCategoriesTable, menuItemsTable, offersTable, staffTable,
   queuesTable, bookingSettingsTable,
 } from "@workspace/db";
 import { createOrg } from "../lib/tenancy/org";
@@ -279,6 +279,14 @@ async function barber() {
   return org;
 }
 
+// A timed deal and a code per shop, so «العروض والكوبونات» and the menu banner have something to show.
+async function demoDeals(orgId: number, happy: { title: string; value: number; from: string; to: string }, code: string) {
+  await db.insert(shopDealsTable).values([
+    { orgId, title: happy.title, kind: "pct", value: String(happy.value), fromTime: happy.from, toTime: happy.to, days: [0, 1, 2, 3, 4] },
+    { orgId, code, title: "خصم أول طلب", kind: "pct", value: "10", maxDiscount: "20", oncePerPhone: true },
+  ]).onConflictDoNothing();
+}
+
 // The platform admin: runs the platform, owns no shop.
 await db.insert(usersTable).values({ phone: "500000000", passwordHash: await bcrypt.hash(PASSWORD, 10), displayName: "مدير المنصة", isAdmin: true, plan: "business" })
   .onConflictDoUpdate({ target: usersTable.phone, set: { passwordHash: await bcrypt.hash(PASSWORD, 10), isAdmin: true, displayName: "مدير المنصة" } });
@@ -289,6 +297,7 @@ const MEN = ["سالم", "راشد", "حمدان", "عمر", "ماجد", "خلي
 if (only === "barber") {
   const d = await barber();
   await demoCustomers(d.id, MEN);
+  await demoDeals(d.id, { title: "ساعة الصباح", value: 10, from: "10:00", to: "13:00" }, "FARIS10");
   console.log(`seeded: /${d.slug}`);
   process.exit(0);
 }
@@ -300,5 +309,9 @@ await demoCustomers(a.id, ["خالد", "سارة", "محمد", "نورة", "عب
 await demoCustomers(b.id, ["أم راشد", "منى", "حمد", "شيخة", "علي", "عائشة", "ناصر", "فاطمة"]);
 await demoCustomers(c.id, ["مريم", "هند", "دانة", "العنود", "شهد", "جواهر", "لمى", "روان", "غادة", "أمل"]);
 await demoCustomers(d.id, MEN);
+await demoDeals(a.id, { title: "ساعة سعيدة", value: 15, from: "15:00", to: "18:00" }, "WELCOME10");
+await demoDeals(b.id, { title: "عصرية الحلا", value: 10, from: "16:00", to: "19:00" }, "REEM10");
+await demoDeals(c.id, { title: "صباح الدلال", value: 10, from: "10:00", to: "13:00" }, "LAMSA10");
+await demoDeals(d.id, { title: "ساعة الصباح", value: 10, from: "10:00", to: "13:00" }, "FARIS10");
 console.log(`seeded: /${a.slug}, /${b.slug}, /${c.slug} and /${d.slug}`);
 process.exit(0);

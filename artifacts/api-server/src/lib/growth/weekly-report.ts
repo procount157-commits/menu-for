@@ -47,9 +47,9 @@ export async function computeWeek(org: Org, now = new Date()): Promise<WeekStats
   const [o] = (await db.execute<any>(sql`
     SELECT
       count(*) FILTER (WHERE created_at >= ${w.start} AND status NOT IN ('pending','cancelled'))::int AS orders,
-      coalesce(sum(subtotal) FILTER (WHERE created_at >= ${w.start} AND status NOT IN ('pending','cancelled')), 0)::float AS revenue,
+      coalesce(sum(subtotal - discount) FILTER (WHERE created_at >= ${w.start} AND status NOT IN ('pending','cancelled')), 0)::float AS revenue,
       count(*) FILTER (WHERE created_at < ${w.start} AND status NOT IN ('pending','cancelled'))::int AS prev_orders,
-      coalesce(sum(subtotal) FILTER (WHERE created_at < ${w.start} AND status NOT IN ('pending','cancelled')), 0)::float AS prev_revenue,
+      coalesce(sum(subtotal - discount) FILTER (WHERE created_at < ${w.start} AND status NOT IN ('pending','cancelled')), 0)::float AS prev_revenue,
       count(*) FILTER (WHERE created_at >= ${w.start} AND status = 'pending')::int AS abandoned
     FROM orders WHERE org_id = ${org.id} AND created_at >= ${w.prevStart} AND created_at < ${w.end}`)).rows;
   const [q] = (await db.execute<any>(sql`

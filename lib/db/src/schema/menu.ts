@@ -276,6 +276,10 @@ export const ordersTable = pgTable("orders", {
   address:      text("address"),
   items:        jsonb("items").$type<OrderLine[]>().notNull(),
   subtotal:     numeric("subtotal", { precision: 10, scale: 2 }).notNull(),
+  // What a coupon or a timed deal took off; the customer pays subtotal − discount.
+  discount:     numeric("discount", { precision: 10, scale: 2 }).notNull().default("0"),
+  dealId:       integer("deal_id"),
+  dealTitle:    varchar("deal_title", { length: 80 }),
   notes:        text("notes"),
   scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
   // pending (link opened, no message yet) → received → preparing → ready → completed · cancelled

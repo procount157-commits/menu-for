@@ -133,6 +133,7 @@ export default function MenuPage({ initial }: { initial: PublicMenu }) {
         </div>
       )}
 
+      {!q && <Deals menu={menu} lang={lang} />}
       {!q && <Offers menu={menu} lang={lang} onItem={(id) => { const it = items.find((x) => x.id === id); if (it) open(it, null); }} />}
       {!q && <CategoryTiles sections={sections} lang={lang} onPick={jump} />}
       <FeaturedRail items={featured} currency={menu.org.currency} lang={lang} onOpen={open} title={t("tag_popular", lang)} />
@@ -270,6 +271,30 @@ function CategoryBar({ sections, lang, view, setView }: { sections: SectionData[
           <Icon name={view === "grid" ? "list" : "grid"} className="w-[18px] h-[18px]" />
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Timed deals running now — «ساعة سعيدة: خصم 15% حتى 6 م». They apply by themselves in the cart. */
+function Deals({ menu, lang }: { menu: PublicMenu; lang: Lang }) {
+  if (!menu.deals?.length) return null;
+  const fmtTime = (hhmm: string) => {
+    const [h, m] = hhmm.split(":").map(Number);
+    return new Intl.DateTimeFormat(lang === "ar" ? "ar-AE" : "en-GB", { hour: "numeric", minute: m ? "2-digit" : undefined, timeZone: "UTC" }).format(new Date(Date.UTC(2020, 0, 1, h, m)));
+  };
+  return (
+    <div className="px-4 mt-4 space-y-2">
+      {menu.deals.map((d) => (
+        <div key={d.id} className="rounded-2xl px-4 py-3 flex items-center gap-3 animate-rise" style={{ background: "var(--brand-soft)", border: "1px solid color-mix(in srgb, var(--brand) 35%, transparent)" }}>
+          <span className="text-2xl" aria-hidden>⏰</span>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold">{d.title} — <span style={{ color: "var(--brand)" }}>{d.label}</span></p>
+            <p className="text-xs text-muted mt-0.5">
+              {d.minSubtotal > 0 ? `${t("dealOver", lang)} ${d.minSubtotal} · ` : ""}{d.toTime ? `${t("dealUntil", lang)} ${fmtTime(d.toTime)} · ` : ""}{t("dealAuto", lang)}
+            </p>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

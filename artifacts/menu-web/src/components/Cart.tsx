@@ -4,7 +4,7 @@
 // order page the customer lands on shows whether the message arrived.
 
 import { useEffect, useMemo, useState } from "react";
-import { addDays, formatDayLabel, formatMoney, localDate, openWindow, zonedToUtc, type PublicMenu } from "@workspace/menu-shared";
+import { addDays, dealDiscount, formatDayLabel, formatMoney, localDate, openWindow, zonedToUtc, type PublicMenu } from "@workspace/menu-shared";
 import { Icon, Img, Sheet, Spinner, Stepper, toast } from "./ui";
 import { clearCart, priced, setQty, useCart } from "@/lib/cart";
 import { api, go, openWhatsApp, remember } from "@/lib/api";
@@ -48,6 +48,31 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
   const [time, setTime] = useState("");
   const [busy, setBusy] = useState(false);
   const tz = menu.org.timezone;
+  // A typed code replaces the timed deal; with none, the best running deal applies.
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [applied, setApplied] = useState<{ code: string; title: string; discount: number } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const auto = useMemo(() => {
+    let best: { title: string; discount: number } | null = null;
+    for (const d of menu.deals ?? []) { const off = dealDiscount(d, p.subtotal); if (off > 0 && (!best || off > best.discount)) best = { title: d.title, discount: off }; }
+    return best;
+  }, [menu.deals, p.subtotal]);
+  const checkCode = async (c = code, quiet = false) => {
+    if (!c.trim()) { setApplied(null); return; }
+    setChecking(true);
+    try {
+      const r = await api<{ title: string; discount: number; code: string }>("/api/public/deals/check", { json: { slug: menu.org.slug, branch: menu.branch.slug, code: c, subtotal: p.subtotal, phone: phone.trim() || null } });
+      setApplied({ code: r.code, title: r.title, discount: r.discount });
+      if (!quiet) toast(t("codeApplied", lang), "ok");
+    } catch (e) { setApplied(null); if (!quiet) toast((e as Error).message); }
+    finally { setChecking(false); }
+  };
+  // The cart changed: the code's discount is worked out again.
+  useEffect(() => { if (applied) void checkCode(applied.code, true); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [p.subtotal]);
+  const discount = applied ? applied.discount : auto?.discount ?? 0;
+  const dealTitle = applied ? applied.title : auto?.title ?? null;
+  const total = Math.round((p.subtotal - discount) * 100) / 100;
 
   useEffect(() => { if (table) { setType("dine_in"); setTable(table); } }, [table]);
 
@@ -74,7 +99,7 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
           slug: menu.org.slug, branch: menu.branch.slug, lang, type,
           tableLabel: type === "dine_in" ? tableLabel : null, customerName: name.trim() || null, phone: phone.trim() || null,
           address: type === "delivery" ? address : null, notes: notes.trim() || null,
-          scheduledFor: type === "preorder" ? time : null, marketingOptIn: optIn,
+          scheduledFor: type === "preorder" ? time : null, marketingOptIn: optIn, couponCode: applied?.code ?? null,
           lines: p.rows.map((row) => ({ itemId: row.line.itemId, qty: row.line.qty, selections: row.line.selections, note: row.line.note })),
         },
       });
@@ -177,9 +202,27 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
       </div>
       {p.rows.length > 0 && (
         <div className="px-5 pt-3 safe-bottom border-t" style={{ borderColor: "var(--line)" }}>
+          {menu.hasCodes && (
+            codeOpen || applied ? (
+              <div className="flex gap-2 mb-3">
+                <input className="field flex-1 h-11 tabular uppercase" dir="ltr" value={code} onChange={(e) => setCode(e.target.value)} placeholder={t("codePh", lang)} autoCapitalize="characters" />
+                {applied
+                  ? <button type="button" className="btn-ghost h-11 px-4 text-sm font-semibold" onClick={() => { setApplied(null); setCode(""); }}>{t("remove", lang)}</button>
+                  : <button type="button" className="btn-ghost h-11 px-4 text-sm font-semibold" disabled={checking || !code.trim()} onClick={() => checkCode()}>{checking ? <Spinner className="w-4 h-4" /> : t("apply", lang)}</button>}
+              </div>
+            ) : (
+              <button type="button" onClick={() => setCodeOpen(true)} className="text-sm font-semibold mb-3 flex items-center gap-1.5" style={{ color: "var(--brand)" }}><Icon name="plus" className="w-4 h-4" />{t("haveCode", lang)}</button>
+            )
+          )}
+          {discount > 0 && (
+            <div className="space-y-1 mb-2 text-sm">
+              <div className="flex justify-between text-muted"><span>{t("subtotal", lang)}</span><span className="tabular">{formatMoney(p.subtotal, menu.org.currency, lang)}</span></div>
+              <div className="flex justify-between font-semibold" style={{ color: "var(--ok)" }}><span>🏷️ {dealTitle}</span><span className="tabular">−{formatMoney(discount, menu.org.currency, lang)}</span></div>
+            </div>
+          )}
           <div className="flex items-center justify-between mb-3 text-[15px]">
             <span className="text-muted">{t("total", lang)}</span>
-            <span className="font-bold tabular text-lg">{formatMoney(p.subtotal, menu.org.currency, lang)}</span>
+            <span className="font-bold tabular text-lg">{formatMoney(total, menu.org.currency, lang)}</span>
           </div>
           <button type="button" disabled={!ready || busy} onClick={submit}
             className="btn-brand w-full h-14 flex items-center justify-center gap-2.5 text-[16px]"
