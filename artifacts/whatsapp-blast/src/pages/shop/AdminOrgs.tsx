@@ -22,12 +22,14 @@ interface OrgRow {
   plan: string; plan_expires_at: string | null; last_login_at: string | null;
   branches: number; items: number; staff: number; tickets_7d: number; orders_7d: number; bookings_7d: number; customers: number; sent_7d: number;
   wa: { linked: number; total: number }; menuUrl: string;
+  risk: { level: "high" | "watch" | "ok"; reasons: string[] };
 }
 interface PlatformStats {
   orgs: number; active_orgs: number; branches: number; tickets_24h: number; orders_24h: number; bookings_24h: number;
   sent_24h: number; failed_24h: number; customers: number; plans: Array<{ plan: string; n: number }>; planNames: Record<string, string>;
 }
 
+const RISK_ORDER = { high: 0, watch: 1, ok: 2 } as const;
 const PLAN_AR: Record<string, string> = { free: "تجريبي", basic: "أساسي", pro: "احترافي", business: "أعمال" };
 const VERTICAL_AR: Record<string, string> = { restaurant: "مطعم", cafe: "كافيه", sweets: "حلويات", beauty: "تجميل", barber: "حلاقة رجالية" };
 // Platform-level switches the admin turns on per shop; the owner's own
@@ -47,6 +49,7 @@ function Inner() {
   const orgs = useQuery<OrgRow[]>({ queryKey: ["/api/admin/orgs"], queryFn: () => get("/api/admin/orgs") });
   const [q, setQ] = useState("");
   const [planF, setPlanF] = useState<string>("all");
+  const [riskOnly, setRiskOnly] = useState(false);
   const [edit, setEdit] = useState<OrgRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -54,9 +57,11 @@ function Inner() {
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return (orgs.data ?? []).filter((o) => (planF === "all" || o.plan === planF) &&
+    return (orgs.data ?? []).filter((o) => (planF === "all" || o.plan === planF) && (!riskOnly || o.risk.level !== "ok") &&
       (!s || o.name.toLowerCase().includes(s) || o.slug.includes(s) || o.owner_phone.includes(s) || (o.owner_name ?? "").toLowerCase().includes(s)));
-  }, [orgs.data, q, planF]);
+  }, [orgs.data, q, planF, riskOnly]).sort((a, b) => (riskOnly ? RISK_ORDER[a.risk.level] - RISK_ORDER[b.risk.level] : 0));
+  const atRisk = (orgs.data ?? []).filter((o) => o.risk.level === "high").length;
+  const watching = (orgs.data ?? []).filter((o) => o.risk.level === "watch").length;
 
   const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ["/api/admin/orgs"] }), qc.invalidateQueries({ queryKey: ["/api/admin/orgs/platform/stats"] })]);
 
@@ -89,7 +94,7 @@ function Inner() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 2xl:grid-cols-8 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-5 2xl:grid-cols-9 gap-2">
         <Stat label="المحلات" value={n(s?.orgs)} hint={s ? `${s.active_orgs} نشط` : undefined} tone="gold" />
         <Stat label="الفروع" value={n(s?.branches)} />
         <Stat label="تذاكر 24س" value={n(s?.tickets_24h)} />
@@ -98,6 +103,7 @@ function Inner() {
         <Stat label="رسائل أُرسلت 24س" value={n(s?.sent_24h)} tone="ok" />
         <Stat label="رسائل فشلت 24س" value={n(s?.failed_24h)} tone={s?.failed_24h ? "warn" : undefined} />
         <Stat label="الزبائن" value={n(s?.customers)} />
+        <Stat label="في خطر الإلغاء" value={n(atRisk)} hint={watching ? `${watching} يحتاجون متابعة` : undefined} tone={atRisk ? "warn" : undefined} className="cursor-pointer" />
       </div>
       {s?.plans?.length ? (
         <div className="flex flex-wrap gap-1.5">
@@ -110,6 +116,10 @@ function Inner() {
           <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 start-3 text-muted-foreground" />
           <input className={cn(inputCls, "ps-9 py-2.5")} value={q} onChange={(e) => setQ(e.target.value)} placeholder="اسم المحل، الرابط، أو رقم صاحبه" type="search" />
         </div>
+        <button onClick={() => setRiskOnly((v) => !v)}
+          className={cn("px-3 h-11 rounded-xl text-sm border flex items-center gap-1.5", riskOnly ? "border-red-500/50 bg-red-500/10 text-red-300" : "border-border text-muted-foreground")}>
+          <ShieldAlert className="w-4 h-4" />في خطر الإلغاء <span className="tabular-nums">{atRisk + watching}</span>
+        </button>
         <div className="flex rounded-xl bg-secondary p-1 gap-1">
           {["all", "free", "basic", "pro", "business"].map((p) => (
             <button key={p} onClick={() => setPlanF(p)} className={cn("px-3 h-9 rounded-lg text-sm", planF === p ? "bg-primary text-primary-foreground font-semibold" : "text-muted-foreground")}>{p === "all" ? "الكل" : PLAN_AR[p]}</button>
@@ -149,6 +159,16 @@ function Inner() {
                       </div>
                     </div>
                   </header>
+
+                  {o.risk.level !== "ok" && (
+                    <div className={cn("rounded-lg px-3 py-2 text-xs flex flex-wrap items-center gap-x-2 gap-y-1", o.risk.level === "high" ? "bg-red-500/10 border border-red-500/25 text-red-200" : "bg-amber-500/10 border border-amber-500/25 text-amber-200")}>
+                      <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                      <span className="font-semibold">{o.risk.level === "high" ? "في خطر الإلغاء" : "يحتاج متابعة"}:</span>
+                      <span className="flex-1">{o.risk.reasons.join(" · ")}</span>
+                      <a className="underline underline-offset-2 font-semibold" target="_blank" rel="noopener noreferrer"
+                        href={`https://wa.me/${o.owner_phone.replace(/\D/g, "")}?text=${encodeURIComponent(`مرحباً ${o.owner_name ?? ""}، معك فريق منيو فور يو 👋 حبينا نطمّن على «${o.name}» — هل نقدر نساعدك في شيء؟`)}`}>تواصل على واتساب</a>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-4 gap-1.5 text-center">
                     {[

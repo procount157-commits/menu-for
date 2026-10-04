@@ -12,6 +12,7 @@ import { createOrg } from "../lib/tenancy/org";
 import { getStatus } from "../lib/whatsapp";
 import { publicUrl, menuPath } from "../lib/menu/urls";
 import { logger } from "../lib/logger";
+import { churnRisk } from "../lib/growth/churn";
 
 const router = Router();
 router.use(requireAdmin);
@@ -38,7 +39,10 @@ router.get("/", async (_req, res) => {
     if ((getStatus(b.waUserId) as { connected?: boolean })?.connected) w.linked++;
     waByOrg.set(b.orgId, w);
   }
-  res.json(rows.map((r: any) => ({ ...r, wa: waByOrg.get(r.id) ?? { linked: 0, total: 0 }, menuUrl: publicUrl(menuPath(r.slug)) })));
+  res.json(rows.map((r: any) => {
+    const wa = waByOrg.get(r.id) ?? { linked: 0, total: 0 };
+    return { ...r, wa, menuUrl: publicUrl(menuPath(r.slug)), risk: churnRisk({ ...r, wa }) };
+  }));
 });
 
 /**

@@ -16,6 +16,7 @@ import { createGift, giftByCode, giftProblem, spendGift, giftMessage, giftView, 
 import { giftCardsTable, ordersTable } from "@workspace/db";
 import { referralCodeFor, friendDiscount, referralStats } from "../growth/referrals";
 import { customerReferralsTable } from "@workspace/db";
+import { churnRisk, type ChurnInput } from "../growth/churn";
 import { validBirthday, shouldAskBirthday, saveBirthday, birthdayToday, birthdayMessage, runBirthdays } from "../growth/birthday";
 import { cleanup, makeShop } from "./menu-fixtures";
 
@@ -269,6 +270,19 @@ const [void3] = await db.select().from(customerReferralsTable).where(eq(customer
 check("a cancelled friend's order earns nothing", void3?.status === "void");
 const rst = await referralStats(shop.org.id);
 check("the owner sees friends, rewards and their sales", rst.friends === 2 && rst.rewarded === 1 && rst.sales === 81, rst);
+
+// ── 9. Shops about to leave ───────────────────────────────────────
+const NOWC = Date.parse("2026-10-04T12:00:00Z");
+const ago9 = (d: number) => new Date(NOWC - d * 86_400_000).toISOString();
+const healthy: ChurnInput = { status: "active", plan: "pro", plan_expires_at: ago9(-30), last_login_at: ago9(1), created_at: ago9(60), onboarded_at: ago9(59), items: 20, tickets_7d: 40, orders_7d: 12, bookings_7d: 3, wa: { linked: 1, total: 1 } };
+check("a busy shop is fine", churnRisk(healthy, NOWC).level === "ok");
+check("an expired paid plan is high risk", churnRisk({ ...healthy, plan_expires_at: ago9(2) }, NOWC).reasons[0] === "انتهت الخطة ولم تُجدّد" && churnRisk({ ...healthy, plan_expires_at: ago9(2) }, NOWC).level === "high");
+check("a plan ending in 5 days is one to watch", churnRisk({ ...healthy, plan_expires_at: ago9(-5) }, NOWC).level === "watch" && /5 أيام/.test(churnRisk({ ...healthy, plan_expires_at: ago9(-5) }, NOWC).reasons[0]!));
+check("no login for 20 days is high; 9 days is watch", churnRisk({ ...healthy, last_login_at: ago9(20) }, NOWC).level === "high" && churnRisk({ ...healthy, last_login_at: ago9(9) }, NOWC).level === "watch");
+check("a week with no orders, queue or bookings is high", churnRisk({ ...healthy, tickets_7d: 0, orders_7d: 0, bookings_7d: 0 }, NOWC).reasons.includes("لا طلبات ولا دور ولا حجوزات منذ 7 أيام"));
+check("WhatsApp never linked and an empty menu are named", churnRisk({ ...healthy, wa: { linked: 0, total: 1 }, items: 1 }, NOWC).reasons.join() === "واتساب غير مربوط,المنيو شبه فارغ");
+check("a shop that never finished setting up is one to watch", churnRisk({ ...healthy, onboarded_at: null, created_at: ago9(5) }, NOWC).reasons.includes("لم يكمل تجهيز المحل"));
+check("a suspended shop is not chased", churnRisk({ ...healthy, status: "suspended", plan_expires_at: ago9(9) }, NOWC).level === "ok");
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

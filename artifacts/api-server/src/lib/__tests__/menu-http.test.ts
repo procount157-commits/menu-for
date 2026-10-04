@@ -254,6 +254,8 @@ await A.get("/api/auth/me"); // the session picks up the admin flag
 r = await A.post("/api/admin/orgs", { name: "صالون جديد", nameEn: "New Salon", vertical: "beauty", ownerPhone: `9990073${tag}`, ownerName: "هدى", password: "secret123", plan: "pro", planDays: 30 });
 check("the admin creates a shop with its owner and plan", r.status === 201 && r.json.org.vertical === "beauty" && /new-salon/.test(r.json.org.slug), r.json?.org?.slug ?? r.json);
 const madeSlug = r.json.org.slug;
+r = await A.get("/api/admin/orgs");
+check("the admin list says which shops are at risk of leaving, and why", r.status === 200 && r.json.every((o: any) => o.risk && Array.isArray(o.risk.reasons)), r.json?.[0]?.risk);
 r = await A.get("/api/admin/orgs/llm-keys");
 check("the admin sees the model keys per channel, never a whole key", r.status === 200 && Array.isArray(r.json.providers) && r.json.providers.length > 0 && !JSON.stringify(r.json.keys).includes("apiKey"), r.json?.providers);
 r = await A.post("/api/admin/orgs/llm-keys", { channel: "sms", provider: r.json.providers[0], apiKey: "x".repeat(20) });
