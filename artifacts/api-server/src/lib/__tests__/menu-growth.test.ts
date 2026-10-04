@@ -1,0 +1,68 @@
+// Growth features, one block each: the weekly report to the owner's phone.
+
+import { and, eq } from "drizzle-orm";
+import { db, notificationsTable, ownerReportsTable, branchesTable, usersTable, customersTable, orgsTable } from "@workspace/db";
+import { createOrder, setOrderStatus } from "../orders/service";
+import { weekWindow, reportDue, formatReport, tipFor, ownerPhone, cleanPrefs, computeWeek, sendReport, runWeeklyReports, type WeekStats } from "../growth/weekly-report";
+import { cleanup, makeShop } from "./menu-fixtures";
+
+let pass = 0, total = 0;
+const check = (n: string, c: boolean, d: unknown = "") => { total++; if (c) pass++; console.log(`${c ? "✅" : "❌"} ${n.padEnd(64)} ${typeof d === "string" ? d : JSON.stringify(d)}`); };
+
+// ── 1. The weekly report ──────────────────────────────────────────
+const SUN = new Date("2026-10-04T07:00:00Z"); // Sunday 11:00 in Dubai
+const w = weekWindow("Asia/Dubai", SUN);
+check("the report covers the seven service days that ended this morning", w.from === "2026-09-27" && w.to === "2026-10-03", w);
+check("…each day starting at 04:00 local", w.start.toISOString() === "2026-09-27T00:00:00.000Z" && w.end.toISOString() === "2026-10-04T00:00:00.000Z");
+check("due on its day after its hour", reportDue({ enabled: true, weekday: 0, hour: 10 }, "Asia/Dubai", SUN));
+check("…not before the hour, not another day, not when off", !reportDue({ enabled: true, weekday: 0, hour: 12 }, "Asia/Dubai", SUN) && !reportDue({ enabled: true, weekday: 1, hour: 10 }, "Asia/Dubai", SUN) && !reportDue({ enabled: false, weekday: 0, hour: 10 }, "Asia/Dubai", SUN));
+check("…on by default (Sunday 10:00) when never set", reportDue(null, "Asia/Dubai", SUN));
+check("prefs are bounded", JSON.stringify(cleanPrefs({ enabled: false, weekday: 9, hour: 3 }, null)) === JSON.stringify({ enabled: false, weekday: 0, hour: 10 }));
+check("the owner's phone in any local form becomes international", ownerPhone("0501234567") === "971501234567" && ownerPhone("501234567") === "971501234567" && ownerPhone("+966 512345678") === "966512345678" && ownerPhone("12345") === null);
+
+const base: WeekStats = {
+  from: "2026-09-27", to: "2026-10-03", orders: 42, revenue: 3150, prevOrders: 34, prevRevenue: 2500, abandoned: 0,
+  newCustomers: 12, returning: 18, optedIn: 5, joined: 110, served: 96, left: 7, noShows: 3, avgWait: 14,
+  bookings: 14, bookingNoShows: 1, topItem: { name: "كنافة نابلسية", qty: 31 }, sent: 210, read: 164, avgRating: 4.6, reviewsOn: true, autopilotOn: false,
+};
+const o = { shop: "بيت الشامي", currency: "AED", vertical: "restaurant", reportsUrl: "https://x.test/reports", menuUrl: "https://x.test/m" };
+const txt = formatReport(base, o);
+check("the report says the orders and the change from last week", txt.includes("الطلبات: 42") && txt.includes("↑ 8"), txt.split("\n")[3]);
+check("…the sales and the average order", txt.includes("3150") && txt.includes("75"));
+check("…who came back and who is new", txt.includes("12 جديد") && txt.includes("18 رجعوا"));
+check("…who the queue lost, with an estimate of what they were worth", txt.includes("خسرتم من الصف: 10") && txt.includes("750"));
+check("…the best item and how often messages were opened", txt.includes("كنافة نابلسية (31)") && txt.includes("فُتح 78%"));
+check("a salon is not told a queue loss in money", !formatReport(base, { ...o, vertical: "barber" }).includes("فرص ضائعة"));
+const quiet = formatReport({ ...base, orders: 0, revenue: 0, prevOrders: 0, joined: 0, served: 0, left: 0, noShows: 0, bookings: 0, newCustomers: 0, returning: 0, topItem: null, sent: 0 }, o);
+check("a quiet week says so and offers the menu link", quiet.includes("أسبوع هادئ") && quiet.includes(o.menuUrl) && !quiet.includes("الطلبات"));
+check("the tip points at abandoned orders first", /لم تكتمل/.test(tipFor({ ...base, abandoned: 4 }) ?? ""));
+check("…then at people the queue lost", /قرّب دورك/.test(tipFor(base) ?? ""));
+check("…then at turning on reviews", /التقييم/.test(tipFor({ ...base, left: 0, noShows: 0, reviewsOn: false }) ?? ""));
+check("…then at the weekly campaign", /الحملة الأسبوعية/.test(tipFor({ ...base, left: 0, noShows: 0, optedIn: 30 }) ?? ""));
+
+await cleanup("g");
+const shop = await makeShop("g", { plan: "basic" });
+await db.update(orgsTable).set({ onboardedAt: new Date() }).where(eq(orgsTable.id, shop.org.id));
+const [org0] = await db.select().from(orgsTable).where(eq(orgsTable.id, shop.org.id));
+const order = await createOrder(org0!, shop.branch, { type: "pickup", customerName: "سارة", lines: [{ itemId: shop.items[1]!.id, qty: 3 }] });
+await setOrderStatus(shop.org.id, [shop.branch.id], order.id, "received");
+const stats = await computeWeek(org0!, new Date(Date.now() + 7 * 24 * 3_600_000));
+check("the week's orders, sales and best item come from the tables", stats.orders === 1 && stats.revenue === 54 && stats.topItem?.name === "كنافة" && stats.topItem.qty === 3, stats);
+let r = await sendReport(org0!, { now: new Date(Date.now() + 7 * 24 * 3_600_000) });
+check("with no alert phone and a test owner number, nobody is messaged", r.ok && r.to.length === 0);
+await db.delete(ownerReportsTable).where(eq(ownerReportsTable.orgId, shop.org.id));
+await db.update(branchesTable).set({ alertPhones: ["971509990002"] }).where(eq(branchesTable.id, shop.branch.id));
+r = await sendReport(org0!, { now: new Date(Date.now() + 7 * 24 * 3_600_000) });
+const sentRows = await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.kind, "owner_report")));
+check("the report goes to the alert phone, queued on the staff lane", r.ok && sentRows.length === 1 && sentRows[0]!.class === "staff" && sentRows[0]!.status === "queued" && sentRows[0]!.phone === "971509990002", sentRows[0]?.status);
+check("…even on the basic plan (it is the owner's own phone)", sentRows[0]!.reason === null);
+r = await sendReport(org0!, { now: new Date(Date.now() + 7 * 24 * 3_600_000) });
+check("the same week is not sent twice by the clock", !r.ok);
+r = await sendReport(org0!, { manual: true, now: new Date(Date.now() + 7 * 24 * 3_600_000) });
+check("…but «أرسله لي الآن» always sends", r.ok && r.to.length === 1);
+await db.update(orgsTable).set({ reportPrefs: { enabled: false, weekday: 0, hour: 10 } }).where(eq(orgsTable.id, shop.org.id));
+check("a shop that switched it off is skipped by the clock", (await runWeeklyReports(SUN)) >= 0 && (await db.select().from(ownerReportsTable).where(and(eq(ownerReportsTable.orgId, shop.org.id), eq(ownerReportsTable.weekStart, w.from)))).length === 0);
+
+await cleanup("g");
+console.log(`\n${pass}/${total} مرّ`);
+process.exit(pass === total ? 0 : 1);

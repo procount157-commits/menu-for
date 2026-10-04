@@ -6,10 +6,9 @@
 
 import { eq } from "drizzle-orm";
 import { db, branchesTable, orgsTable, type Branch, type Org } from "@workspace/db";
-import { enqueue } from "./outbox";
+import { enqueue, type AlertKind } from "./outbox";
 import { publicUrl } from "../menu/urls";
 
-type AlertKind = "alert_order" | "alert_booking" | "alert_rating" | "alert_campaign";
 
 export async function alertShop(org: Pick<Org, "id" | "ownerUserId">, branch: Pick<Branch, "waUserId" | "alertPhones">, kind: AlertKind, text: string, ref?: { type: "order" | "booking" | "customer"; id?: number }) {
   const phones = (branch.alertPhones ?? []).filter((p) => /^\d{8,15}$/.test(p));

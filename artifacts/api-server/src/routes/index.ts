@@ -36,6 +36,7 @@ import ordersBookingsRouter from "./orders-bookings";
 import shopAdminRouter from "./shop-admin";
 import adminOrgsRouter from "./admin-orgs";
 import waAutoRouter from "./wa-auto";
+import growthRouter from "./growth";
 import { staffGuard } from "../lib/tenancy/context";
 
 const router: IRouter = Router();
@@ -54,6 +55,7 @@ router.use(queueAdminRouter);
 router.use(ordersBookingsRouter);
 router.use(shopAdminRouter);
 router.use(waAutoRouter);
+router.use(growthRouter);
 router.use("/admin/orgs", adminOrgsRouter);
 router.use("/admin", adminRouter);
 router.use("/whatsapp", whatsappRouter);

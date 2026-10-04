@@ -75,7 +75,7 @@ export interface Enqueue {
   org: Pick<Org, "id" | "ownerUserId">;
   waUserId: number;
   phone: string | null | undefined;
-  kind: TemplateKey | "alert_order" | "alert_booking" | "alert_rating" | "alert_campaign";
+  kind: TemplateKey | AlertKind;
   text: string | null;
   refType?: "ticket" | "order" | "booking" | "customer";
   refId?: number;
@@ -86,6 +86,9 @@ export interface Enqueue {
   /** One of the shop's own alert phones: no lane checks. */
   staff?: boolean;
 }
+
+/** Messages to the shop's own phones, not to customers. */
+export type AlertKind = "alert_order" | "alert_booking" | "alert_rating" | "alert_campaign" | "owner_report";
 
 export type Lane = "replied" | "consented" | null;
 
@@ -100,10 +103,11 @@ export async function enqueue(e: Enqueue): Promise<number | null> {
   if (!e.phone || !e.text) return null;
   const plan = await menuPlan(e.org.ownerUserId);
   const at = e.at ?? new Date();
-  const shelf = SHELF_MS[e.kind as TemplateKey] ?? (e.staff ? 30 * 60_000 : undefined);
+  const shelf = SHELF_MS[e.kind as TemplateKey] ?? (e.kind === "owner_report" ? 12 * 3_600_000 : e.staff ? 30 * 60_000 : undefined);
   const expiresAt = shelf ? new Date(at.getTime() + shelf) : null;
   const lane = e.staff ? "staff" : laneFor(await lastInboundAt(e.org.id, e.phone), !!e.consented, at.getTime());
-  const skip = !plan.features.notify ? "plan" : lane === null ? "no_thread" : null;
+  // The shop's own phones hear about their own shop on every plan.
+  const skip = !plan.features.notify && !e.staff ? "plan" : lane === null ? "no_thread" : null;
   const [row] = await db.insert(notificationsTable).values({
     orgId: e.org.id, waUserId: e.waUserId, phone: e.phone, kind: e.kind,
     refType: e.refType ?? null, refId: e.refId ?? null, text: e.text,
