@@ -19,6 +19,7 @@ import { alertShop } from "../notify/alerts";
 import { resolveDeal, claimUse, releaseUse } from "../growth/deals";
 import { giftByCode, giftProblem, spendGift, refundGift } from "../growth/gifts";
 import { shouldAskBirthday } from "../growth/birthday";
+import { friendDiscount, recordReferral, rewardReferral, voidReferral, referralFor } from "../growth/referrals";
 
 export class OrderError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -44,6 +45,8 @@ export interface NewOrder {
   lang?: "ar" | "en";
   /** A coupon typed at checkout; with none, the best timed deal applies by itself. */
   couponCode?: string | null;
+  /** «ادعُ صديقاً»: the share code the customer arrived with. */
+  referralCode?: string | null;
 }
 
 /** What the customer pays. */
@@ -98,14 +101,21 @@ export async function createOrder(org: Org, branch: Branch, input: NewOrder): Pr
   const deal = await resolveDeal(org, branch.id, priced.subtotal, { code: gift ? null : input.couponCode, phone });
   if (deal && "error" in deal) throw new OrderError(400, deal.error);
   if (deal && !(await claimUse(deal.deal.id))) throw new OrderError(400, "انتهى عدد مرات استخدام هذا العرض");
-  const discount = deal ? deal.discount : 0;
+  let discount = deal ? deal.discount : 0;
+  let dealId = deal?.deal.id ?? null, dealTitle = deal?.deal.title ?? null;
+  // A friend's first order: their discount, when it beats the timed deal (a typed code always wins).
+  const friend = !input.couponCode ? await friendDiscount(org, input.referralCode, phone, priced.subtotal) : null;
+  if (friend && friend.discount > discount) {
+    if (dealId) await releaseUse(dealId);
+    discount = friend.discount; dealId = null; dealTitle = "هدية من صديقك";
+  }
   let giftAmount = 0, giftUse: number | null = null;
   if (gift) {
     const problem = giftProblem(gift);
-    if (problem) { if (deal) await releaseUse(deal.deal.id); throw new OrderError(400, problem); }
+    if (problem) { if (dealId) await releaseUse(dealId); throw new OrderError(400, problem); }
     giftAmount = Math.round(Math.min(Number(gift.balance), priced.subtotal - discount) * 100) / 100;
     giftUse = await spendGift(gift.id, giftAmount, { note: "طلب من المنيو" });
-    if (giftAmount > 0 && !giftUse) { if (deal) await releaseUse(deal.deal.id); throw new OrderError(400, "رصيد البطاقة تغيّر — حدّث الصفحة"); }
+    if (giftAmount > 0 && !giftUse) { if (dealId) await releaseUse(dealId); throw new OrderError(400, "رصيد البطاقة تغيّر — حدّث الصفحة"); }
   }
   const code = await freshCode(org.id, todayFor(org));
   const [o] = await db.insert(ordersTable).values({
@@ -114,7 +124,7 @@ export async function createOrder(org: Org, branch: Branch, input: NewOrder): Pr
     customerName: String(input.customerName ?? "").trim().slice(0, 80) || null,
     phone, address: String(input.address ?? "").trim().slice(0, 300) || null,
     items: priced.lines, subtotal: String(priced.subtotal),
-    discount: String(discount), dealId: deal?.deal.id ?? null, dealTitle: deal?.deal.title ?? null,
+    discount: String(discount), dealId, dealTitle,
     giftCardId: gift && giftAmount > 0 ? gift.id : null, giftAmount: String(giftAmount),
     notes: String(input.notes ?? "").trim().slice(0, 500) || null,
     // A number typed at checkout makes the order real at once: the customer
@@ -123,6 +133,7 @@ export async function createOrder(org: Org, branch: Branch, input: NewOrder): Pr
     scheduledFor, status: phone ? "received" : "pending", marketingOptIn: !!input.marketingOptIn,
   }).returning();
   if (giftUse) await db.update(giftCardUsesTable).set({ orderId: o!.id }).where(eq(giftCardUsesTable.id, giftUse));
+  if (friend && dealTitle === "هدية من صديقك" && phone) await recordReferral(org.id, friend.referrerPhone, phone, o!.id);
   publish(`orders:${branch.id}`);
   if (phone) {
     await touchCustomer(org.id, phone, { name: o!.customerName, order: { total: orderTotal(o!), itemIds: priced.lines.map((l) => l.itemId) }, optIn: o!.marketingOptIn, branchId: branch.id });
@@ -178,6 +189,7 @@ export async function orderView(o: Order): Promise<PublicOrderView | null> {
     createdAt: o.createdAt.toISOString(),
     reorder: reorderLines(o),
     askBirthday: await shouldAskBirthday(c.org, o.phone),
+    referral: o.status === "pending" ? null : await referralFor(c.org, c.branch.slug, o.phone),
     org: { name: c.org.name, nameEn: c.org.nameEn, slug: c.org.slug, logoUrl: c.org.logoUrl, theme: c.org.theme, vertical: c.org.vertical as any, currency: c.org.currency, defaultLang: lang },
     branch: { name: c.branch.name, nameEn: c.branch.nameEn, slug: c.branch.slug, address: c.branch.address, mapUrl: c.branch.mapUrl },
   };
@@ -242,7 +254,10 @@ export async function setOrderStatus(orgId: number, branchIds: number[], id: num
   if (status === "cancelled") {
     if (o.dealId) await releaseUse(o.dealId);
     if (o.giftCardId && Number(o.giftAmount) > 0) await refundGift(o.giftCardId, Number(o.giftAmount), o.id);
+    await voidReferral(o.id);
   }
+  // The friend's order is done: the customer who invited them gets their gift.
+  if (status === "completed") await rewardReferral(u!);
   const key = STATUS_NOTIFY[status];
   if (key && !(status === "received" && o.status !== "pending")) await notifyOrder(u!, key);
   publish(`orders:${o.branchId}`);

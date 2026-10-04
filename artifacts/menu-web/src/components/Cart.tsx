@@ -73,8 +73,12 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
   // A gift card pays after the timed deal; a coupon replaces it.
   const gift = applied?.kind === "gift" ? applied : null;
   const coupon = applied && !gift ? applied : null;
-  const discount = coupon ? coupon.discount : auto?.discount ?? 0;
-  const dealTitle = coupon ? coupon.title : auto?.title ?? null;
+  // A friend's gift is previewed for a typed number; the server checks the number is new here.
+  const refCode = useMemo(() => { try { return localStorage.getItem(`mfy:${menu.org.slug}:ref`) ?? ""; } catch { return ""; } }, [menu.org.slug]);
+  const friendOff = menu.referral && refCode && phone.trim().length >= 9 && !coupon ? Math.round(p.subtotal * menu.referral.friendPct) / 100 : 0;
+  const useFriend = friendOff > (auto?.discount ?? 0);
+  const discount = coupon ? coupon.discount : useFriend ? friendOff : auto?.discount ?? 0;
+  const dealTitle = coupon ? coupon.title : useFriend ? t("refLine", lang) : auto?.title ?? null;
   const giftOff = gift ? Math.min(gift.discount, Math.max(0, p.subtotal - discount)) : 0;
   const total = Math.round((p.subtotal - discount - giftOff) * 100) / 100;
 
@@ -104,6 +108,7 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
           tableLabel: type === "dine_in" ? tableLabel : null, customerName: name.trim() || null, phone: phone.trim() || null,
           address: type === "delivery" ? address : null, notes: notes.trim() || null,
           scheduledFor: type === "preorder" ? time : null, marketingOptIn: optIn, couponCode: applied?.code ?? null,
+          referralCode: refCode || null,
           lines: p.rows.map((row) => ({ itemId: row.line.itemId, qty: row.line.qty, selections: row.line.selections, note: row.line.note })),
         },
       });

@@ -9,6 +9,7 @@ import { menuReport } from "../lib/growth/menu-stats";
 import { menuPlan } from "../lib/plans";
 import { branchesTable, menuStatsDailyTable, customersTable } from "@workspace/db";
 import { birthdayPrefs } from "../lib/growth/birthday";
+import { referralOn, referralPrefs, referralStats } from "../lib/growth/referrals";
 import { sql } from "drizzle-orm";
 import { cleanReviewUrl, reviewStats } from "../lib/growth/reviews";
 import { buildReport, sendReport, recentReports, cleanPrefs, recipients, DEFAULT_PREFS } from "../lib/growth/weekly-report";
@@ -95,6 +96,27 @@ router.patch("/growth/birthday", requireAuth, withTenant(OWNER, async (req, res,
   const growthPrefs = { ...(t.org.growthPrefs ?? {}), birthday: { pct, days } };
   await db.update(orgsTable).set({ features, growthPrefs }).where(eq(orgsTable.id, t.org.id));
   res.json({ enabled: !!features.birthday, prefs: { pct, days } });
+}));
+
+// ── «ادعُ صديقاً» ─────────────────────────────────────────────────
+
+router.get("/growth/referral", requireAuth, withTenant(MANAGERS, async (_req, res, t) => {
+  const plan = await menuPlan(t.org.ownerUserId);
+  res.json({ enabled: referralOn(t.org), prefs: referralPrefs(t.org), stats: await referralStats(t.org.id), allowed: plan.features.growth, planName: plan.planName });
+}));
+
+router.patch("/growth/referral", requireAuth, withTenant(OWNER, async (req, res, t) => {
+  const b = req.body ?? {};
+  if (b.enabled === true) {
+    const plan = await menuPlan(t.org.ownerUserId);
+    if (!plan.features.growth) return res.status(402).json({ error: `«ادعُ صديقاً» من خطة «أعمال» — خطتك ${plan.planName}.`, plan: true });
+  }
+  const cur = referralPrefs(t.org);
+  const num = (v: unknown, lo: number, hi: number, d: number) => (Number.isFinite(Number(v)) && v !== "" && v != null ? Math.max(lo, Math.min(hi, Math.round(Number(v)))) : d);
+  const referral = { friendPct: num(b.friendPct, 5, 50, cur.friendPct), rewardPct: num(b.rewardPct, 5, 50, cur.rewardPct), rewardDays: num(b.rewardDays, 7, 90, cur.rewardDays) };
+  const features = { ...(t.org.features ?? {}), ...(typeof b.enabled === "boolean" ? { referral: b.enabled } : {}) };
+  await db.update(orgsTable).set({ features, growthPrefs: { ...(t.org.growthPrefs ?? {}), referral } }).where(eq(orgsTable.id, t.org.id));
+  res.json({ enabled: !!features.referral, prefs: referral });
 }));
 
 export default router;

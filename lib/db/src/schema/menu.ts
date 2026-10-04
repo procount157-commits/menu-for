@@ -374,6 +374,8 @@ export const customersTable = pgTable("customers", {
   birthMonth:     integer("birth_month"),
   birthDay:       integer("birth_day"),
   birthdaySentYear: integer("birthday_sent_year"),
+  // «ادعُ صديقاً»: this customer's share code.
+  referralCode:   varchar("referral_code", { length: 12 }),
   reviewAskedAt:  timestamp("review_asked_at", { withTimezone: true }),
   winbackAt:      timestamp("winback_at", { withTimezone: true }),
 }, (t) => [

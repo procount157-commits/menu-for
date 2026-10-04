@@ -5,7 +5,7 @@
 
 import { useEffect } from "react";
 import { formatClock, formatDayLabel, formatMoney, localDate, type PublicOrderView } from "@workspace/menu-shared";
-import { Icon, Spinner } from "@/components/ui";
+import { Icon, Spinner, toast } from "@/components/ui";
 import { go, openWhatsApp, useLive } from "@/lib/api";
 import { pick, setLang, t, useLang, type Key } from "@/lib/i18n";
 import { applyTheme } from "@/lib/theme";
@@ -97,6 +97,20 @@ export default function OrderPage({ token, initial }: { token: string; initial: 
             className="mt-4 w-full h-13 py-3.5 rounded-full btn-brand font-semibold flex items-center justify-center gap-2 animate-rise">
             <Icon name="cart" className="w-5 h-5" />{t("reorder", lang)}
           </button>
+        )}
+
+        {o.referral && (
+          <section className="mt-4 rounded-[22px] p-5 animate-rise" style={{ background: "var(--surface)" }}>
+            <p className="font-semibold">🎁 {t("refShareTitle", lang)}</p>
+            <p className="text-sm text-muted mt-1">{t("refShareSub", lang).replace("{friend}", String(o.referral.friendPct)).replace("{reward}", String(o.referral.rewardPct))}</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <a className="h-11 rounded-full font-semibold text-sm flex items-center justify-center gap-2" style={{ background: "#25D366", color: "#fff" }} target="_blank" rel="noopener noreferrer"
+                href={`https://wa.me/?text=${encodeURIComponent(`${t("refMsg", lang).replace("{shop}", pick(lang, o.org.name, o.org.nameEn)).replace("{friend}", String(o.referral.friendPct))}\n${o.referral.link}`)}`}>
+                <Icon name="wa" className="w-4 h-4" />{t("refShareWa", lang)}
+              </a>
+              <button className="btn-ghost h-11 text-sm font-semibold" onClick={() => { void navigator.clipboard?.writeText(o.referral!.link).then(() => toast(t("refCopied", lang), "ok")); }}>{t("refCopy", lang)}</button>
+            </div>
+          </section>
         )}
 
         {o.askBirthday && o.status !== "pending" && <BirthdayAsk lang={lang} kind="order" token={o.token} shop={pick(lang, o.org.name, o.org.nameEn)} />}

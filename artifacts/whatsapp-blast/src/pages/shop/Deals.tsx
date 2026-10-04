@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Btn, Empty, Stat, errText, n, shortDate } from "@/components/shop/ops/kit";
 import { Modal } from "@/components/shop/ops/Modal";
 import { cn } from "@/lib/utils";
+import { ReferralPanel } from "@/components/shop/ReferralPanel";
 
 interface Deal {
   id: number; code: string | null; title: string; kind: "pct" | "amount"; value: number; minSubtotal: number; maxDiscount: number | null;
@@ -67,6 +68,8 @@ export default function Deals() {
           <AlertTriangle className="w-4 h-4 text-amber-300" />العروض والكوبونات من خطة «احترافي» — خطتك الحالية {q.data.planName}.
         </div>
       )}
+
+      <ReferralPanel />
 
       <div className="grid grid-cols-3 gap-2">
         <Stat label="طلبات استخدمت عرضاً" value={n(tot.orders)} tone="gold" />

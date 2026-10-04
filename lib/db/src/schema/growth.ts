@@ -101,3 +101,20 @@ export const giftCardUsesTable = pgTable("gift_card_uses", {
 }, (t) => [index("idx_gift_card_uses").on(t.giftCardId, t.createdAt)]);
 
 export type GiftCard = typeof giftCardsTable.$inferSelect;
+
+/** A friend brought by a customer: the friend's first order, and the customer's reward once it is completed. */
+export const customerReferralsTable = pgTable("customer_referrals", {
+  id:            serial("id").primaryKey(),
+  orgId:         integer("org_id").notNull().references(() => orgsTable.id, { onDelete: "cascade" }),
+  referrerPhone: varchar("referrer_phone", { length: 40 }).notNull(),
+  friendPhone:   varchar("friend_phone", { length: 40 }).notNull(),
+  orderId:       integer("order_id"),
+  // pending → rewarded · void (the order was cancelled)
+  status:        varchar("status", { length: 10 }).notNull().default("pending"),
+  rewardDealId:  integer("reward_deal_id"),
+  createdAt:     timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  rewardedAt:    timestamp("rewarded_at", { withTimezone: true }),
+}, (t) => [
+  uniqueIndex("uq_referral_friend").on(t.orgId, t.friendPhone),
+  index("idx_referrals_referrer").on(t.orgId, t.referrerPhone),
+]);

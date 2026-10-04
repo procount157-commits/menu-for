@@ -14,6 +14,8 @@ import { shopDealsTable } from "@workspace/db";
 import { fold, record, menuReport, lookedNotBought } from "../growth/menu-stats";
 import { createGift, giftByCode, giftProblem, spendGift, giftMessage, giftView, listGifts } from "../growth/gifts";
 import { giftCardsTable, ordersTable } from "@workspace/db";
+import { referralCodeFor, friendDiscount, referralStats } from "../growth/referrals";
+import { customerReferralsTable } from "@workspace/db";
 import { validBirthday, shouldAskBirthday, saveBirthday, birthdayToday, birthdayMessage, runBirthdays } from "../growth/birthday";
 import { cleanup, makeShop } from "./menu-fixtures";
 
@@ -238,6 +240,35 @@ check("…the code is for that phone, once, for a week", bdDeal?.phone === "9715
 await runBirthdays(noonDubai);
 check("…and the same year is never greeted twice", (await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.kind, "birthday")))).length === 1);
 check("nothing goes out at night", (await runBirthdays(new Date(noonDubai.getTime() + 11 * 3_600_000))) === 0);
+
+// ── 8. «ادعُ صديقاً» ──────────────────────────────────────────────
+await db.update(orgsTable).set({ features: { referral: true }, growthPrefs: { referral: { friendPct: 10, rewardPct: 20, rewardDays: 30 } } }).where(eq(orgsTable.id, shop.org.id));
+const [org8] = await db.select().from(orgsTable).where(eq(orgsTable.id, shop.org.id));
+const referrer = await createOrder(org8!, shop.branch, { type: "pickup", phone: "0500000801", lines: [{ itemId: shop.items[1]!.id, qty: 1 }] });
+const rcode = (await referralCodeFor(shop.org.id, "971500000801"))!;
+check("a customer gets a share code once", /^[A-Z0-9]{6}$/.test(rcode) && (await referralCodeFor(shop.org.id, "971500000801")) === rcode);
+const rv = (await orderView(referrer))!;
+check("their order page carries the share link and what it gives", !!rv.referral && rv.referral.link.includes(`?ref=${rcode}`) && rv.referral.friendPct === 10 && rv.referral.rewardPct === 20);
+check("nobody is their own friend", (await friendDiscount(org8!, rcode, "971500000801", 100)) === null);
+check("a customer the shop already knows is not a new friend", (await friendDiscount(org8!, rcode, "971500000501", 100)) === null);
+const fo = await createOrder(org8!, shop.branch, { type: "pickup", phone: "0500000802", referralCode: rcode.toLowerCase(), lines: [{ itemId: shop.items[1]!.id, qty: 5 }] });
+check("a new friend's first order gets the friend's discount", Number(fo.discount) === 9 && fo.dealTitle === "هدية من صديقك", { d: fo.discount, t: fo.dealTitle });
+const [refRow] = await db.select().from(customerReferralsTable).where(and(eq(customerReferralsTable.orgId, shop.org.id), eq(customerReferralsTable.friendPhone, "971500000802")));
+check("…and the referral is recorded against that order", refRow?.referrerPhone === "971500000801" && refRow.orderId === fo.id && refRow.status === "pending");
+const fo2 = await createOrder(org8!, shop.branch, { type: "pickup", phone: "0500000802", referralCode: rcode, lines: [{ itemId: shop.items[1]!.id, qty: 5 }] });
+check("a friend's second order is full price", Number(fo2.discount) === 0);
+await setOrderStatus(shop.org.id, [shop.branch.id], fo.id, "completed");
+const rw = await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.kind, "referral_reward")));
+check("when the friend's order is completed, the inviter gets a code on WhatsApp", rw.length === 1 && rw[0]!.phone === "971500000801" && /RF[A-Z0-9]{5}/.test(rw[0]!.text) && rw[0]!.text.includes("20%"));
+await setOrderStatus(shop.org.id, [shop.branch.id], fo.id, "ready");
+await setOrderStatus(shop.org.id, [shop.branch.id], fo.id, "completed");
+check("…once, even if the order is completed again", (await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.kind, "referral_reward")))).length === 1);
+const fo3 = await createOrder(org8!, shop.branch, { type: "pickup", phone: "0500000803", referralCode: rcode, lines: [{ itemId: shop.items[1]!.id, qty: 2 }] });
+await setOrderStatus(shop.org.id, [shop.branch.id], fo3.id, "cancelled");
+const [void3] = await db.select().from(customerReferralsTable).where(eq(customerReferralsTable.orderId, fo3.id));
+check("a cancelled friend's order earns nothing", void3?.status === "void");
+const rst = await referralStats(shop.org.id);
+check("the owner sees friends, rewards and their sales", rst.friends === 2 && rst.rewarded === 1 && rst.sales === 81, rst);
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

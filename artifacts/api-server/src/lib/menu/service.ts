@@ -12,6 +12,7 @@ import {
 } from "@workspace/db";
 import { isOpenAt, vocab, type PublicMenu, type PublicItem, type PriceableItem } from "@workspace/menu-shared";
 import { liveDeals, hasCodes } from "../growth/deals";
+import { referralOn, referralPrefs } from "../growth/referrals";
 import { publicQueue } from "../queue/engine";
 import { getStatus } from "../whatsapp";
 import { menuPlan } from "../plans";
@@ -101,6 +102,7 @@ export async function publicMenu(org: Org, branch: Branch): Promise<PublicMenu> 
     deals: await liveDeals(org, branch.id),
     hasCodes: (await hasCodes(org.id)) || !!org.features?.gifts,
     gifts: !!org.features?.gifts,
+    referral: referralOn(org) ? { friendPct: referralPrefs(org).friendPct } : null,
     offers: offers.map((o) => ({ id: o.id, title: o.title, titleEn: o.titleEn, body: o.body, bodyEn: o.bodyEn, imageUrl: o.imageUrl, itemId: o.itemId, endsAt: o.endsAt?.toISOString() ?? null })),
     queues: plan.features.queue ? await Promise.all(queues.map((q) => publicQueue({ queue: q, branch, org }))) : [],
     booking: plan.features.booking && bk?.enabled

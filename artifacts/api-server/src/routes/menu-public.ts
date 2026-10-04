@@ -139,7 +139,7 @@ router.post("/orders", limit("order", 20, 10 * 60_000), async (req, res) => {
     const o = await createOrder(s.org, s.branch, {
       lines: b.lines, type: b.type, tableLabel: b.tableLabel, customerName: b.customerName,
       phone: b.phone, address: b.address, notes: b.notes, scheduledFor: b.scheduledFor, marketingOptIn: !!b.marketingOptIn,
-      couponCode: b.couponCode,
+      couponCode: b.couponCode, referralCode: b.referralCode,
     });
     const lang = b.lang === "en" ? "en" : (s.org.defaultLang === "en" ? "en" : "ar");
     res.status(201).json({ code: o.code, token: o.token, status: o.status, subtotal: Number(o.subtotal), discount: Number(o.discount), total: orderTotal(o), waLink: waMeLink(s.branch.waPhone, orderMessage(o, s.org, lang)) });

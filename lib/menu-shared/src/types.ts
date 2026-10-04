@@ -100,6 +100,8 @@ export interface PublicQueue {
 }
 
 export interface PublicMenu {
+  /** «ادعُ صديقاً» is on: what a friend new to the shop gets. */
+  referral: { friendPct: number } | null;
   org: PublicOrg;
   branch: PublicBranch;
   branches: Array<{ id: number; name: string; nameEn: string | null; slug: string }>;
@@ -156,6 +158,8 @@ export interface PublicDisplay {
 }
 
 export interface PublicOrderView {
+  /** «ادعُ صديقاً»: this customer's share link and what it gives. */
+  referral?: { link: string; friendPct: number; rewardPct: number } | null;
   /** Ask for the customer's birthday (the shop gives a birthday gift and does not know it yet). */
   askBirthday?: boolean;
   code: string;

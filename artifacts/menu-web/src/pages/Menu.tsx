@@ -56,6 +56,15 @@ export default function MenuPage({ initial }: { initial: PublicMenu }) {
     return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onVis); };
   }, [menu.org.slug, menu.branch.slug, menu.branches]);
 
+  // «ادعُ صديقاً»: ?ref=<code> is kept for checkout, on this phone, for this shop.
+  const [refCode] = useState(() => {
+    const r = params.get("ref")?.toUpperCase().replace(/[^A-Z0-9]/g, "") ?? "";
+    try {
+      if (r) { localStorage.setItem(`mfy:${menu.org.slug}:ref`, r); history.replaceState(null, "", location.pathname + location.hash); }
+      return r || localStorage.getItem(`mfy:${menu.org.slug}:ref`) || "";
+    } catch { return r; }
+  });
+
   // «اطلب نفس الطلب»: ?reorder=<order token> puts that order back in the cart,
   // at today's prices, leaving out anything no longer available.
   useEffect(() => {
@@ -137,6 +146,11 @@ export default function MenuPage({ initial }: { initial: PublicMenu }) {
         </div>
       )}
 
+      {!q && menu.referral && refCode && (
+        <div className="px-4 mt-4"><div className="rounded-2xl px-4 py-3 text-sm font-semibold animate-rise" style={{ background: "var(--brand-soft)", border: "1px solid color-mix(in srgb, var(--brand) 35%, transparent)" }}>
+          {t("refBanner", lang).replace("{pct}", String(menu.referral.friendPct))}
+        </div></div>
+      )}
       {!q && <Deals menu={menu} lang={lang} />}
       {!q && menu.gifts && <GiveGift menu={menu} lang={lang} />}
       {!q && <Offers menu={menu} lang={lang} onItem={(id) => { const it = items.find((x) => x.id === id); if (it) open(it, null); }} />}
