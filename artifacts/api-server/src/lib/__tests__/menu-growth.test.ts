@@ -389,6 +389,8 @@ check("what customers ordered together comes first (twice or more, one tap only)
 check("…then popular items from another section", bp[1]!.includes(3) && bp[1]!.length === 3);
 const cold = buildPairs(menuItems, new Map(), new Map())[1] ?? [];
 check("a new shop with no orders still gets suggestions, other sections first", cold.length === 3 && cold.slice(0, 2).every((id) => menuItems.find((m: any) => m.id === id)!.categoryId !== 1) && cold[0] === 3, cold);
+const spread = buildPairs([PI(1, 1), PI(2, 2, { tags: ["popular"] }), PI(3, 2, { tags: ["popular"] }), PI(4, 3), PI(5, 4)], new Map(), new Map())[1] ?? [];
+check("suggestions take one from each other section before a second from any", new Set(spread.map((id) => [0, 1, 2, 2, 3, 4][id])).size === 3, spread);
 const pubMenuItems = (await import("../menu/service")).publicMenu;
 const pm = await pubMenuItems(o14!, shop.branch);
 check("the public menu carries the suggestions", typeof pm.pairs === "object" && Object.keys(pm.pairs).length > 0, Object.keys(pm.pairs).length);

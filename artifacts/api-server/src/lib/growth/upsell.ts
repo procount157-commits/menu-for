@@ -53,13 +53,20 @@ export function buildPairs(items: PublicItem[], together: Map<number, Array<[num
       const other = byId.get(b);
       if (other && oneTap(other)) picks.push(b);
     }
-    // Then the popular from another section; a one-section menu falls back to its own.
-    for (const sameSection of [false, true]) {
+    // Then the best of each other section in turn — a drink, a dessert, a
+    // side, not three desserts — and a one-section menu falls back to its own.
+    const others = new Map<number | null, PublicItem[]>();
+    for (const c of [...candidates].sort((a, b) => score(b) - score(a) || a.price - b.price)) {
+      if (c.id === item.id || picks.includes(c.id) || c.categoryId === item.categoryId) continue;
+      others.set(c.categoryId, [...(others.get(c.categoryId) ?? []), c]);
+    }
+    const sections = [...others.values()].sort((a, b) => score(b[0]!) - score(a[0]!));
+    for (let round = 0; picks.length < per && sections.some((sec) => sec[round]); round++) {
+      for (const sec of sections) { if (picks.length >= per) break; if (sec[round]) picks.push(sec[round]!.id); }
+    }
+    for (const c of [...candidates].filter((c) => c.categoryId === item.categoryId && c.id !== item.id && !picks.includes(c.id)).sort((a, b) => score(b) - score(a) || a.price - b.price)) {
       if (picks.length >= per) break;
-      for (const c of [...candidates].filter((c) => c.id !== item.id && !picks.includes(c.id) && (c.categoryId === item.categoryId) === sameSection).sort((a, b) => score(b) - score(a) || a.price - b.price)) {
-        if (picks.length >= per) break;
-        picks.push(c.id);
-      }
+      picks.push(c.id);
     }
     if (picks.length) out[item.id] = picks;
   }
