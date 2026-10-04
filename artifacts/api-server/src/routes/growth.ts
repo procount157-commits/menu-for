@@ -4,7 +4,11 @@ import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { db, orgsTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
-import { withTenant, OWNER } from "../lib/tenancy/context";
+import { withTenant, OWNER, MANAGERS } from "../lib/tenancy/context";
+import { menuReport } from "../lib/growth/menu-stats";
+import { menuPlan } from "../lib/plans";
+import { branchesTable, menuStatsDailyTable } from "@workspace/db";
+import { sql } from "drizzle-orm";
 import { cleanReviewUrl, reviewStats } from "../lib/growth/reviews";
 import { buildReport, sendReport, recentReports, cleanPrefs, recipients, DEFAULT_PREFS } from "../lib/growth/weekly-report";
 
@@ -47,6 +51,22 @@ router.patch("/growth/reviews", requireAuth, withTenant(OWNER, async (req, res, 
   if (raw && !url) return res.status(400).json({ error: "هذا ليس رابط Google — انسخ رابط «اطلب تقييمات» من ملفك التجاري على Google." });
   await db.update(orgsTable).set({ googleReviewUrl: url }).where(eq(orgsTable.id, t.org.id));
   res.json({ url });
+}));
+
+// ── Menu analytics (business plan; counted on every plan) ─────────
+
+router.get("/growth/menu-stats", requireAuth, withTenant(MANAGERS, async (req, res, t) => {
+  const days = [7, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
+  let branchIds = t.role === "owner" ? (await db.select({ id: branchesTable.id }).from(branchesTable).where(eq(branchesTable.orgId, t.org.id))).map((b) => b.id) : t.branchIds;
+  const only = Number(req.query.branch);
+  if (only && branchIds.includes(only)) branchIds = [only];
+  const plan = await menuPlan(t.org.ownerUserId);
+  if (!plan.features.growth) {
+    // Counting runs on every plan, so an upgrade opens months of history, not an empty page.
+    const [c] = await db.select({ views: sql<number>`coalesce(sum(views), 0)::int` }).from(menuStatsDailyTable).where(eq(menuStatsDailyTable.orgId, t.org.id));
+    return res.json({ locked: true, planName: plan.planName, recorded: c?.views ?? 0 });
+  }
+  res.json({ locked: false, ...(await menuReport(t.org, branchIds, days)) });
 }));
 
 export default router;

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, serial, integer, varchar, text, timestamp, jsonb, date, uniqueIndex, index, numeric, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, varchar, text, timestamp, jsonb, date, uniqueIndex, index, numeric, boolean, primaryKey } from "drizzle-orm/pg-core";
 import { orgsTable, branchesTable } from "./menu";
 
 // ── Growth: what keeps a shop selling, and keeps it subscribed ────
@@ -55,3 +55,17 @@ export const shopDealsTable = pgTable("shop_deals", {
 ]);
 
 export type ShopDeal = typeof shopDealsTable.$inferSelect;
+
+/** Menu counters per day and item (item 0 = the menu itself). No visitor is identified. */
+export const menuStatsDailyTable = pgTable("menu_stats_daily", {
+  orgId:    integer("org_id").notNull().references(() => orgsTable.id, { onDelete: "cascade" }),
+  branchId: integer("branch_id").notNull().references(() => branchesTable.id, { onDelete: "cascade" }),
+  day:      date("day").notNull(),
+  itemId:   integer("item_id").notNull().default(0),
+  views:    integer("views").notNull().default(0),
+  adds:     integer("adds").notNull().default(0),
+  carts:    integer("carts").notNull().default(0),
+}, (t) => [
+  primaryKey({ columns: [t.orgId, t.branchId, t.day, t.itemId] }),
+  index("idx_menu_stats_org_day").on(t.orgId, t.day),
+]);

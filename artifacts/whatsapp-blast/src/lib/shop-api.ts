@@ -56,7 +56,7 @@ export interface ShopBranch {
 export interface Plan {
   plan: string; planName: string; expired: boolean; expiresAt: string | null;
   limits: { branches: number; items: number; staff: number };
-  features: { queue: boolean; booking: boolean; notify: boolean; marketing: boolean; display: boolean; branchNumbers: boolean };
+  features: { queue: boolean; booking: boolean; notify: boolean; marketing: boolean; display: boolean; branchNumbers: boolean; growth: boolean };
 }
 
 export interface ShopMe {

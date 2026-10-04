@@ -4,7 +4,7 @@
 import { Router, type Request, type Response } from "express";
 import crypto from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, isNull, lte, or, gt } from "drizzle-orm";
-import { db, branchesTable, orgsTable, queuesTable, offersTable, queueTicketsTable, type Org, type Branch } from "@workspace/db";
+import { db, branchesTable, orgsTable, queuesTable, offersTable, queueTicketsTable, menuItemsTable, type Org, type Branch } from "@workspace/db";
 import { waMeLink, localDate, type PublicDisplay } from "@workspace/menu-shared";
 import { orgBySlug, branchFor, publicMenu } from "../lib/menu/service";
 import {
@@ -14,6 +14,7 @@ import { createOrder, orderByToken, orderView, orderMessage, orderTotal, OrderEr
 import { slotsFor, createBooking, bookingByToken, bookingView, bookingMessage, setBookingStatus, BookingError } from "../lib/booking/service";
 import { normalisePhone } from "../lib/customers";
 import { resolveDeal } from "../lib/growth/deals";
+import { fold, record } from "../lib/growth/menu-stats";
 import { stream } from "../lib/realtime";
 import { limit } from "../lib/rate-limit";
 import { rememberOrigin, joinKey, publicUrl, menuPath } from "../lib/menu/urls";
@@ -141,6 +142,27 @@ router.post("/orders", limit("order", 20, 10 * 60_000), async (req, res) => {
     const lang = b.lang === "en" ? "en" : (s.org.defaultLang === "en" ? "en" : "ar");
     res.status(201).json({ code: o.code, token: o.token, status: o.status, subtotal: Number(o.subtotal), discount: Number(o.discount), total: orderTotal(o), waLink: waMeLink(s.branch.waPhone, orderMessage(o, s.org, lang)) });
   } catch (err) { fail(res, err); }
+});
+
+// ── What the menu is looked at for (counters only) ───────────────
+const itemIds = new Map<number, { at: number; ids: Set<number> }>();
+async function validItems(orgId: number) {
+  const hit = itemIds.get(orgId);
+  if (hit && Date.now() - hit.at < 60_000) return hit.ids;
+  const rows = await db.select({ id: menuItemsTable.id }).from(menuItemsTable).where(eq(menuItemsTable.orgId, orgId));
+  const ids = new Set(rows.map((r) => r.id));
+  itemIds.set(orgId, { at: Date.now(), ids });
+  return ids;
+}
+
+router.post("/events", limit("events", 120, 60_000), async (req, res) => {
+  const b = req.body ?? {};
+  const sid = String(b.sid ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 32);
+  const s = sid ? await shop(String(b.slug ?? ""), b.branch ? String(b.branch) : undefined) : null;
+  if (!s) return res.status(204).end();
+  const counts = fold(sid, b.events, await validItems(s.org.id));
+  await record(s.org, s.branch.id, counts).catch(() => {});
+  res.status(204).end();
 });
 
 /** Check a coupon before checkout: what it takes off this cart, or why not. */

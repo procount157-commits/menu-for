@@ -85,7 +85,7 @@ async function planHolder(userId: number): Promise<number> {
   return rows[0]?.owner ?? userId;
 }
 
-export type MenuFeature = "queue" | "booking" | "notify" | "marketing" | "display" | "branchNumbers";
+export type MenuFeature = "queue" | "booking" | "notify" | "marketing" | "display" | "branchNumbers" | "growth";
 export type MenuLimit = "branches" | "items" | "staff";
 
 /** Menu For You's side of the plan, for an org owner (or any account in the org). */
@@ -96,12 +96,12 @@ export async function menuPlan(userId: number) {
   return {
     plan: p.plan, planName: AR[p.plan], expired: p.expired, expiresAt: p.expiresAt,
     limits: { branches: l.branches as number, items: l.items as number, staff: l.staff as number },
-    features: { queue: l.queue as boolean, booking: l.booking as boolean, notify: l.notify as boolean, marketing: l.marketing as boolean, display: l.display as boolean, branchNumbers: l.branchNumbers as boolean },
+    features: { queue: l.queue as boolean, booking: l.booking as boolean, notify: l.notify as boolean, marketing: l.marketing as boolean, display: l.display as boolean, branchNumbers: l.branchNumbers as boolean, growth: !!l.growth },
   };
 }
 
 const FEATURE_AR: Record<MenuFeature, string> = {
-  queue: "الصف الرقمي", booking: "الحجوزات", notify: "إشعارات واتساب", marketing: "الحملات", display: "شاشة العرض", branchNumbers: "رقم واتساب لكل فرع",
+  queue: "الصف الرقمي", booking: "الحجوزات", notify: "إشعارات واتساب", marketing: "الحملات", display: "شاشة العرض", branchNumbers: "رقم واتساب لكل فرع", growth: "أدوات النمو (التحليلات، بطاقات الهدايا، ادعُ صديقاً)",
 };
 
 export async function assertFeature(userId: number, f: MenuFeature): Promise<void> {

@@ -181,6 +181,10 @@ r = await M.get(`/api/campaigns`);
 check("…nor the campaigns", r.status === 403);
 r = await M.get(`/api/wa-auto`);
 check("…nor the WhatsApp automation", r.status === 403);
+r = await anon.post("/api/public/events", { slug: `alpha-${tag}`, sid: "httptest1", events: [{ k: "menu" }, { k: "item", id: itemA.id }, { k: "add", id: itemA.id }] });
+check("the menu reports what is looked at, anonymously", r.status === 204);
+r = await A.get("/api/growth/menu-stats?days=7");
+check("…and the business owner sees it in menu analytics", r.status === 200 && r.json.locked === false && r.json.funnel.menuViews >= 1 && r.json.funnel.adds >= 1, r.json?.funnel);
 r = await M.get(`/api/deals`);
 check("a manager runs the coupons", r.status === 200 && Array.isArray(r.json.deals));
 

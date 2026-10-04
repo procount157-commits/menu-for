@@ -13,6 +13,7 @@ import { get, useShop } from "@/lib/shop-api";
 import { Empty, Stat, errText, isPlanError, n, PlanNotice } from "@/components/shop/ops/kit";
 import { cn } from "@/lib/utils";
 import { WeeklyReportCard } from "@/components/shop/WeeklyReportCard";
+import { MenuStatsCard } from "@/components/shop/MenuStatsCard";
 
 interface QRow { day: string; branch_id: number; joined: number; served: number; no_shows: number; left: number; avg_wait: number | null; eta_error: string | number | null; eta_bias: string | number | null; on_whatsapp: number }
 interface ORow { day: string; branch_id: number; orders: number; abandoned: number; revenue: number }
@@ -117,6 +118,8 @@ export default function Reports() {
       </div>
 
       {shop.role === "owner" && <WeeklyReportCard tz={tz} />}
+
+      <MenuStatsCard days={days} branch={branch} currency={shop.org.currency} services={shop.vocab.services} />
 
       {nothing ? (
         <Empty title="لا بيانات في هذه الفترة بعد" icon={<BarChart3 />} className="py-16">

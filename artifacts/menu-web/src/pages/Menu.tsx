@@ -15,6 +15,7 @@ import { Icon, Img, toast, useReveal } from "@/components/ui";
 import { addLine, initCart, priced, useCart } from "@/lib/cart";
 import { pick, t, useLang, type Lang } from "@/lib/i18n";
 import { api } from "@/lib/api";
+import { initTrack, track } from "@/lib/track";
 
 const DAYS = { ar: ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"], en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] };
 
@@ -74,10 +75,13 @@ export default function MenuPage({ initial }: { initial: PublicMenu }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const open = useCallback((it: PublicItem, el: HTMLElement | null) => { setFrom(el); setItem(it); }, []);
-  const quickAdd = useCallback((it: PublicItem, el: HTMLElement) => { addLine(it.id, 1, []); flyToCart(el); navigator.vibrate?.(12); }, []);
+  useEffect(() => { initTrack(menu.org.slug, menu.branch.slug); }, [menu.org.slug, menu.branch.slug]);
+  useEffect(() => { if (cartOpen) track({ k: "cart" }); }, [cartOpen]);
+  const open = useCallback((it: PublicItem, el: HTMLElement | null) => { setFrom(el); setItem(it); track({ k: "item", id: it.id }); }, []);
+  const quickAdd = useCallback((it: PublicItem, el: HTMLElement) => { addLine(it.id, 1, []); track({ k: "add", id: it.id }); flyToCart(el); navigator.vibrate?.(12); }, []);
   const addFromSheet = (it: PublicItem, qty: number, sel: Selection[], note: string | undefined, btn: HTMLElement) => {
     addLine(it.id, qty, sel, note);
+    track({ k: "add", id: it.id });
     flyToCart(btn);
     navigator.vibrate?.(12);
     setItem(null);

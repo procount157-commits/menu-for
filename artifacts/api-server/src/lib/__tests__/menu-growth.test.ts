@@ -11,6 +11,7 @@ import { queueCommand, dealOpen, dealDiscount, bestAutoDeal, normaliseCode, type
 import { cleanDeal, resolveDeal, createPersonalCode, liveDeals } from "../growth/deals";
 import { orderMessage } from "../orders/service";
 import { shopDealsTable } from "@workspace/db";
+import { fold, record, menuReport, lookedNotBought } from "../growth/menu-stats";
 import { cleanup, makeShop } from "./menu-fixtures";
 
 let pass = 0, total = 0;
@@ -162,6 +163,23 @@ check("a personal code works only for its own phone", !!rd && "error" in rd && /
 rd = await resolveDeal(org0!, shop.branch.id, 90, { code: pc.code!, phone: "971500000504" });
 check("…and does for it", !!rd && !("error" in rd) && rd.discount === 18);
 await db.update(shopDealsTable).set({ isActive: false }).where(eq(shopDealsTable.id, hh!.id));
+
+// ── 5. Menu analytics ─────────────────────────────────────────────
+const valid = new Set([shop.items[0]!.id, shop.items[1]!.id]);
+const T0 = Date.now();
+let fc = fold("sidA", [{ k: "menu" }, { k: "menu" }, { k: "item", id: shop.items[1]!.id }, { k: "item", id: shop.items[1]!.id }, { k: "add", id: shop.items[1]!.id }, { k: "add", id: shop.items[1]!.id }, { k: "item", id: 999999 }, { k: "cart" }], valid, T0);
+check("a session's menu and item looks count once; every add counts", fc.get(0)?.views === 1 && fc.get(0)?.carts === 1 && fc.get(shop.items[1]!.id)?.views === 1 && fc.get(shop.items[1]!.id)?.adds === 2);
+check("…an item from another shop is ignored", !fc.has(999999));
+check("…and the same session half an hour later counts again", fold("sidA", [{ k: "menu" }], valid, T0 + 31 * 60_000).get(0)?.views === 1 && !fold("sidA", [{ k: "menu" }], valid, T0 + 5 * 60_000).size);
+await record(org0!, shop.branch.id, fc);
+await record(org0!, shop.branch.id, fold("sidB", [{ k: "menu" }, { k: "item", id: shop.items[0]!.id }], valid, T0));
+for (let i = 0; i < 12; i++) await record(org0!, shop.branch.id, fold(`v${i}`, [{ k: "item", id: shop.items[0]!.id }], valid, T0));
+const mr = await menuReport(org0!, [shop.branch.id], 7);
+check("the funnel adds up: two menus opened, item looks, adds, a cart", mr.funnel.menuViews === 2 && mr.funnel.itemViews === 14 && mr.funnel.adds === 2 && mr.funnel.carts === 1, mr.funnel);
+const burgerRow = mr.items.find((i) => i.item_id === shop.items[0]!.id);
+check("the burger was looked at 13 times and ordered once", burgerRow?.views === 13 && burgerRow.ordered === 1, burgerRow);
+check("looked at a lot, rarely ordered, is flagged", lookedNotBought([{ views: 40, ordered: 1, n: "a" }, { views: 40, ordered: 10, n: "b" }, { views: 5, ordered: 0, n: "c" }] as any).map((x: any) => x.n).join() === "a");
+check("orders by hour are there for the peak", mr.byHour.reduce((a, h) => a + h.orders, 0) === mr.funnel.orders);
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);
