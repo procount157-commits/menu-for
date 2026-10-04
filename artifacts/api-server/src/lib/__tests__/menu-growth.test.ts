@@ -22,6 +22,7 @@ import { isPrivateAddress, cleanMenuUrl, pageText, UrlImportError } from "../men
 import { shopReferralCode, setReferredBy, rewardShopReferral, shopReferralStats } from "../growth/shop-referrals";
 import { subscriptionLeadsTable } from "@workspace/db";
 import { validBirthday, shouldAskBirthday, saveBirthday, birthdayToday, birthdayMessage, runBirthdays } from "../growth/birthday";
+import { createOrg, DEFAULT_FEATURES } from "../tenancy/org";
 import { cleanup, makeShop } from "./menu-fixtures";
 
 let pass = 0, total = 0;
@@ -331,6 +332,21 @@ check("a normal link is made https when typed bare", cleanMenuUrl("example.com/m
 const html = `<html><head><style>.x{}</style><script>var a=1</script><script type="application/ld+json">{"@type":"Menu","hasMenuSection":[{"name":"مشاوي","hasMenuItem":[{"name":"شيش طاووق","offers":{"price":"32"}}]}]}</script></head><body><h1>منيو المطعم</h1><div>كنافة نابلسية&nbsp;— 18 درهم</div><p>شاي كرك 5</p></body></html>`;
 const pt = pageText(html);
 check("a page's text keeps the menu data and the visible words, not scripts or styles", pt.includes("شيش طاووق") && pt.includes("كنافة نابلسية — 18 درهم") && pt.includes("شاي كرك 5") && !pt.includes("var a=1") && !pt.includes(".x{}"));
+
+// ── 13. Smart defaults for a new shop ─────────────────────────────
+await db.delete(usersTable).where(eq(usersTable.phone, "971509998877"));
+const [nu] = await db.insert(usersTable).values({ phone: "971509998877", passwordHash: "!", plan: "pro" }).returning();
+const fresh = await createOrg(nu!.id, { name: "محل جديد للاختبار", vertical: "cafe" } as any);
+check("a new shop starts with reviews, the birthday gift and the stamp card on", fresh.org.features.reviews === true && fresh.org.features.birthday === true && fresh.org.features.loyalty === true && JSON.stringify(DEFAULT_FEATURES) === JSON.stringify({ reviews: true, birthday: true, loyalty: true }));
+check("…the owner's phone is told about orders from the first day", JSON.stringify(fresh.branch.alertPhones) === JSON.stringify(["971509998877"]));
+const [welcome] = await db.select().from(shopDealsTable).where(and(eq(shopDealsTable.orgId, fresh.org.id), eq(shopDealsTable.code, "WELCOME10")));
+check("…and, on a plan with offers, a first-order code", welcome?.oncePerPhone === true && Number(welcome.value) === 10 && Number(welcome.maxDiscount) === 20);
+await db.delete(orgsTable).where(eq(orgsTable.id, fresh.org.id));
+await db.update(usersTable).set({ plan: "basic", orgId: null }).where(eq(usersTable.id, nu!.id));
+const fresh2 = await createOrg(nu!.id, { name: "محل أساسي للاختبار" } as any);
+check("a plan without offers gets no code", (await db.select().from(shopDealsTable).where(eq(shopDealsTable.orgId, fresh2.org.id))).length === 0);
+await db.delete(orgsTable).where(eq(orgsTable.id, fresh2.org.id));
+await db.delete(usersTable).where(eq(usersTable.id, nu!.id));
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

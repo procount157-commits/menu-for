@@ -4,12 +4,13 @@ import crypto from "node:crypto";
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import {
-  db, orgsTable, branchesTable, queuesTable, bookingSettingsTable, usersTable, menuCategoriesTable,
+  db, orgsTable, branchesTable, queuesTable, bookingSettingsTable, usersTable, menuCategoriesTable, shopDealsTable,
   type Org, type Branch, type WeekHours,
 } from "@workspace/db";
 import { isValidSlug, slugError, slugify, vocab, type Vertical } from "@workspace/menu-shared";
 import { TenantError } from "./context";
-import { assertWithinLimit, assertFeature } from "../plans";
+import { assertWithinLimit, assertFeature, menuPlan } from "../plans";
+import { ownerPhone } from "../growth/weekly-report";
 
 export const token = (bytes = 16) => crypto.randomBytes(bytes).toString("base64url").slice(0, Math.ceil(bytes * 4 / 3));
 
@@ -50,6 +51,9 @@ export interface NewOrg {
   withDefaultCategories?: boolean;
 }
 
+/** What a new shop starts with switched on (see createOrg). */
+export const DEFAULT_FEATURES: Record<string, boolean> = { reviews: true, birthday: true, loyalty: true };
+
 export async function createOrg(ownerUserId: number, input: NewOrg): Promise<{ org: Org; branch: Branch }> {
   const name = String(input.name ?? "").trim().slice(0, 160);
   if (name.length < 2) throw new TenantError(400, "اكتب اسم المحل");
@@ -69,17 +73,31 @@ export async function createOrg(ownerUserId: number, input: NewOrg): Promise<{ o
   const template = (["noir", "cream", "clean", "rose"].includes(String(input.template)) ? input.template : v.template) as Org["theme"]["template"];
   const brand = /^#[0-9a-f]{6}$/i.test(String(input.brand)) ? String(input.brand) : v.brand;
 
+  // Smart defaults: a new shop starts with what pays off switched on — the
+  // owner's phone told about orders and the weekly report, a review request
+  // after a visit, the birthday gift, the stamp card — and, on a plan with
+  // offers, a first-order code. Each is gated by the plan when it runs, and
+  // the owner can switch any of it off.
+  const [owner] = await db.select({ phone: usersTable.phone }).from(usersTable).where(eq(usersTable.id, ownerUserId)).limit(1);
+  const alertPhone = ownerPhone(owner?.phone);
+  const offers = (await menuPlan(ownerUserId)).features.marketing;
+
   return db.transaction(async (tx) => {
     const [org] = await tx.insert(orgsTable).values({
       ownerUserId, name, nameEn: input.nameEn?.trim() || null, slug, vertical,
       tagline: input.tagline?.trim() || null,
       theme: { template, brand },
+      features: { ...DEFAULT_FEATURES },
     }).returning();
+    if (offers) {
+      await tx.insert(shopDealsTable).values({ orgId: org!.id, code: "WELCOME10", title: "خصم أول طلب", kind: "pct", value: "10", maxDiscount: "20", oncePerPhone: true });
+    }
     const [branch] = await tx.insert(branchesTable).values({
       orgId: org!.id, waUserId: ownerUserId,
       name: input.branchName?.trim() || "الفرع الرئيسي", nameEn: "Main branch", slug: "main",
       address: input.address?.trim() || null, displayPhone: input.displayPhone?.trim() || null,
       hours: defaultHours(), displayToken: token(18), sort: 0,
+      alertPhones: alertPhone ? [alertPhone] : [],
     }).returning();
     await tx.insert(queuesTable).values({
       orgId: org!.id, branchId: branch!.id, name: v.queue[0], nameEn: v.queue[1], prefix: "A",
