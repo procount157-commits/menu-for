@@ -204,6 +204,7 @@ const MANAGER_ALLOW: Array<[string, RegExp]> = [
   ["GET",  /^\/gifts$/],
   ["POST", /^\/gifts$/],
   ["GET",  /^\/growth\/referral$/],
+  ["GET",  /^\/growth\/loyalty$/],
 ];
 
 export function staffGuard(req: Request, res: Response, next: NextFunction) {

@@ -124,6 +124,8 @@ export interface PublicMenu {
 export type TicketStatus = "waiting" | "called" | "serving" | "done" | "no_show" | "cancelled" | "left";
 
 export interface PublicTicket {
+  /** The customer's stamp card at this shop, when the shop runs one. */
+  loyalty?: { stamps: number; target: number; reward: string } | null;
   /** Ask for the customer's birthday (the shop gives a birthday gift and does not know it yet). */
   askBirthday?: boolean;
   token: string;
@@ -158,6 +160,8 @@ export interface PublicDisplay {
 }
 
 export interface PublicOrderView {
+  /** The customer's stamp card at this shop, when the shop runs one. */
+  loyalty?: { stamps: number; target: number; reward: string } | null;
   /** «ادعُ صديقاً»: this customer's share link and what it gives. */
   referral?: { link: string; friendPct: number; rewardPct: number } | null;
   /** Ask for the customer's birthday (the shop gives a birthday gift and does not know it yet). */
@@ -184,6 +188,8 @@ export interface PublicOrderView {
 }
 
 export interface PublicBookingView {
+  /** The customer's stamp card at this shop, when the shop runs one. */
+  loyalty?: { stamps: number; target: number; reward: string } | null;
   /** Ask for the customer's birthday (the shop gives a birthday gift and does not know it yet). */
   askBirthday?: boolean;
   code: string;

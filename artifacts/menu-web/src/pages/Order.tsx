@@ -10,6 +10,7 @@ import { go, openWhatsApp, useLive } from "@/lib/api";
 import { pick, setLang, t, useLang, type Key } from "@/lib/i18n";
 import { applyTheme } from "@/lib/theme";
 import { BirthdayAsk } from "@/components/Birthday";
+import { StampCard } from "@/components/Stamps";
 import NotFound from "./NotFound";
 
 const STEPS = ["received", "preparing", "ready", "completed"] as const;
@@ -99,6 +100,7 @@ export default function OrderPage({ token, initial }: { token: string; initial: 
           </button>
         )}
 
+        {o.loyalty && o.status !== "pending" && <StampCard lang={lang} loyalty={o.loyalty} />}
         {o.referral && (
           <section className="mt-4 rounded-[22px] p-5 animate-rise" style={{ background: "var(--surface)" }}>
             <p className="font-semibold">🎁 {t("refShareTitle", lang)}</p>

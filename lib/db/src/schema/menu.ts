@@ -52,6 +52,7 @@ export const orgsTable = pgTable("orgs", {
 export interface GrowthPrefs {
   birthday?: { pct?: number; days?: number };
   referral?: { friendPct?: number; rewardPct?: number; rewardDays?: number };
+  loyalty?: { target?: number; rewardKind?: "pct" | "amount"; rewardValue?: number; rewardLabel?: string | null; rewardDays?: number };
 }
 
 export interface OrgTheme {
@@ -380,6 +381,11 @@ export const customersTable = pgTable("customers", {
   birthdaySentYear: integer("birthday_sent_year"),
   // «ادعُ صديقاً»: this customer's share code.
   referralCode:   varchar("referral_code", { length: 12 }),
+  // The stamp card: stamps on the current card, all ever, the last day one was given, cards completed.
+  stamps:         integer("stamps").notNull().default(0),
+  stampsTotal:    integer("stamps_total").notNull().default(0),
+  lastStampDay:   date("last_stamp_day"),
+  loyaltyRewards: integer("loyalty_rewards").notNull().default(0),
   reviewAskedAt:  timestamp("review_asked_at", { withTimezone: true }),
   winbackAt:      timestamp("winback_at", { withTimezone: true }),
 }, (t) => [

@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 interface Customer {
   orgId: number; phone: string; name: string | null; firstSeenAt: string; lastSeenAt: string; lastInboundAt: string | null;
   visits: number; ordersCount: number; bookingsCount: number; noShows: number; totalSpent: number;
+  stamps?: number; loyaltyRewards?: number; birthMonth?: number | null; birthDay?: number | null;
   favourites: Record<string, number>; marketingOptIn: boolean; optInAt: string | null; ratingLast: number | null;
 }
 interface ListResp { customers: Customer[]; stats: { total: number; optedIn: number; returning: number; avgRating: number | string | null } }
@@ -225,6 +226,8 @@ function CustomerDrawer({ phone, onClose, owner, money }: { phone: string | null
             <Stat label="حجوزات" value={c.bookingsCount} />
             <Stat label="لم يحضر" value={c.noShows} tone={c.noShows ? "warn" : undefined} />
             <Stat label="الإنفاق" value={c.totalSpent ? money(c.totalSpent) : "—"} className="col-span-2" tone="gold" />
+            {shop.org.features?.loyalty && <Stat label="أختام البطاقة" value={c.stamps ?? 0} hint={c.loyaltyRewards ? `اكتملت ${c.loyaltyRewards} مرة` : undefined} />}
+            {c.birthMonth && <Stat label="عيد الميلاد" value={`${c.birthDay}/${c.birthMonth}`} />}
           </div>
 
           <div className="rounded-xl border border-card-border bg-card p-3 flex items-center gap-3">

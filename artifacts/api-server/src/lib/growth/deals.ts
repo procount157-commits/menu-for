@@ -88,11 +88,12 @@ export function newCode(prefix: string) {
 }
 
 /** A one-time code for one phone — a birthday, a referral reward. */
-export async function createPersonalCode(orgId: number, phone: string, o: { title: string; kind: "pct" | "amount"; value: number; days: number; source: string; prefix: string; minSubtotal?: number }) {
+export async function createPersonalCode(orgId: number, phone: string, o: { title: string; kind: "pct" | "amount"; value: number; days: number; source: string; prefix: string; minSubtotal?: number; maxDiscount?: number | null }) {
   for (let i = 0; i < 5; i++) {
     const code = newCode(o.prefix);
     const [row] = await db.insert(shopDealsTable).values({
       orgId, code, title: o.title, kind: o.kind, value: String(o.value), minSubtotal: String(o.minSubtotal ?? 0),
+      maxDiscount: o.maxDiscount ? String(o.maxDiscount) : null,
       endsAt: new Date(Date.now() + o.days * 24 * 3_600_000), maxUses: 1, oncePerPhone: true, phone, source: o.source,
     }).onConflictDoNothing().returning();
     if (row) return row;

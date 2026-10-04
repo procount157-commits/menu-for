@@ -23,6 +23,7 @@ import { shopReferralCode, setReferredBy, rewardShopReferral, shopReferralStats 
 import { subscriptionLeadsTable } from "@workspace/db";
 import { validBirthday, shouldAskBirthday, saveBirthday, birthdayToday, birthdayMessage, runBirthdays } from "../growth/birthday";
 import { createOrg, DEFAULT_FEATURES } from "../tenancy/org";
+import { addStamp, loyaltyFor, loyaltyStats, rewardText, loyaltyPrefs } from "../growth/loyalty";
 import { cleanup, makeShop } from "./menu-fixtures";
 
 let pass = 0, total = 0;
@@ -347,6 +348,34 @@ const fresh2 = await createOrg(nu!.id, { name: "محل أساسي للاختبا
 check("a plan without offers gets no code", (await db.select().from(shopDealsTable).where(eq(shopDealsTable.orgId, fresh2.org.id))).length === 0);
 await db.delete(orgsTable).where(eq(orgsTable.id, fresh2.org.id));
 await db.delete(usersTable).where(eq(usersTable.id, nu!.id));
+
+// ── 14. The stamp card ────────────────────────────────────────────
+await db.update(usersTable).set({ plan: "pro" }).where(eq(usersTable.id, shop.user.id));
+await db.update(orgsTable).set({ features: { loyalty: true }, growthPrefs: { loyalty: { target: 3, rewardKind: "amount", rewardValue: 15, rewardDays: 30 } } }).where(eq(orgsTable.id, shop.org.id));
+const [o14] = await db.select().from(orgsTable).where(eq(orgsTable.id, shop.org.id));
+check("the reward is said in words, or in the owner's own", rewardText(loyaltyPrefs(o14!), "AED") === "هدية بقيمة 15 د.إ" && rewardText({ ...loyaltyPrefs(o14!), rewardLabel: "قهوة مجانية" }, "AED") === "قهوة مجانية");
+await db.insert(customersTable).values({ orgId: shop.org.id, phone: "971500001401", name: "ماجد" }).onConflictDoNothing();
+const d1 = new Date("2026-10-05T12:00:00+04:00"), d2 = new Date("2026-10-06T12:00:00+04:00"), d3 = new Date("2026-10-07T12:00:00+04:00");
+let st = await addStamp(o14!, shop.branch, "971500001401", d1);
+check("a visit gives a stamp", st?.stamps === 1 && st.target === 3 && !st.rewarded);
+check("…but only one a day", (await addStamp(o14!, shop.branch, "971500001401", new Date(d1.getTime() + 3_600_000))) === null);
+check("the customer's pages show the card", JSON.stringify(await loyaltyFor(o14!, "971500001401")) === JSON.stringify({ stamps: 1, target: 3, reward: "هدية بقيمة 15 د.إ" }));
+await addStamp(o14!, shop.branch, "971500001401", d2);
+st = await addStamp(o14!, shop.branch, "971500001401", d3);
+check("the third stamp fills the card and starts a new one", st?.rewarded === true && st.stamps === 0);
+const lr = await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.kind, "loyalty_reward")));
+check("…and the gift goes to their WhatsApp with a code of their own", lr.length === 1 && lr[0]!.phone === "971500001401" && /LY[A-Z0-9]{5}/.test(lr[0]!.text) && lr[0]!.text.includes("هدية بقيمة 15"));
+const lyCode = lr[0]!.text.match(/LY[A-Z0-9]{5}/)![0];
+const rd14 = await resolveDeal(o14!, shop.branch.id, 50, { code: lyCode, phone: "971500001401" });
+check("…which takes the gift off their next order", !!rd14 && !("error" in rd14) && rd14.discount === 15);
+await db.update(customersTable).set({ lastStampDay: null }).where(and(eq(customersTable.orgId, shop.org.id), eq(customersTable.phone, "971500001401")));
+const o14o = await createOrder(o14!, shop.branch, { type: "pickup", phone: "0500001401", lines: [{ itemId: shop.items[1]!.id, qty: 1 }] });
+await setOrderStatus(shop.org.id, [shop.branch.id], o14o.id, "completed");
+check("a completed order gives a stamp too", (await loyaltyFor(o14!, "971500001401"))?.stamps === 1);
+const ls = await loyaltyStats(shop.org.id);
+check("the owner sees members and completed cards", ls.members >= 1 && ls.rewards === 1, ls);
+await db.update(orgsTable).set({ features: {} }).where(eq(orgsTable.id, shop.org.id));
+check("switched off, nobody is stamped", (await addStamp({ ...o14!, features: {} }, shop.branch, "971500001401", new Date("2026-10-09T12:00:00+04:00"))) === null);
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

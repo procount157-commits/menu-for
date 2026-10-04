@@ -7,6 +7,7 @@ import { api, go, openWhatsApp } from "@/lib/api";
 import { pick, setLang, t, useLang } from "@/lib/i18n";
 import { applyTheme } from "@/lib/theme";
 import { BirthdayAsk } from "@/components/Birthday";
+import { StampCard } from "@/components/Stamps";
 import NotFound from "./NotFound";
 
 export default function BookingPage({ token, initial }: { token: string; initial: PublicBookingView | null }) {
@@ -76,6 +77,7 @@ export default function BookingPage({ token, initial }: { token: string; initial
             <Icon name="wa" className="w-5 h-5" />{t("confirmOnWa", lang)}
           </button>
         )}
+        {b.loyalty && true && <StampCard lang={lang} loyalty={b.loyalty} />}
         {b.askBirthday && b.status !== "cancelled" && <BirthdayAsk lang={lang} kind="booking" token={b.token} shop={pick(lang, b.org.name, b.org.nameEn)} />}
 
         <div className="mt-4 grid grid-cols-2 gap-2.5">

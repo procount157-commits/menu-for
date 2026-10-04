@@ -10,6 +10,7 @@ import { menuPlan } from "../lib/plans";
 import { branchesTable, menuStatsDailyTable, customersTable } from "@workspace/db";
 import { birthdayPrefs } from "../lib/growth/birthday";
 import { referralOn, referralPrefs, referralStats } from "../lib/growth/referrals";
+import { loyaltyOn, loyaltyPrefs, loyaltyStats, rewardText } from "../lib/growth/loyalty";
 import { shopReferralCode, shopReferralLink, shopReferralStats, FREE_DAYS } from "../lib/growth/shop-referrals";
 import { sql } from "drizzle-orm";
 import { cleanReviewUrl, reviewStats } from "../lib/growth/reviews";
@@ -104,6 +105,34 @@ router.patch("/growth/birthday", requireAuth, withTenant(OWNER, async (req, res,
 router.get("/growth/shop-referral", requireAuth, withTenant(OWNER, async (_req, res, t) => {
   const code = await shopReferralCode(t.org);
   res.json({ code, link: shopReferralLink(code), freeDays: FREE_DAYS, stats: await shopReferralStats(t.org.id) });
+}));
+
+// ── The stamp card ────────────────────────────────────────────────
+
+router.get("/growth/loyalty", requireAuth, withTenant(MANAGERS, async (_req, res, t) => {
+  const plan = await menuPlan(t.org.ownerUserId);
+  const p = loyaltyPrefs(t.org);
+  res.json({ enabled: loyaltyOn(t.org), prefs: p, reward: rewardText(p, t.org.currency), stats: await loyaltyStats(t.org.id), allowed: plan.features.marketing, planName: plan.planName });
+}));
+
+router.patch("/growth/loyalty", requireAuth, withTenant(OWNER, async (req, res, t) => {
+  const b = req.body ?? {};
+  if (b.enabled === true) {
+    const plan = await menuPlan(t.org.ownerUserId);
+    if (!plan.features.marketing) return res.status(402).json({ error: `بطاقة الأختام من خطة «احترافي» — خطتك ${plan.planName}.`, plan: true });
+  }
+  const cur = loyaltyPrefs(t.org);
+  const num = (v: unknown, lo: number, hi: number, d: number) => (v !== "" && v != null && Number.isFinite(Number(v)) ? Math.max(lo, Math.min(hi, Math.round(Number(v)))) : d);
+  const rewardKind = b.rewardKind === "pct" ? "pct" : b.rewardKind === "amount" ? "amount" : cur.rewardKind;
+  const loyalty = {
+    target: num(b.target, 3, 20, cur.target), rewardKind,
+    rewardValue: num(b.rewardValue, 1, rewardKind === "pct" ? 100 : 10_000, cur.rewardValue),
+    rewardLabel: "rewardLabel" in b ? (String(b.rewardLabel ?? "").trim().slice(0, 60) || null) : cur.rewardLabel,
+    rewardDays: num(b.rewardDays, 7, 90, cur.rewardDays),
+  };
+  const features = { ...(t.org.features ?? {}), ...(typeof b.enabled === "boolean" ? { loyalty: b.enabled } : {}) };
+  await db.update(orgsTable).set({ features, growthPrefs: { ...(t.org.growthPrefs ?? {}), loyalty } }).where(eq(orgsTable.id, t.org.id));
+  res.json({ enabled: !!features.loyalty, prefs: loyalty, reward: rewardText(loyalty, t.org.currency) });
 }));
 
 // ── «ادعُ صديقاً» ─────────────────────────────────────────────────

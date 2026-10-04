@@ -14,6 +14,7 @@ import { Btn, Empty, Stat, errText, n, shortDate } from "@/components/shop/ops/k
 import { Modal } from "@/components/shop/ops/Modal";
 import { cn } from "@/lib/utils";
 import { ReferralPanel } from "@/components/shop/ReferralPanel";
+import { LoyaltyPanel } from "@/components/shop/LoyaltyPanel";
 
 interface Deal {
   id: number; code: string | null; title: string; kind: "pct" | "amount"; value: number; minSubtotal: number; maxDiscount: number | null;
@@ -31,7 +32,7 @@ const STATUS: Record<Deal["status"], { label: string; cls: string }> = {
   used_up: { label: "استُخدم بالكامل", cls: "bg-secondary text-muted-foreground" },
   off: { label: "متوقف", cls: "bg-secondary text-muted-foreground" },
 };
-const SOURCE: Record<string, string> = { birthday: "هدية عيد ميلاد", referral: "مكافأة دعوة صديق" };
+const SOURCE: Record<string, string> = { birthday: "هدية عيد ميلاد", referral: "مكافأة دعوة صديق", loyalty: "هدية بطاقة الأختام" };
 
 export default function Deals() {
   const shop = useShop();
@@ -69,7 +70,10 @@ export default function Deals() {
         </div>
       )}
 
-      <ReferralPanel />
+      <div className="grid lg:grid-cols-2 gap-3">
+        <LoyaltyPanel />
+        <ReferralPanel />
+      </div>
 
       <div className="grid grid-cols-3 gap-2">
         <Stat label="طلبات استخدمت عرضاً" value={n(tot.orders)} tone="gold" />
@@ -86,7 +90,7 @@ export default function Deals() {
       {personal.length > 0 && (
         <div>
           <button className="text-sm text-muted-foreground hover:text-foreground" onClick={() => setShowPersonal((v) => !v)}>
-            أكواد شخصية أُرسلت تلقائياً ({personal.length}) — أعياد ميلاد ومكافآت دعوة {showPersonal ? "▲" : "▼"}
+            أكواد شخصية أُرسلت تلقائياً ({personal.length}) — أعياد ميلاد، دعوات، وبطاقات أختام {showPersonal ? "▲" : "▼"}
           </button>
           {showPersonal && (
             <div className="mt-2 rounded-xl border border-card-border bg-card divide-y divide-border/60">

@@ -19,6 +19,7 @@ import { alertShop } from "../notify/alerts";
 import { resolveDeal, claimUse, releaseUse } from "../growth/deals";
 import { giftByCode, giftProblem, spendGift, refundGift } from "../growth/gifts";
 import { shouldAskBirthday } from "../growth/birthday";
+import { addStamp, loyaltyFor } from "../growth/loyalty";
 import { friendDiscount, recordReferral, rewardReferral, voidReferral, referralFor } from "../growth/referrals";
 
 export class OrderError extends Error {
@@ -189,6 +190,7 @@ export async function orderView(o: Order): Promise<PublicOrderView | null> {
     createdAt: o.createdAt.toISOString(),
     reorder: reorderLines(o),
     askBirthday: await shouldAskBirthday(c.org, o.phone),
+    loyalty: o.status === "pending" ? null : await loyaltyFor(c.org, o.phone),
     referral: o.status === "pending" ? null : await referralFor(c.org, c.branch.slug, o.phone),
     org: { name: c.org.name, nameEn: c.org.nameEn, slug: c.org.slug, logoUrl: c.org.logoUrl, theme: c.org.theme, vertical: c.org.vertical as any, currency: c.org.currency, defaultLang: lang },
     branch: { name: c.branch.name, nameEn: c.branch.nameEn, slug: c.branch.slug, address: c.branch.address, mapUrl: c.branch.mapUrl },
@@ -257,7 +259,11 @@ export async function setOrderStatus(orgId: number, branchIds: number[], id: num
     await voidReferral(o.id);
   }
   // The friend's order is done: the customer who invited them gets their gift.
-  if (status === "completed") await rewardReferral(u!);
+  if (status === "completed") {
+    await rewardReferral(u!);
+    const c = u!.phone ? await ctxOf(u!) : null;
+    if (c) await addStamp(c.org, c.branch, u!.phone);
+  }
   const key = STATUS_NOTIFY[status];
   if (key && !(status === "received" && o.status !== "pending")) await notifyOrder(u!, key);
   publish(`orders:${o.branchId}`);
