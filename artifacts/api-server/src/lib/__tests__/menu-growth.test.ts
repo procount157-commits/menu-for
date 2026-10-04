@@ -18,6 +18,7 @@ import { referralCodeFor, friendDiscount, referralStats } from "../growth/referr
 import { customerReferralsTable } from "@workspace/db";
 import { churnRisk, type ChurnInput } from "../growth/churn";
 import { nudges, suggestedPlan, usageOf, requestUpgrade } from "../growth/upgrade";
+import { isPrivateAddress, cleanMenuUrl, pageText, UrlImportError } from "../menu/import-url";
 import { shopReferralCode, setReferredBy, rewardShopReferral, shopReferralStats } from "../growth/shop-referrals";
 import { subscriptionLeadsTable } from "@workspace/db";
 import { validBirthday, shouldAskBirthday, saveBirthday, birthdayToday, birthdayMessage, runBirthdays } from "../growth/birthday";
@@ -320,6 +321,16 @@ check("…and the shop that brought it is told on WhatsApp", ra.length === 1 && 
 check("…once", !(await rewardShopReferral(shop2.org.id)));
 const ss = await shopReferralStats(shop.org.id);
 check("the owner sees who they brought and the days earned", ss.brought === 1 && ss.rewarded === 1 && ss.freeDays === 30, ss);
+
+// ── 12. The shop's own menu link ──────────────────────────────────
+check("private, loopback and metadata addresses are refused", ["10.0.0.5", "127.0.0.1", "169.254.169.254", "172.20.1.1", "192.168.1.10", "100.64.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:127.0.0.1"].every(isPrivateAddress));
+check("…public ones are not", !isPrivateAddress("8.8.8.8") && !isPrivateAddress("172.32.0.1") && !isPrivateAddress("2a00:1450::1"));
+const refused = (u: string) => { try { cleanMenuUrl(u); return false; } catch (e) { return e instanceof UrlImportError; } };
+check("links to the server's own network are refused before any fetch", ["http://localhost/menu", "http://127.0.0.1/", "https://10.1.2.3/x", "ftp://example.com/m.pdf", "https://user:pw@example.com/", "https://example.com:8080/", "http://router.local/"].every(refused));
+check("a normal link is made https when typed bare", cleanMenuUrl("example.com/menu").toString() === "https://example.com/menu");
+const html = `<html><head><style>.x{}</style><script>var a=1</script><script type="application/ld+json">{"@type":"Menu","hasMenuSection":[{"name":"مشاوي","hasMenuItem":[{"name":"شيش طاووق","offers":{"price":"32"}}]}]}</script></head><body><h1>منيو المطعم</h1><div>كنافة نابلسية&nbsp;— 18 درهم</div><p>شاي كرك 5</p></body></html>`;
+const pt = pageText(html);
+check("a page's text keeps the menu data and the visible words, not scripts or styles", pt.includes("شيش طاووق") && pt.includes("كنافة نابلسية — 18 درهم") && pt.includes("شاي كرك 5") && !pt.includes("var a=1") && !pt.includes(".x{}"));
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

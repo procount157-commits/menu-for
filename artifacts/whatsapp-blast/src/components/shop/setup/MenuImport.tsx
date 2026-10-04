@@ -7,7 +7,7 @@
 import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Camera, CheckCircle2, Download, FileSpreadsheet, Languages, Loader2, Upload } from "lucide-react";
+import { Camera, CheckCircle2, Download, FileSpreadsheet, Languages, Loader2, Upload, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { post, upload, useShop, inputCls } from "@/lib/shop-api";
 import { Section, btnGhost, btnPrimary, btnQuiet } from "./kit";
@@ -108,6 +108,18 @@ export default function MenuImport() {
     } catch (e) { setPhotoErr((e as Error).message); }
     finally { setPhotoBusy(false); }
   };
+  // the shop's own menu link: the same draft as a photo
+  const [link, setLink] = useState("");
+  const readLink = async () => {
+    if (!link.trim()) return;
+    setPhotoBusy(true); setPhotoErr(null); setPhotoRows(null);
+    try {
+      const r = await post<{ rows: Row[]; error: string | null }>("/api/menu/import-url", { url: link.trim() });
+      if (r.error && !r.rows.length) setPhotoErr(r.error);
+      setPhotoRows(r.rows); setKeep(r.rows.map(() => true));
+    } catch (e) { setPhotoErr((e as Error).message); }
+    finally { setPhotoBusy(false); }
+  };
   const savePhoto = async () => {
     const rows = (photoRows ?? []).filter((r, i) => keep[i] && r.name.trim() && Number.isFinite(r.price));
     setPhotoBusy(true);
@@ -136,6 +148,13 @@ export default function MenuImport() {
 
   return (
     <div className="space-y-4">
+      <Section title="عندك منيو على الإنترنت؟" sub="الصق رابط صفحة المنيو في موقعك، أو رابط ملف PDF أو صورة المنيو — نقرأ منه الأسماء والأسعار وتراجعها قبل الحفظ. أسرع طريقة لتجهيز محلك.">
+        <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); void readLink(); }}>
+          <input className={cn(inputCls, "font-mono text-xs")} dir="ltr" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://…/menu" disabled={photoBusy} />
+          <button className={btnPrimary} type="submit" disabled={photoBusy || !link.trim()}>{photoBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}اقرأ المنيو</button>
+        </form>
+      </Section>
+
       <Section title="صورة المنيو الورقي" sub="صوّر المنيو (أو ارفع PDF) ونقرأ منه الأسماء والأسعار. تراجعها وتعدّلها قبل ما تنحفظ.">
         <input ref={photoInput} type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) readPhoto(f); e.target.value = ""; }} />
         {!photoRows && (

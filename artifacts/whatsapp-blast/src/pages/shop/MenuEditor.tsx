@@ -30,7 +30,8 @@ const TAG_LABEL = Object.fromEntries(TAGS);
 export default function MenuEditor() {
   const shop = useShop();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<Tab>("items");
+  // /menu?import opens straight on «import» (from the end of sign-up).
+  const [tab, setTab] = useState<Tab>(() => (new URLSearchParams(window.location.search).has("import") ? "import" : "items"));
   const cats = useQuery<Category[]>({ queryKey: CATS_KEY, queryFn: () => get("/api/menu/categories") });
   const items = useQuery<MenuItem[]>({ queryKey: ITEMS_KEY, queryFn: () => get("/api/menu/items") });
   const [sel, setSel] = useState<Sel | null>(null);

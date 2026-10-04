@@ -197,6 +197,8 @@ r = await S.post(`/api/gifts/${giftId}/redeem`, { amount: 25 });
 check("…and staff take an amount off it", r.status === 200 && r.json.balance === 50, r.json);
 r = await anon.post("/api/public/deals/check", { slug: `alpha-${tag}`, code: giftCode.toLowerCase(), subtotal: 30 });
 check("the cart recognises a gift card code", r.status === 200 && r.json.kind === "gift" && r.json.discount === 30, r.json);
+r = await M.post("/api/menu/import-url", { url: "http://169.254.169.254/latest/meta-data/" });
+check("a menu link into the server's own network is refused", r.status === 200 && r.json.rows.length === 0 && /غير مدعوم/.test(r.json.error), r.json);
 r = await M.get(`/api/deals`);
 check("a manager runs the coupons", r.status === 200 && Array.isArray(r.json.deals));
 

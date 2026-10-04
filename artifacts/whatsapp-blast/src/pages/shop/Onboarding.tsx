@@ -338,8 +338,11 @@ export default function Onboarding() {
                     <CopyButton text={created.menuUrl} />
                   </div>
                   <div className="grid gap-2 text-start">
-                    <button className={cn(btnPrimary, "justify-between py-3")} onClick={() => finish("/menu")}>
-                      <span className="flex items-center gap-2"><UtensilsCrossed className="w-4 h-4" />أضف {v.items[0]}</span><ArrowLeft className="w-4 h-4" />
+                    <button className={cn(btnPrimary, "justify-between py-3")} onClick={() => finish("/menu?import")}>
+                      <span className="flex items-center gap-2 text-start"><UtensilsCrossed className="w-4 h-4 shrink-0" /><span>جهّز المنيو في دقائق<span className="block text-[11px] font-normal opacity-80">من رابط منيوك الحالي، أو صورة المنيو، أو ملف Excel</span></span></span><ArrowLeft className="w-4 h-4" />
+                    </button>
+                    <button className={cn(btnGhost, "justify-between py-3")} onClick={() => finish("/menu")}>
+                      <span className="flex items-center gap-2"><UtensilsCrossed className="w-4 h-4" />أضف {v.items[0]} يدوياً</span><ArrowLeft className="w-4 h-4" />
                     </button>
                     <button className={cn(btnGhost, "justify-between py-3")} onClick={() => finish("/qr")}>
                       <span className="flex items-center gap-2"><QrCode className="w-4 h-4" />اطبع الـ QR</span><ArrowLeft className="w-4 h-4" />

@@ -198,7 +198,7 @@ const MANAGER_ALLOW: Array<[string, RegExp]> = [
   ["GET",  /^\/qr(\/|$)/],
   ["*",    /^\/menu\/(items|categories|offers)(\/|$)/],
   ["POST", /^\/menu\/images$/],
-  ["POST", /^\/menu\/(import|import-photo|import-rows|translate)$/],
+  ["POST", /^\/menu\/(import|import-photo|import-url|import-rows|translate)$/],
   ["*",    /^\/deals(\/|$)/],
   ["GET",  /^\/growth\/menu-stats$/],
   ["GET",  /^\/gifts$/],

@@ -1,5 +1,5 @@
 // ── Getting a menu in without typing it ───────────────────────────
-// Three doors:
+// Four doors (the fourth, the shop's own menu link, is in import-url.ts):
 //   • a spreadsheet — read by its headers (Arabic or English), one row per item
 //   • a photo or PDF of the paper menu — read by a vision model into items,
 //     returned for the owner to check before anything is saved
@@ -225,6 +225,22 @@ export async function importMenuFromImage(t: Tenant, buf: Buffer, mime: string, 
     rows = rowsFromModel(parseJsonArray(out));
   }
   return { rows, error: rows.length ? null : "لم أستطع قراءة أصناف بأسعار من الملف — جرّب صورة أوضح." };
+}
+
+/** The shop's own menu link: a page, a PDF or an image, read into the same draft. */
+export async function importMenuFromUrl(t: Tenant, raw: unknown) {
+  const { fetchMenuPage, pageText, UrlImportError } = await import("./import-url");
+  let page: Awaited<ReturnType<typeof fetchMenuPage>>;
+  try { page = await fetchMenuPage(raw); }
+  catch (err) { if (err instanceof UrlImportError) return { rows: [], error: err.message }; throw err; }
+  if (page.type.includes("pdf") || /\.pdf($|\?)/i.test(page.url)) return importMenuFromImage(t, page.buf, "application/pdf", "menu.pdf");
+  if (page.type.startsWith("image/")) return importMenuFromImage(t, page.buf, page.type.split(";")[0]!, "menu");
+  const text = pageText(page.buf.toString("utf8"));
+  if (text.replace(/\s/g, "").length < 60) return { rows: [], error: "الصفحة لا تحتوي نصاً نقرؤه (تُبنى بالجافاسكربت أو المنيو صور) — صوّر المنيو وارفع الصورة، أو ارفع ملف PDF." };
+  const r = await complete([{ role: "system", content: VISION_PROMPT }, { role: "user", content: text }], 90_000);
+  if (!r) return { rows: [], error: "لا يوجد نموذج ذكاء مفعّل — أضف مفتاحاً من صفحة «معرفة البوت»." };
+  const rows = rowsFromModel(parseJsonArray(r.text ?? ""));
+  return { rows, error: rows.length ? null : "لم نجد أصنافاً بأسعار في هذه الصفحة — جرّب رابط صفحة المنيو نفسها، أو صورة المنيو." };
 }
 
 // ── English for the Arabic menu ───────────────────────────────────

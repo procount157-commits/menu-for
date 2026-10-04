@@ -14,7 +14,7 @@ import { branchItems, itemCount } from "../lib/menu/service";
 import { assertWithinLimit } from "../lib/plans";
 import { publish } from "../lib/realtime";
 import { syncMenuKnowledge } from "../lib/menu/knowledge-sync";
-import { importMenuFile, importMenuFromImage, translateMenu, saveRows } from "../lib/menu/import";
+import { importMenuFile, importMenuFromImage, importMenuFromUrl, translateMenu, saveRows } from "../lib/menu/import";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_BYTES } });
@@ -264,6 +264,12 @@ router.post("/import-photo", requireAuth, fileUpload.single("file"), withTenant(
   const f = (req as any).file as Express.Multer.File | undefined;
   if (!f) return res.status(400).json({ error: "اختر صورة المنيو أو ملف PDF" });
   res.json(await importMenuFromImage(t, f.buffer, f.mimetype, f.originalname));
+}));
+
+/** The shop's own menu link, read into items for review. */
+router.post("/import-url", requireAuth, withTenant(MANAGERS, async (req, res, t) => {
+  if (!String(req.body?.url ?? "").trim()) return res.status(400).json({ error: "الصق رابط المنيو" });
+  res.json(await importMenuFromUrl(t, req.body.url));
 }));
 
 /** Save the rows the owner kept from a photo or sheet preview. */
