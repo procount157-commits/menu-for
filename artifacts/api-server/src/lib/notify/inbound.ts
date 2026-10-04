@@ -135,7 +135,21 @@ export async function handleCustomerMessage(waUserId: number, phone: string, tex
     }
   }
 
-  // ── 4. Menu / booking link ─────────────────────────────────────
+  // ── 4. «نفس الطلب» — the last order, one tap from the cart ──────
+  if (cmd === "reorder") {
+    const { lastOrderOf } = await import("../orders/service");
+    const last = await lastOrderOf(org.id, phone);
+    const branch = (last && branches.find((b) => b.id === last.branchId)) || branches.find((b) => b.isActive) || branches[0]!;
+    const link = publicUrl(menuPath(org.slug, branch.slug) + (last ? `?reorder=${last.token}` : ""));
+    const items = last ? last.items.map((l) => `${l.qty}× ${l.name}`).join("، ") : "";
+    await reply(org, waUserId, phone, last
+      ? (lang === "ar" ? `طلبك المعتاد جاهز في السلة 👇\n${items}\n\nافتح الرابط وأكّد:\n${link}` : `Your usual is waiting in the cart 👇\n${items}\n\nOpen and confirm:\n${link}`)
+      : (lang === "ar" ? `ما لقينا طلب سابق بهذا الرقم — المنيو من هنا 👇\n${link}` : `We couldn't find a previous order from this number — the menu 👇\n${link}`),
+      "reorder_link");
+    return true;
+  }
+
+  // ── 5. Menu / booking link ─────────────────────────────────────
   if (cmd === "menu" || cmd === "book") {
     const branch = branches.find((b) => b.isActive) ?? branches[0]!;
     const link = publicUrl(menuPath(org.slug, branch.slug) + (cmd === "book" ? "?book=1" : ""));

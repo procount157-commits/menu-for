@@ -147,6 +147,8 @@ export interface PublicOrderView {
   whatsappLinked: boolean;
   waLink: string | null;
   createdAt: string;
+  /** The order again, as cart lines — for «اطلب نفس الطلب». */
+  reorder: Array<{ itemId: number; qty: number; selections: Array<{ group: string; choices: string[] }>; note?: string }>;
   org: PublicTicket["org"];
   branch: PublicTicket["branch"];
 }

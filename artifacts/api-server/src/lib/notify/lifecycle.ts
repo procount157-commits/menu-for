@@ -12,6 +12,7 @@ import { enqueue } from "./outbox";
 import { renderFor } from "./templates";
 import { publicUrl, menuPath } from "../menu/urls";
 import { menuPlan } from "../plans";
+import { lastOrderOf } from "../orders/service";
 import { logger } from "../logger";
 
 export const REVIEW_DELAY_MS = 2 * 3_600_000;
@@ -76,9 +77,11 @@ export async function runLifecycle(now = new Date()): Promise<{ reviews: number;
       for (const c of regulars) {
         const [b] = c.lastBranchId ? await db.select().from(branchesTable).where(eq(branchesTable.id, c.lastBranchId)).limit(1) : [main];
         const br = b ?? main;
+        // Someone who ordered before is sent back to their usual, ready in the cart.
+        const last = c.ordersCount ? await lastOrderOf(org.id, c.phone) : null;
         const text = await renderFor(org.id, "winback", lang, {
           name: c.name ?? "", shop: lang === "en" ? (org.nameEn || org.name) : org.name,
-          link: publicUrl(menuPath(org.slug, br.slug)),
+          link: publicUrl(menuPath(org.slug, br.slug) + (last ? `?reorder=${last.token}` : "")),
         });
         await db.update(customersTable).set({ winbackAt: now }).where(and(eq(customersTable.orgId, org.id), eq(customersTable.phone, c.phone)));
         // A win-back is marketing: it travels only to a number that agreed.

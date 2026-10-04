@@ -4,7 +4,7 @@
 // and its code. The message arriving is what tells us who ordered; until then
 // the order is `pending` and the kitchen does not see it as real.
 
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { db, ordersTable, branchesTable, orgsTable, notificationsTable, type Order, type Org, type Branch } from "@workspace/db";
 import { priceCart, formatMoney, waMeLink, formatClock, formatDayLabel, localDate, type CartLineInput, type PublicOrderView } from "@workspace/menu-shared";
 import { priceableItems } from "../menu/service";
@@ -118,6 +118,23 @@ async function ctxOf(o: Order) {
   return rows[0] ? { branch: rows[0].b, org: rows[0].org } : null;
 }
 
+/** An order's lines as cart lines again: options grouped back into selections. Pure. */
+export function reorderLines(o: Pick<Order, "items">): PublicOrderView["reorder"] {
+  return o.items.map((l) => {
+    const groups = new Map<string, string[]>();
+    for (const x of l.options ?? []) groups.set(x.group, [...(groups.get(x.group) ?? []), x.choice]);
+    return { itemId: l.itemId, qty: l.qty, selections: [...groups].map(([group, choices]) => ({ group, choices })), ...(l.note ? { note: l.note } : {}) };
+  });
+}
+
+/** The last real order this phone placed at this shop — for «نفس الطلب». */
+export async function lastOrderOf(orgId: number, phone: string): Promise<Order | null> {
+  const [o] = await db.select().from(ordersTable)
+    .where(and(eq(ordersTable.orgId, orgId), eq(ordersTable.phone, phone), sql`${ordersTable.status} NOT IN ('pending', 'cancelled')`))
+    .orderBy(sql`${ordersTable.id} DESC`).limit(1);
+  return o ?? null;
+}
+
 export async function orderView(o: Order): Promise<PublicOrderView | null> {
   const c = await ctxOf(o);
   if (!c) return null;
@@ -129,6 +146,7 @@ export async function orderView(o: Order): Promise<PublicOrderView | null> {
     whatsappLinked: o.phoneVerified,
     waLink: waMeLink(c.branch.waPhone, orderMessage(o, c.org, lang)),
     createdAt: o.createdAt.toISOString(),
+    reorder: reorderLines(o),
     org: { name: c.org.name, nameEn: c.org.nameEn, slug: c.org.slug, logoUrl: c.org.logoUrl, theme: c.org.theme, vertical: c.org.vertical as any, currency: c.org.currency, defaultLang: lang },
     branch: { name: c.branch.name, nameEn: c.branch.nameEn, slug: c.branch.slug, address: c.branch.address, mapUrl: c.branch.mapUrl },
   };

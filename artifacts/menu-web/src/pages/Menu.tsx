@@ -5,13 +5,13 @@
 // hours, location and contacts at the end.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { vocab, type PublicImage, type PublicItem, type PublicMenu, type Selection } from "@workspace/menu-shared";
+import { vocab, type PublicImage, type PublicItem, type PublicMenu, type PublicOrderView, type Selection } from "@workspace/menu-shared";
 import { Hero } from "@/components/Hero";
 import { FeaturedRail, ItemCard, ItemRow, ItemSheet, flyToCart } from "@/components/Items";
 import { CartBar, CartSheet } from "@/components/Cart";
 import { QueueFab, JoinSheet } from "@/components/Queue";
 import { BookingSheet } from "@/components/Booking";
-import { Icon, Img, useReveal } from "@/components/ui";
+import { Icon, Img, toast, useReveal } from "@/components/ui";
 import { addLine, initCart, priced, useCart } from "@/lib/cart";
 import { pick, t, useLang, type Lang } from "@/lib/i18n";
 import { api } from "@/lib/api";
@@ -54,6 +54,25 @@ export default function MenuPage({ initial }: { initial: PublicMenu }) {
     document.addEventListener("visibilitychange", onVis);
     return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onVis); };
   }, [menu.org.slug, menu.branch.slug, menu.branches]);
+
+  // «اطلب نفس الطلب»: ?reorder=<order token> puts that order back in the cart,
+  // at today's prices, leaving out anything no longer available.
+  useEffect(() => {
+    const tok = params.get("reorder");
+    if (!tok) return;
+    history.replaceState(null, "", location.pathname + location.hash);
+    api<PublicOrderView>(`/api/public/orders/${encodeURIComponent(tok)}`).then((o) => {
+      if (o.org.slug !== menu.org.slug) return;
+      const byId = new Map(menu.items.map((i) => [i.id, i]));
+      let added = 0, missing = 0;
+      for (const l of o.reorder ?? []) {
+        if (byId.get(l.itemId)?.available) { addLine(l.itemId, l.qty, l.selections, l.note); added++; } else missing++;
+      }
+      if (added) setCartOpen(true);
+      toast(added ? (missing ? t("reorderSome", lang) : t("reorderDone", lang)) : t("reorderNone", lang));
+    }).catch(() => toast(t("reorderNone", lang)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const open = useCallback((it: PublicItem, el: HTMLElement | null) => { setFrom(el); setItem(it); }, []);
   const quickAdd = useCallback((it: PublicItem, el: HTMLElement) => { addLine(it.id, 1, []); flyToCart(el); navigator.vibrate?.(12); }, []);

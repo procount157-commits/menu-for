@@ -6,6 +6,8 @@ import { createOrder, setOrderStatus } from "../orders/service";
 import { weekWindow, reportDue, formatReport, tipFor, ownerPhone, cleanPrefs, computeWeek, sendReport, runWeeklyReports, type WeekStats } from "../growth/weekly-report";
 import { cleanReviewUrl, reviewStats } from "../growth/reviews";
 import { handleCustomerMessage } from "../notify/inbound";
+import { reorderLines, lastOrderOf, orderView } from "../orders/service";
+import { queueCommand } from "@workspace/menu-shared";
 import { cleanup, makeShop } from "./menu-fixtures";
 
 let pass = 0, total = 0;
@@ -92,6 +94,23 @@ rn = await db.select().from(notificationsTable).where(and(eq(notificationsTable.
 check("with no Google link, a 4 is simply thanked", rn.length === 1 && rn[0]!.kind === "status_reply" && !rn[0]!.text.includes("Google"));
 const rs = await reviewStats(shop.org.id);
 check("the panel counts ratings, the average and who went to Google", rs.rated === 3 && rs.happy === 2 && rs.unhappy === 1 && rs.toGoogle === 1 && rs.avg === 3.7, rs);
+
+// ── 3. «نفس الطلب» ────────────────────────────────────────────────
+check("«نفس الطلب» and its cousins are recognised", ["نفس الطلب", "المعتاد", "طلبي المعتاد؟", "كرر الطلب", "same again", "Reorder"].every((x) => queueCommand(x) === "reorder"));
+check("…and a normal sentence is not", queueCommand("ابي نفس الطلب بس بدون بصل") === null && queueCommand("الطلب وصل") === null);
+const rl = reorderLines({ items: [{ itemId: 7, name: "برجر", qty: 2, unitPrice: 42, options: [{ group: "الحجم", choice: "دبل", priceDelta: 10 }, { group: "إضافات", choice: "جبنة", priceDelta: 3 }, { group: "إضافات", choice: "بطاطا", priceDelta: 7 }], note: "بدون بصل", lineTotal: 104 }] } as any);
+check("an order's lines become cart lines, options grouped back", JSON.stringify(rl) === JSON.stringify([{ itemId: 7, qty: 2, selections: [{ group: "الحجم", choices: ["دبل"] }, { group: "إضافات", choice: undefined, choices: ["جبنة", "بطاطا"] }].map((x: any) => ({ group: x.group, choices: x.choices })), note: "بدون بصل" }]), rl);
+const burger = shop.items[0]!;
+const ro = await createOrder(org0!, shop.branch, { type: "pickup", customerName: "منى", phone: "0500000401", lines: [{ itemId: burger.id, qty: 1, selections: [{ group: "الحجم", choices: ["دبل"] }] }, { itemId: shop.items[1]!.id, qty: 2 }] });
+check("the last order of a phone is found", (await lastOrderOf(shop.org.id, "971500000401"))?.id === ro.id);
+const view = (await orderView(ro))!;
+check("the public order carries its lines for reordering", view.reorder.length === 2 && view.reorder[0]!.itemId === burger.id && view.reorder[0]!.selections[0]!.choices[0] === "دبل");
+await handleCustomerMessage(shop.branch.waUserId, "971500000401", "نفس الطلب");
+let rr = await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.phone, "971500000401"), eq(notificationsTable.kind, "reorder_link")));
+check("on WhatsApp, «نفس الطلب» is answered with a link that refills the cart", rr.length === 1 && rr[0]!.text.includes(`?reorder=${ro.token}`) && rr[0]!.text.includes("2× كنافة"), rr[0]?.text);
+await handleCustomerMessage(shop.branch.waUserId, "971500000499", "المعتاد");
+rr = await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.phone, "971500000499")));
+check("…and a number with no past order gets the menu instead", rr.length === 1 && !rr[0]!.text.includes("reorder=") && rr[0]!.text.includes("ما لقينا"));
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

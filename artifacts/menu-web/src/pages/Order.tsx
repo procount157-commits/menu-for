@@ -84,6 +84,13 @@ export default function OrderPage({ token, initial }: { token: string; initial: 
           </div>
         </section>
 
+        {o.status !== "pending" && o.status !== "cancelled" && o.reorder?.length > 0 && (
+          <button onClick={() => { location.href = `${menuPath}?reorder=${encodeURIComponent(o.token)}`; }}
+            className="mt-4 w-full h-13 py-3.5 rounded-full btn-brand font-semibold flex items-center justify-center gap-2 animate-rise">
+            <Icon name="cart" className="w-5 h-5" />{t("reorder", lang)}
+          </button>
+        )}
+
         <div className="mt-4 grid grid-cols-2 gap-2.5">
           {o.branch.mapUrl && <a href={o.branch.mapUrl} target="_blank" rel="noreferrer" className="btn-ghost h-12 flex items-center justify-center gap-2 text-sm font-semibold"><Icon name="map" className="w-4 h-4" />{t("directions", lang)}</a>}
           <button onClick={() => go(menuPath)} className="btn-ghost h-12 text-sm font-semibold">{t("browseMenu", lang)}</button>

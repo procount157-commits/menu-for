@@ -35,7 +35,7 @@ export function extractCode(text: string): string | null {
 }
 
 /** What a customer can ask in an open thread, without a code. */
-export type QueueCommand = "status" | "leave" | "menu" | "book" | null;
+export type QueueCommand = "status" | "leave" | "menu" | "book" | "reorder" | null;
 
 export function queueCommand(text: string): QueueCommand {
   const t = normaliseDigits(String(text ?? "")).trim().toLowerCase()
@@ -46,5 +46,6 @@ export function queueCommand(text: string): QueueCommand {
   if (/^(الغاء الدور|الغي الدور|اطلع من الصف|انسحب|cancel (my )?(ticket|turn|place)|leave (the )?queue)$/.test(t)) return "leave";
   if (/^(المنيو|منيو|القائمه|menu)$/.test(t)) return "menu";
   if (/^(حجز|احجز|ابي احجز|ابغي احجز|book|booking|reserve)$/.test(t)) return "book";
+  if (/^(نفس الطلب|نفس طلبي|طلبي المعتاد|المعتاد|نفس المره الماضيه|كرر الطلب|كرر طلبي|اطلب نفس الطلب|ابي نفس الطلب|ابغي نفس الطلب|reorder|same again|same order|my usual)$/.test(t)) return "reorder";
   return null;
 }
