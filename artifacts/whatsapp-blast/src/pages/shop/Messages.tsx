@@ -13,6 +13,7 @@ import { get, patch, put, useShop } from "@/lib/shop-api";
 import { Switch } from "@/components/ui/switch";
 import { Btn, Empty, Stat, clock, errText, isPlanError, shortDate } from "@/components/shop/ops/kit";
 import { cn } from "@/lib/utils";
+import { GoogleReviewPanel } from "@/components/shop/GoogleReviewPanel";
 
 interface Tpl { key: string; label: string; marketing: boolean; textAr: string; textEn: string; enabled: boolean; customised: boolean; defaultAr: string; defaultEn: string }
 interface TplResp { templates: Tpl[]; vars: Array<{ key: string; en: string; label: string }>; features: { reviews: boolean; winback: boolean } }
@@ -113,6 +114,8 @@ function Templates() {
           text="لمن غاب 30 يوماً، وفقط لمن وافق بنفسه على استلام العروض."
           on={!!features?.winback} onChange={(v) => toggleFeature("winback", v)} plan={!shop.plan.features.marketing} />
       </div>
+
+      <GoogleReviewPanel />
 
       <div className="grid md:grid-cols-[15rem_minmax(0,1fr)] gap-4">
         <nav className="rounded-xl border border-card-border bg-card p-2 space-y-3 md:max-h-[70vh] md:overflow-y-auto">

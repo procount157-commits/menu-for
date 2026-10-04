@@ -39,7 +39,7 @@ async function orgOfWaUser(waUserId: number): Promise<{ org: Org; branches: Bran
   return { org: rows[0]!.o, branches: rows.map((r) => r.b) };
 }
 
-async function reply(org: Org, waUserId: number, phone: string, text: string | null, kind: "status_reply" | "queue_joined" = "status_reply") {
+async function reply(org: Org, waUserId: number, phone: string, text: string | null, kind: "status_reply" | "queue_joined" | "review_google" | "reorder_link" = "status_reply") {
   await enqueue({ org, waUserId, phone, kind, text });
 }
 
@@ -114,10 +114,16 @@ export async function handleCustomerMessage(waUserId: number, phone: string, tex
       const rating = Number(digit[1]);
       await touchCustomer(org.id, phone, { rating });
       await db.update(customersTable).set({ reviewAskedAt: null }).where(and(eq(customersTable.orgId, org.id), eq(customersTable.phone, phone)));
-      const thanks = rating >= 4
+      // A happy customer is asked for the one review that brings new ones —
+      // on Google. An unhappy one is never sent there: their note goes to the owner.
+      const google = rating >= 4 ? org.googleReviewUrl : null;
+      const thanks = google
+        ? (lang === "ar" ? `شكراً على تقييمك 🙏 لو عندك دقيقة، تقييمك على Google يساعد ناس جدد يعرفونا:\n${google}` : `Thank you 🙏 If you have a minute, a review on Google helps new people find us:\n${google}`)
+        : rating >= 4
         ? (lang === "ar" ? "شكراً على تقييمك 🙏 يسعدنا نشوفك مرة ثانية." : "Thank you 🙏 We'd love to see you again.")
         : (lang === "ar" ? "شكراً على صراحتك 🙏 وصلت ملاحظتك لصاحب المحل، وإذا حاب تخبرنا أكثر اكتب لنا هنا." : "Thank you for telling us 🙏 The owner has your note — reply here if you'd like to tell us more.");
-      await reply(org, waUserId, phone, thanks);
+      await reply(org, waUserId, phone, thanks, google ? "review_google" : "status_reply");
+      if (google) await db.update(customersTable).set({ googleInvitedAt: new Date() }).where(and(eq(customersTable.orgId, org.id), eq(customersTable.phone, phone)));
       if (rating <= 3) {
         const { notify } = await import("../telegram");
         void notify(org.ownerUserId, `⚠️ تقييم ${rating}/5 من ${phone} — ${org.name}`).catch(() => {});

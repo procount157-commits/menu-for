@@ -75,7 +75,7 @@ export interface Enqueue {
   org: Pick<Org, "id" | "ownerUserId">;
   waUserId: number;
   phone: string | null | undefined;
-  kind: TemplateKey | AlertKind;
+  kind: TemplateKey | AlertKind | ExtraKind;
   text: string | null;
   refType?: "ticket" | "order" | "booking" | "customer";
   refId?: number;
@@ -89,6 +89,8 @@ export interface Enqueue {
 
 /** Messages to the shop's own phones, not to customers. */
 export type AlertKind = "alert_order" | "alert_booking" | "alert_rating" | "alert_campaign" | "owner_report";
+/** Messages to customers that are not owner-editable templates. */
+export type ExtraKind = "review_google" | "reorder_link" | "gift_card" | "birthday" | "referral_reward";
 
 export type Lane = "replied" | "consented" | null;
 

@@ -28,7 +28,7 @@ export interface WeekStats {
   topItem: { name: string; qty: number } | null;
   sent: number; read: number;
   avgRating: number | null;
-  reviewsOn: boolean; autopilotOn: boolean;
+  reviewsOn: boolean; autopilotOn: boolean; googleOn: boolean;
 }
 
 /** The seven service days that ended this morning: [today-7, today), each starting 04:00 local. */
@@ -88,7 +88,7 @@ export async function computeWeek(org: Org, now = new Date()): Promise<WeekStats
     topItem: top?.name ? { name: top.name, qty: top.qty } : null,
     sent: m?.sent ?? 0, read: m?.read ?? 0,
     avgRating: c?.avgRating ?? null,
-    reviewsOn: !!org.features?.reviews, autopilotOn: !!ap,
+    reviewsOn: !!org.features?.reviews, autopilotOn: !!ap, googleOn: !!org.googleReviewUrl,
   };
 }
 
@@ -106,6 +106,7 @@ export function tipFor(s: WeekStats): string | null {
   if (s.abandoned >= 3) return `${s.abandoned} طلبات بدأها زبائن ولم تكتمل على واتساب — شجّعهم يكتبون رقمهم في السلة، فيتأكد الطلب فوراً.`;
   if (s.left + s.noShows >= 5) return `${s.left + s.noShows} زبائن خرجوا من الصف أو لم يحضروا — اطلب منهم كتابة رقم واتساب عند أخذ الدور، فتصلهم «قرّب دورك».`;
   if (!s.reviewsOn && s.served + s.orders >= 10) return "فعّل «طلب التقييم بعد الزيارة» من «رسائل واتساب» — من يعطي 4 أو 5 نوجّهه لتقييمك على Google.";
+  if (s.reviewsOn && !s.googleOn) return "أضف رابط تقييمك على Google في «رسائل واتساب» — من يعطيك 4 أو 5 نرسله ليقيّمك هناك، فيراك زبائن جدد في الخرائط.";
   if (!s.autopilotOn && s.optedIn >= 15) return `${s.optedIn} زبوناً وافقوا على العروض — فعّل «الحملة الأسبوعية» في «واتساب الآلي» ليصلهم عرضك كل أسبوع.`;
   if (s.bookingNoShows >= 2) return `${s.bookingNoShows} حجوزات لم يحضر أصحابها — التذكير قبل الموعد يصل فقط لمن كتب رقمه.`;
   return null;

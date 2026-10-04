@@ -4,6 +4,8 @@ import { and, eq } from "drizzle-orm";
 import { db, notificationsTable, ownerReportsTable, branchesTable, usersTable, customersTable, orgsTable } from "@workspace/db";
 import { createOrder, setOrderStatus } from "../orders/service";
 import { weekWindow, reportDue, formatReport, tipFor, ownerPhone, cleanPrefs, computeWeek, sendReport, runWeeklyReports, type WeekStats } from "../growth/weekly-report";
+import { cleanReviewUrl, reviewStats } from "../growth/reviews";
+import { handleCustomerMessage } from "../notify/inbound";
 import { cleanup, makeShop } from "./menu-fixtures";
 
 let pass = 0, total = 0;
@@ -23,7 +25,7 @@ check("the owner's phone in any local form becomes international", ownerPhone("0
 const base: WeekStats = {
   from: "2026-09-27", to: "2026-10-03", orders: 42, revenue: 3150, prevOrders: 34, prevRevenue: 2500, abandoned: 0,
   newCustomers: 12, returning: 18, optedIn: 5, joined: 110, served: 96, left: 7, noShows: 3, avgWait: 14,
-  bookings: 14, bookingNoShows: 1, topItem: { name: "كنافة نابلسية", qty: 31 }, sent: 210, read: 164, avgRating: 4.6, reviewsOn: true, autopilotOn: false,
+  bookings: 14, bookingNoShows: 1, topItem: { name: "كنافة نابلسية", qty: 31 }, sent: 210, read: 164, avgRating: 4.6, reviewsOn: true, autopilotOn: false, googleOn: true,
 };
 const o = { shop: "بيت الشامي", currency: "AED", vertical: "restaurant", reportsUrl: "https://x.test/reports", menuUrl: "https://x.test/m" };
 const txt = formatReport(base, o);
@@ -38,6 +40,7 @@ check("a quiet week says so and offers the menu link", quiet.includes("أسبو�
 check("the tip points at abandoned orders first", /لم تكتمل/.test(tipFor({ ...base, abandoned: 4 }) ?? ""));
 check("…then at people the queue lost", /قرّب دورك/.test(tipFor(base) ?? ""));
 check("…then at turning on reviews", /التقييم/.test(tipFor({ ...base, left: 0, noShows: 0, reviewsOn: false }) ?? ""));
+check("…then at adding the Google link when reviews are on", /Google/.test(tipFor({ ...base, left: 0, noShows: 0, googleOn: false }) ?? ""));
 check("…then at the weekly campaign", /الحملة الأسبوعية/.test(tipFor({ ...base, left: 0, noShows: 0, optedIn: 30 }) ?? ""));
 
 await cleanup("g");
@@ -62,6 +65,33 @@ r = await sendReport(org0!, { manual: true, now: new Date(Date.now() + 7 * 24 * 
 check("…but «أرسله لي الآن» always sends", r.ok && r.to.length === 1);
 await db.update(orgsTable).set({ reportPrefs: { enabled: false, weekday: 0, hour: 10 } }).where(eq(orgsTable.id, shop.org.id));
 check("a shop that switched it off is skipped by the clock", (await runWeeklyReports(SUN)) >= 0 && (await db.select().from(ownerReportsTable).where(and(eq(ownerReportsTable.orgId, shop.org.id), eq(ownerReportsTable.weekStart, w.from)))).length === 0);
+
+// ── 2. Google reviews ─────────────────────────────────────────────
+check("a Google review link is accepted and made https", cleanReviewUrl("g.page/r/CabcXYZ/review") === "https://g.page/r/CabcXYZ/review");
+check("…and a Maps share link", cleanReviewUrl("https://maps.app.goo.gl/AbC123") === "https://maps.app.goo.gl/AbC123");
+check("anything that is not Google is refused", cleanReviewUrl("https://evil.example/google.com") === null && cleanReviewUrl("https://google.com.evil.io/x") === null && cleanReviewUrl("not a url") === null);
+await db.update(orgsTable).set({ googleReviewUrl: "https://g.page/r/test/review", features: { reviews: true } }).where(eq(orgsTable.id, shop.org.id));
+const asked = (phone: string) => db.insert(customersTable).values({ orgId: shop.org.id, phone, name: "x", reviewAskedAt: new Date() })
+  .onConflictDoUpdate({ target: [customersTable.orgId, customersTable.phone], set: { reviewAskedAt: new Date() } });
+await asked("971500000301");
+check("a rating is ours", await handleCustomerMessage(shop.branch.waUserId, "971500000301", "5"));
+let rn = await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.phone, "971500000301")));
+check("a 5 is answered with the Google review link", rn.length === 1 && rn[0]!.kind === "review_google" && rn[0]!.text.includes("https://g.page/r/test/review"), rn[0]?.text);
+const [c5] = await db.select().from(customersTable).where(and(eq(customersTable.orgId, shop.org.id), eq(customersTable.phone, "971500000301")));
+check("…and the customer is marked as invited, with when they rated", !!c5?.googleInvitedAt && !!c5.ratedAt && c5.ratingLast === 5);
+await asked("971500000302");
+await handleCustomerMessage(shop.branch.waUserId, "971500000302", "2");
+rn = await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.phone, "971500000302")));
+check("a 2 is never sent to Google", rn.length === 1 && !rn[0]!.text.includes("g.page") && rn[0]!.kind === "status_reply", rn[0]?.text);
+const alerts = await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.kind, "alert_rating")));
+check("…it reaches the owner's phone instead", alerts.length === 1 && alerts[0]!.text.includes("2/5"));
+await db.update(orgsTable).set({ googleReviewUrl: null }).where(eq(orgsTable.id, shop.org.id));
+await asked("971500000303");
+await handleCustomerMessage(shop.branch.waUserId, "971500000303", "4");
+rn = await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.phone, "971500000303")));
+check("with no Google link, a 4 is simply thanked", rn.length === 1 && rn[0]!.kind === "status_reply" && !rn[0]!.text.includes("Google"));
+const rs = await reviewStats(shop.org.id);
+check("the panel counts ratings, the average and who went to Google", rs.rated === 3 && rs.happy === 2 && rs.unhappy === 1 && rs.toGoogle === 1 && rs.avg === 3.7, rs);
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

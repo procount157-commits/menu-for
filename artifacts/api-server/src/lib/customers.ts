@@ -48,6 +48,7 @@ export async function touchCustomer(orgId: number, phone: string | null | undefi
     optInAt: t.optIn ? now : null,
     lastBranchId: t.branchId ?? null,
     ratingLast: t.rating ?? null,
+    ratedAt: t.rating ? now : null,
   }).onConflictDoUpdate({
     target: [customersTable.orgId, customersTable.phone],
     set: {
@@ -71,7 +72,7 @@ export async function touchCustomer(orgId: number, phone: string | null | undefi
       // Agreeing is remembered; not ticking the box another time does not withdraw it.
       ...(t.optIn ? { marketingOptIn: true, optInAt: now } : {}),
       ...(t.branchId ? { lastBranchId: t.branchId } : {}),
-      ...(t.rating ? { ratingLast: t.rating } : {}),
+      ...(t.rating ? { ratingLast: t.rating, ratedAt: now } : {}),
     },
   });
 }

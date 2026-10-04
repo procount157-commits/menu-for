@@ -35,6 +35,8 @@ export const orgsTable = pgTable("orgs", {
   // Super-admin switches on top of the plan: { email: true, ... }
   features:    jsonb("features").$type<Record<string, boolean>>().notNull().default({}),
   // The weekly report to the owner's phone: on by default, Sunday 10:00 local.
+  // The shop's «write a review» link on Google; a 4–5 rating is pointed there.
+  googleReviewUrl: text("google_review_url"),
   reportPrefs: jsonb("report_prefs").$type<{ enabled: boolean; weekday: number; hour: number }>().notNull().default({ enabled: true, weekday: 0, hour: 10 }),
   status:      varchar("status", { length: 20 }).notNull().default("active"),
   onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
@@ -352,6 +354,8 @@ export const customersTable = pgTable("customers", {
   optInAt:        timestamp("opt_in_at", { withTimezone: true }),
   lastBranchId:   integer("last_branch_id"),
   ratingLast:     integer("rating_last"),
+  ratedAt:        timestamp("rated_at", { withTimezone: true }),
+  googleInvitedAt: timestamp("google_invited_at", { withTimezone: true }),
   reviewAskedAt:  timestamp("review_asked_at", { withTimezone: true }),
   winbackAt:      timestamp("winback_at", { withTimezone: true }),
 }, (t) => [

@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { db, orgsTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
 import { withTenant, OWNER } from "../lib/tenancy/context";
+import { cleanReviewUrl, reviewStats } from "../lib/growth/reviews";
 import { buildReport, sendReport, recentReports, cleanPrefs, recipients, DEFAULT_PREFS } from "../lib/growth/weekly-report";
 
 const router = Router();
@@ -32,6 +33,20 @@ router.post("/growth/report/send", requireAuth, withTenant(OWNER, async (_req, r
   if (!r.ok) return res.status(409).json({ error: r.reason });
   if (!r.to.length) return res.status(400).json({ error: "لا يوجد رقم يصله التقرير — أضف رقمك في «تنبيهات المحل» في «واتساب الآلي»." });
   res.json({ ok: true, to: r.to });
+}));
+
+// ── Google reviews ────────────────────────────────────────────────
+
+router.get("/growth/reviews", requireAuth, withTenant(OWNER, async (_req, res, t) => {
+  res.json({ url: t.org.googleReviewUrl, enabled: !!t.org.features?.reviews, stats: await reviewStats(t.org.id) });
+}));
+
+router.patch("/growth/reviews", requireAuth, withTenant(OWNER, async (req, res, t) => {
+  const raw = String(req.body?.url ?? "").trim();
+  const url = raw ? cleanReviewUrl(raw) : null;
+  if (raw && !url) return res.status(400).json({ error: "هذا ليس رابط Google — انسخ رابط «اطلب تقييمات» من ملفك التجاري على Google." });
+  await db.update(orgsTable).set({ googleReviewUrl: url }).where(eq(orgsTable.id, t.org.id));
+  res.json({ url });
 }));
 
 export default router;
