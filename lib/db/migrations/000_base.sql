@@ -942,7 +942,11 @@ CREATE TABLE public.customers (
     birth_month smallint,
     birth_day smallint,
     birthday_sent_year integer,
-    referral_code character varying(12)
+    referral_code character varying(12),
+    stamps integer DEFAULT 0 NOT NULL,
+    stamps_total integer DEFAULT 0 NOT NULL,
+    last_stamp_day date,
+    loyalty_rewards integer DEFAULT 0 NOT NULL
 );
 
 
@@ -2249,7 +2253,8 @@ CREATE TABLE public.menu_stats_daily (
     item_id integer DEFAULT 0 NOT NULL,
     views integer DEFAULT 0 NOT NULL,
     adds integer DEFAULT 0 NOT NULL,
-    carts integer DEFAULT 0 NOT NULL
+    carts integer DEFAULT 0 NOT NULL,
+    upsells integer DEFAULT 0 NOT NULL
 );
 
 
