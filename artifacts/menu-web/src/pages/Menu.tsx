@@ -65,6 +65,16 @@ export default function MenuPage({ initial }: { initial: PublicMenu }) {
     } catch { return r; }
   });
 
+  // The banner only promises a gift the code really gives; a stale code is forgotten.
+  const [refOk, setRefOk] = useState(false);
+  useEffect(() => {
+    if (!refCode || !menu.referral) return;
+    api<{ ok: boolean }>(`/api/public/referral/${menu.org.slug}/${refCode}`).then((r) => {
+      setRefOk(r.ok);
+      if (!r.ok) { try { localStorage.removeItem(`mfy:${menu.org.slug}:ref`); } catch { /* ignore */ } }
+    }).catch(() => {});
+  }, [refCode, menu.referral, menu.org.slug]);
+
   // «اطلب نفس الطلب»: ?reorder=<order token> puts that order back in the cart,
   // at today's prices, leaving out anything no longer available.
   useEffect(() => {
@@ -146,7 +156,7 @@ export default function MenuPage({ initial }: { initial: PublicMenu }) {
         </div>
       )}
 
-      {!q && menu.referral && refCode && (
+      {!q && menu.referral && refOk && (
         <div className="px-4 mt-4"><div className="rounded-2xl px-4 py-3 text-sm font-semibold animate-rise" style={{ background: "var(--brand-soft)", border: "1px solid color-mix(in srgb, var(--brand) 35%, transparent)" }}>
           {t("refBanner", lang).replace("{pct}", String(menu.referral.friendPct))}
         </div></div>

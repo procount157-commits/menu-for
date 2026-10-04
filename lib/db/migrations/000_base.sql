@@ -878,6 +878,43 @@ ALTER SEQUENCE public.coupons_id_seq OWNED BY public.coupons.id;
 
 
 --
+-- Name: customer_referrals; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.customer_referrals (
+    id integer NOT NULL,
+    org_id integer NOT NULL,
+    referrer_phone character varying(40) NOT NULL,
+    friend_phone character varying(40) NOT NULL,
+    order_id integer,
+    status character varying(10) DEFAULT 'pending'::character varying NOT NULL,
+    reward_deal_id integer,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    rewarded_at timestamp with time zone
+);
+
+
+--
+-- Name: customer_referrals_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.customer_referrals_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: customer_referrals_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.customer_referrals_id_seq OWNED BY public.customer_referrals.id;
+
+
+--
 -- Name: customers; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -899,7 +936,13 @@ CREATE TABLE public.customers (
     last_branch_id integer,
     rating_last integer,
     review_asked_at timestamp with time zone,
-    winback_at timestamp with time zone
+    winback_at timestamp with time zone,
+    rated_at timestamp with time zone,
+    google_invited_at timestamp with time zone,
+    birth_month smallint,
+    birth_day smallint,
+    birthday_sent_year integer,
+    referral_code character varying(12)
 );
 
 
@@ -1662,6 +1705,84 @@ ALTER SEQUENCE public.followup_deliberations_id_seq OWNED BY public.followup_del
 
 
 --
+-- Name: gift_card_uses; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.gift_card_uses (
+    id integer NOT NULL,
+    gift_card_id integer NOT NULL,
+    amount numeric(10,2) NOT NULL,
+    order_id integer,
+    note character varying(200),
+    by_who character varying(80),
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: gift_card_uses_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.gift_card_uses_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: gift_card_uses_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.gift_card_uses_id_seq OWNED BY public.gift_card_uses.id;
+
+
+--
+-- Name: gift_cards; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.gift_cards (
+    id integer NOT NULL,
+    org_id integer NOT NULL,
+    code character varying(24) NOT NULL,
+    token character varying(32) NOT NULL,
+    amount numeric(10,2) NOT NULL,
+    balance numeric(10,2) NOT NULL,
+    buyer_name character varying(80),
+    buyer_phone character varying(40),
+    recipient_name character varying(80),
+    recipient_phone character varying(40),
+    message text,
+    status character varying(10) DEFAULT 'active'::character varying NOT NULL,
+    expires_at timestamp with time zone,
+    created_by character varying(80),
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: gift_cards_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.gift_cards_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: gift_cards_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.gift_cards_id_seq OWNED BY public.gift_cards.id;
+
+
+--
 -- Name: incoming_messages; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2118,6 +2239,21 @@ ALTER SEQUENCE public.menu_items_id_seq OWNED BY public.menu_items.id;
 
 
 --
+-- Name: menu_stats_daily; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.menu_stats_daily (
+    org_id integer NOT NULL,
+    branch_id integer NOT NULL,
+    day date NOT NULL,
+    item_id integer DEFAULT 0 NOT NULL,
+    views integer DEFAULT 0 NOT NULL,
+    adds integer DEFAULT 0 NOT NULL,
+    carts integer DEFAULT 0 NOT NULL
+);
+
+
+--
 -- Name: message_logs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2355,7 +2491,12 @@ CREATE TABLE public.orders (
     ticket_id integer,
     marketing_opt_in boolean DEFAULT false NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    discount numeric(10,2) DEFAULT 0 NOT NULL,
+    deal_id integer,
+    deal_title character varying(80),
+    gift_card_id integer,
+    gift_amount numeric(10,2) DEFAULT 0 NOT NULL
 );
 
 
@@ -2403,7 +2544,13 @@ CREATE TABLE public.orgs (
     features jsonb DEFAULT '{}'::jsonb NOT NULL,
     status character varying(20) DEFAULT 'active'::character varying NOT NULL,
     onboarded_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    report_prefs jsonb DEFAULT '{"hour": 10, "enabled": true, "weekday": 0}'::jsonb NOT NULL,
+    google_review_url text,
+    growth_prefs jsonb DEFAULT '{}'::jsonb NOT NULL,
+    referral_code character varying(12),
+    referred_by_org_id integer,
+    referral_rewarded_at timestamp with time zone
 );
 
 
@@ -2425,6 +2572,42 @@ CREATE SEQUENCE public.orgs_id_seq
 --
 
 ALTER SEQUENCE public.orgs_id_seq OWNED BY public.orgs.id;
+
+
+--
+-- Name: owner_reports; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.owner_reports (
+    id integer NOT NULL,
+    org_id integer NOT NULL,
+    week_start date NOT NULL,
+    stats jsonb NOT NULL,
+    text text NOT NULL,
+    sent_to jsonb DEFAULT '[]'::jsonb NOT NULL,
+    manual character varying(10),
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: owner_reports_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.owner_reports_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: owner_reports_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.owner_reports_id_seq OWNED BY public.owner_reports.id;
 
 
 --
@@ -2580,6 +2763,55 @@ ALTER SEQUENCE public.queues_id_seq OWNED BY public.queues.id;
 
 
 --
+-- Name: shop_deals; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.shop_deals (
+    id integer NOT NULL,
+    org_id integer NOT NULL,
+    branch_id integer,
+    code character varying(24),
+    title character varying(80) NOT NULL,
+    kind character varying(8) DEFAULT 'pct'::character varying NOT NULL,
+    value numeric(10,2) NOT NULL,
+    min_subtotal numeric(10,2) DEFAULT 0 NOT NULL,
+    max_discount numeric(10,2),
+    days integer[] DEFAULT '{}'::integer[] NOT NULL,
+    from_time character varying(5),
+    to_time character varying(5),
+    starts_at timestamp with time zone,
+    ends_at timestamp with time zone,
+    max_uses integer,
+    uses integer DEFAULT 0 NOT NULL,
+    once_per_phone boolean DEFAULT false NOT NULL,
+    phone character varying(40),
+    source character varying(12) DEFAULT 'owner'::character varying NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: shop_deals_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.shop_deals_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: shop_deals_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.shop_deals_id_seq OWNED BY public.shop_deals.id;
+
+
+--
 -- Name: staff; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2631,7 +2863,8 @@ CREATE TABLE public.subscription_leads (
     notes text,
     source character varying(40) DEFAULT 'landing'::character varying NOT NULL,
     status character varying(20) DEFAULT 'new'::character varying NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    referral_code character varying(12)
 );
 
 
@@ -3174,6 +3407,13 @@ ALTER TABLE ONLY public.coupons ALTER COLUMN id SET DEFAULT nextval('public.coup
 
 
 --
+-- Name: customer_referrals id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_referrals ALTER COLUMN id SET DEFAULT nextval('public.customer_referrals_id_seq'::regclass);
+
+
+--
 -- Name: email_agent_activity id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3290,6 +3530,20 @@ ALTER TABLE ONLY public.follow_up_sequences ALTER COLUMN id SET DEFAULT nextval(
 --
 
 ALTER TABLE ONLY public.followup_deliberations ALTER COLUMN id SET DEFAULT nextval('public.followup_deliberations_id_seq'::regclass);
+
+
+--
+-- Name: gift_card_uses id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.gift_card_uses ALTER COLUMN id SET DEFAULT nextval('public.gift_card_uses_id_seq'::regclass);
+
+
+--
+-- Name: gift_cards id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.gift_cards ALTER COLUMN id SET DEFAULT nextval('public.gift_cards_id_seq'::regclass);
 
 
 --
@@ -3412,6 +3666,13 @@ ALTER TABLE ONLY public.orgs ALTER COLUMN id SET DEFAULT nextval('public.orgs_id
 
 
 --
+-- Name: owner_reports id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.owner_reports ALTER COLUMN id SET DEFAULT nextval('public.owner_reports_id_seq'::regclass);
+
+
+--
 -- Name: queue_events id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3430,6 +3691,13 @@ ALTER TABLE ONLY public.queue_tickets ALTER COLUMN id SET DEFAULT nextval('publi
 --
 
 ALTER TABLE ONLY public.queues ALTER COLUMN id SET DEFAULT nextval('public.queues_id_seq'::regclass);
+
+
+--
+-- Name: shop_deals id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shop_deals ALTER COLUMN id SET DEFAULT nextval('public.shop_deals_id_seq'::regclass);
 
 
 --
@@ -3728,6 +3996,14 @@ ALTER TABLE ONLY public.coupons
 
 
 --
+-- Name: customer_referrals customer_referrals_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_referrals
+    ADD CONSTRAINT customer_referrals_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: customers customers_org_id_phone_pk; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3912,6 +4188,30 @@ ALTER TABLE ONLY public.followup_deliberations
 
 
 --
+-- Name: gift_card_uses gift_card_uses_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.gift_card_uses
+    ADD CONSTRAINT gift_card_uses_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: gift_cards gift_cards_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.gift_cards
+    ADD CONSTRAINT gift_cards_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: gift_cards gift_cards_token_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.gift_cards
+    ADD CONSTRAINT gift_cards_token_key UNIQUE (token);
+
+
+--
 -- Name: incoming_messages incoming_messages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4024,6 +4324,14 @@ ALTER TABLE ONLY public.menu_items
 
 
 --
+-- Name: menu_stats_daily menu_stats_daily_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.menu_stats_daily
+    ADD CONSTRAINT menu_stats_daily_pkey PRIMARY KEY (org_id, branch_id, day, item_id);
+
+
+--
 -- Name: message_logs message_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4112,6 +4420,14 @@ ALTER TABLE ONLY public.orgs
 
 
 --
+-- Name: owner_reports owner_reports_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.owner_reports
+    ADD CONSTRAINT owner_reports_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: queue_counters queue_counters_queue_id_service_day_pk; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4157,6 +4473,14 @@ ALTER TABLE ONLY public.queues
 
 ALTER TABLE ONLY public.user_sessions
     ADD CONSTRAINT session_pkey PRIMARY KEY (sid);
+
+
+--
+-- Name: shop_deals shop_deals_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shop_deals
+    ADD CONSTRAINT shop_deals_pkey PRIMARY KEY (id);
 
 
 --
@@ -4415,6 +4739,13 @@ CREATE INDEX idx_branch_wa_user ON public.branches USING btree (wa_user_id);
 
 
 --
+-- Name: idx_customers_birthday; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_customers_birthday ON public.customers USING btree (org_id, birth_month, birth_day) WHERE (birth_month IS NOT NULL);
+
+
+--
 -- Name: idx_customers_seen; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4541,6 +4872,13 @@ CREATE UNIQUE INDEX idx_follow_up_jobs_unique ON public.follow_up_jobs USING btr
 
 
 --
+-- Name: idx_gift_card_uses; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_gift_card_uses ON public.gift_card_uses USING btree (gift_card_id, created_at);
+
+
+--
 -- Name: idx_handoffs_user; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4632,6 +4970,13 @@ CREATE INDEX idx_menu_item_org ON public.menu_items USING btree (org_id, categor
 
 
 --
+-- Name: idx_menu_stats_org_day; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_menu_stats_org_day ON public.menu_stats_daily USING btree (org_id, day);
+
+
+--
 -- Name: idx_monitor_reports_user; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4688,6 +5033,13 @@ CREATE INDEX idx_orders_code ON public.orders USING btree (code);
 
 
 --
+-- Name: idx_owner_reports_org; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_owner_reports_org ON public.owner_reports USING btree (org_id, created_at DESC);
+
+
+--
 -- Name: idx_proposals; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4706,6 +5058,13 @@ CREATE INDEX idx_queue_branch ON public.queues USING btree (branch_id);
 --
 
 CREATE INDEX idx_queue_events ON public.queue_events USING btree (queue_id, at);
+
+
+--
+-- Name: idx_referrals_referrer; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_referrals_referrer ON public.customer_referrals USING btree (org_id, referrer_phone);
 
 
 --
@@ -4734,6 +5093,13 @@ CREATE UNIQUE INDEX idx_segment_current ON public.contact_segments USING btree (
 --
 
 CREATE INDEX idx_segment_score ON public.contact_segments USING btree (user_id, segment, score);
+
+
+--
+-- Name: idx_shop_deals_org; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_shop_deals_org ON public.shop_deals USING btree (org_id, is_active);
 
 
 --
@@ -4807,10 +5173,52 @@ CREATE UNIQUE INDEX uq_contacts_group_phone ON public.contacts USING btree (grou
 
 
 --
+-- Name: uq_customer_referral_code; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_customer_referral_code ON public.customers USING btree (org_id, referral_code) WHERE (referral_code IS NOT NULL);
+
+
+--
 -- Name: uq_email_lists_stage; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX uq_email_lists_stage ON public.email_lists USING btree (parent_list_id, stage) WHERE (parent_list_id IS NOT NULL);
+
+
+--
+-- Name: uq_gift_card_code; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_gift_card_code ON public.gift_cards USING btree (org_id, code);
+
+
+--
+-- Name: uq_org_referral_code; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_org_referral_code ON public.orgs USING btree (referral_code) WHERE (referral_code IS NOT NULL);
+
+
+--
+-- Name: uq_owner_report_week; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_owner_report_week ON public.owner_reports USING btree (org_id, week_start) WHERE (manual IS NULL);
+
+
+--
+-- Name: uq_referral_friend; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_referral_friend ON public.customer_referrals USING btree (org_id, friend_phone);
+
+
+--
+-- Name: uq_shop_deal_code; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_shop_deal_code ON public.shop_deals USING btree (org_id, code) WHERE (code IS NOT NULL);
 
 
 --
@@ -5131,6 +5539,14 @@ ALTER TABLE ONLY public.coupons
 
 
 --
+-- Name: customer_referrals customer_referrals_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_referrals
+    ADD CONSTRAINT customer_referrals_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: customers customers_org_id_orgs_id_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5387,6 +5803,22 @@ ALTER TABLE ONLY public.followup_deliberations
 
 
 --
+-- Name: gift_card_uses gift_card_uses_gift_card_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.gift_card_uses
+    ADD CONSTRAINT gift_card_uses_gift_card_id_fkey FOREIGN KEY (gift_card_id) REFERENCES public.gift_cards(id) ON DELETE CASCADE;
+
+
+--
+-- Name: gift_cards gift_cards_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.gift_cards
+    ADD CONSTRAINT gift_cards_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: incoming_messages incoming_messages_user_id_users_id_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5499,6 +5931,22 @@ ALTER TABLE ONLY public.menu_items
 
 
 --
+-- Name: menu_stats_daily menu_stats_daily_branch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.menu_stats_daily
+    ADD CONSTRAINT menu_stats_daily_branch_id_fkey FOREIGN KEY (branch_id) REFERENCES public.branches(id) ON DELETE CASCADE;
+
+
+--
+-- Name: menu_stats_daily menu_stats_daily_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.menu_stats_daily
+    ADD CONSTRAINT menu_stats_daily_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: message_logs message_logs_campaign_id_campaigns_id_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5587,6 +6035,22 @@ ALTER TABLE ONLY public.orgs
 
 
 --
+-- Name: orgs orgs_referred_by_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.orgs
+    ADD CONSTRAINT orgs_referred_by_org_id_fkey FOREIGN KEY (referred_by_org_id) REFERENCES public.orgs(id) ON DELETE SET NULL;
+
+
+--
+-- Name: owner_reports owner_reports_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.owner_reports
+    ADD CONSTRAINT owner_reports_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: queue_counters queue_counters_queue_id_queues_id_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5656,6 +6120,22 @@ ALTER TABLE ONLY public.queues
 
 ALTER TABLE ONLY public.queues
     ADD CONSTRAINT queues_org_id_orgs_id_fk FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: shop_deals shop_deals_branch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shop_deals
+    ADD CONSTRAINT shop_deals_branch_id_fkey FOREIGN KEY (branch_id) REFERENCES public.branches(id) ON DELETE CASCADE;
+
+
+--
+-- Name: shop_deals shop_deals_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shop_deals
+    ADD CONSTRAINT shop_deals_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
 
 
 --

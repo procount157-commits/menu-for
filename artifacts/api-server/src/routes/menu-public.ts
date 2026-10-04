@@ -4,7 +4,7 @@
 import { Router, type Request, type Response } from "express";
 import crypto from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, isNull, lte, or, gt } from "drizzle-orm";
-import { db, branchesTable, orgsTable, queuesTable, offersTable, queueTicketsTable, menuItemsTable, type Org, type Branch } from "@workspace/db";
+import { db, branchesTable, orgsTable, queuesTable, offersTable, queueTicketsTable, menuItemsTable, customersTable, type Org, type Branch } from "@workspace/db";
 import { waMeLink, localDate, type PublicDisplay } from "@workspace/menu-shared";
 import { orgBySlug, branchFor, publicMenu } from "../lib/menu/service";
 import {
@@ -16,6 +16,7 @@ import { normalisePhone } from "../lib/customers";
 import { resolveDeal } from "../lib/growth/deals";
 import { giftByCode, giftProblem, giftView } from "../lib/growth/gifts";
 import { validBirthday, saveBirthday } from "../lib/growth/birthday";
+import { referralOn, normaliseRef } from "../lib/growth/referrals";
 import { fold, record } from "../lib/growth/menu-stats";
 import { stream } from "../lib/realtime";
 import { limit } from "../lib/rate-limit";
@@ -198,6 +199,15 @@ router.post("/birthday", limit("birthday", 10, 10 * 60_000), async (req, res) =>
   if (!rec?.phone) return res.status(404).json({ error: "غير موجود" });
   await saveBirthday(rec.orgId, rec.phone, date.month, date.day);
   res.json({ ok: true });
+});
+
+/** Whether a «ادعُ صديقاً» code is real, so the menu does not promise a gift that is not there. */
+router.get("/referral/:slug/:code", limit("refcheck", 60, 60_000), async (req, res) => {
+  const s = await shop(String(req.params.slug));
+  if (!s || !referralOn(s.org)) return res.json({ ok: false });
+  const [c] = await db.select({ p: customersTable.phone }).from(customersTable)
+    .where(and(eq(customersTable.orgId, s.org.id), eq(customersTable.referralCode, normaliseRef(req.params.code)))).limit(1);
+  res.json({ ok: !!c });
 });
 
 router.get("/gifts/:token", limit("ticket", 600, 60_000), async (req, res) => {
