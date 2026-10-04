@@ -10,18 +10,19 @@ const VALID_STATUSES = ["new", "contacted", "negotiating", "converted", "lost"] 
 // ── Public: submit a lead ─────────────────────────────────────────
 // POST /api/leads — called from the landing page subscription modal
 router.post("/", async (req, res) => {
-  const { name, phone, planName, businessType, estimatedCustomers, notes, source } = req.body;
+  const { name, phone, planName, businessType, estimatedCustomers, notes, source, referralCode } = req.body;
 
   // minimal validation — phone is required
   if (!phone) return res.status(400).json({ error: "Phone is required" });
 
   const { rows } = await pool.query(
     `INSERT INTO subscription_leads
-       (name, phone, plan_name, business_type, estimated_customers, notes, source, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'new')
+       (name, phone, plan_name, business_type, estimated_customers, notes, source, status, referral_code)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'new',$8)
      RETURNING id`,
     [name || null, phone, planName || null, businessType || null,
-     estimatedCustomers || null, notes || null, source || "landing"]
+     estimatedCustomers || null, notes || null, source || "landing",
+     String(referralCode ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12) || null]
   );
   logger.info({ leadId: rows[0].id, phone, planName }, "New subscription lead captured");
   res.status(201).json({ success: true, id: rows[0].id });

@@ -88,7 +88,7 @@ export interface Enqueue {
 }
 
 /** Messages to the shop's own phones, not to customers. */
-export type AlertKind = "alert_order" | "alert_booking" | "alert_rating" | "alert_campaign" | "owner_report";
+export type AlertKind = "alert_order" | "alert_booking" | "alert_rating" | "alert_campaign" | "owner_report" | "alert_referral";
 /** Messages to customers that are not owner-editable templates. */
 export type ExtraKind = "review_google" | "reorder_link" | "gift_card" | "birthday" | "referral_reward";
 

@@ -39,6 +39,10 @@ export const orgsTable = pgTable("orgs", {
   googleReviewUrl: text("google_review_url"),
   // The birthday gift and «ادعُ صديقاً» settings (see lib/growth).
   growthPrefs: jsonb("growth_prefs").$type<GrowthPrefs>().notNull().default({}),
+  // Shop brings shop: this shop's code, who brought it, and when both got their free month.
+  referralCode: varchar("referral_code", { length: 12 }),
+  referredByOrgId: integer("referred_by_org_id"),
+  referralRewardedAt: timestamp("referral_rewarded_at", { withTimezone: true }),
   reportPrefs: jsonb("report_prefs").$type<{ enabled: boolean; weekday: number; hour: number }>().notNull().default({ enabled: true, weekday: 0, hour: 10 }),
   status:      varchar("status", { length: 20 }).notNull().default("active"),
   onboardedAt: timestamp("onboarded_at", { withTimezone: true }),

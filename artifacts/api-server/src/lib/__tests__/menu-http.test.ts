@@ -252,9 +252,13 @@ r = await B.post("/api/admin/orgs", { name: "محل", ownerPhone: `9990073${tag}
 check("an owner cannot create shops on the platform", r.status === 403);
 await db.update(usersTable).set({ isAdmin: true }).where(like(usersTable.phone, `9990071${tag}%`));
 await A.get("/api/auth/me"); // the session picks up the admin flag
-r = await A.post("/api/admin/orgs", { name: "صالون جديد", nameEn: "New Salon", vertical: "beauty", ownerPhone: `9990073${tag}`, ownerName: "هدى", password: "secret123", plan: "pro", planDays: 30 });
+const refOfB = (await B.get("/api/growth/shop-referral")).json;
+check("every owner has a link that brings other shops", /^M[A-Z0-9]{5}$/.test(refOfB.code) && refOfB.link.includes(`?ref=${refOfB.code}`), refOfB);
+r = await A.post("/api/admin/orgs", { name: "صالون جديد", nameEn: "New Salon", vertical: "beauty", ownerPhone: `9990073${tag}`, ownerName: "هدى", password: "secret123", plan: "pro", planDays: 30, referralCode: refOfB.code });
 check("the admin creates a shop with its owner and plan", r.status === 201 && r.json.org.vertical === "beauty" && /new-salon/.test(r.json.org.slug), r.json?.org?.slug ?? r.json);
 const madeSlug = r.json.org.slug;
+const bStats = (await B.get("/api/growth/shop-referral")).json.stats;
+check("a shop created by the admin with that code on a paid plan earns both a month", bStats.brought === 1 && bStats.rewarded === 1, bStats);
 r = await A.get("/api/admin/orgs");
 check("the admin list says which shops are at risk of leaving, and why", r.status === 200 && r.json.every((o: any) => o.risk && Array.isArray(o.risk.reasons)), r.json?.[0]?.risk);
 r = await A.get("/api/admin/orgs/llm-keys");

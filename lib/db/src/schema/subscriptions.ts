@@ -33,6 +33,8 @@ export const subscriptionLeadsTable = pgTable("subscription_leads", {
   estimatedCustomers: varchar("estimated_customers", { length: 60 }),
   notes:              text("notes"),
   source:             varchar("source", { length: 40 }).notNull().default("landing"),
+  // The code of the shop that sent them (shop brings shop).
+  referralCode:       varchar("referral_code", { length: 12 }),
   status:             varchar("status", { length: 20 }).notNull().default("new"),
   createdAt:          timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [index("idx_subscription_leads_status").on(t.status, t.createdAt)]);

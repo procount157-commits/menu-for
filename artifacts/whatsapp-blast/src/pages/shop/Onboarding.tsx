@@ -105,6 +105,7 @@ export default function Onboarding() {
       const r = await post<{ menuUrl: string }>("/api/onboarding/org", {
         name: name.trim(), nameEn: nameEn.trim() || undefined, vertical, slug, tagline: tagline.trim() || undefined,
         template, brand, address: address.trim() || undefined, displayPhone: displayPhone.trim() || undefined,
+        referralCode: (() => { try { return localStorage.getItem("mfy:shopref") || undefined; } catch { return undefined; } })(),
       });
       if (logo) {
         try {

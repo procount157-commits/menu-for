@@ -18,6 +18,7 @@ import { referralCodeFor, friendDiscount, referralStats } from "../growth/referr
 import { customerReferralsTable } from "@workspace/db";
 import { churnRisk, type ChurnInput } from "../growth/churn";
 import { nudges, suggestedPlan, usageOf, requestUpgrade } from "../growth/upgrade";
+import { shopReferralCode, setReferredBy, rewardShopReferral, shopReferralStats } from "../growth/shop-referrals";
 import { subscriptionLeadsTable } from "@workspace/db";
 import { validBirthday, shouldAskBirthday, saveBirthday, birthdayToday, birthdayMessage, runBirthdays } from "../growth/birthday";
 import { cleanup, makeShop } from "./menu-fixtures";
@@ -298,6 +299,27 @@ const [ownerU] = await db.select().from(usersTable).where(eq(usersTable.id, shop
 const leads = await db.select().from(subscriptionLeadsTable).where(and(eq(subscriptionLeadsTable.phone, ownerU!.phone), eq(subscriptionLeadsTable.source, "in_app")));
 check("«اطلب الترقية» lands in the admin's requests with the shop and the reason — once", leads.length === 1 && leads[0]!.planName === "الأعمال" && leads[0]!.notes!.includes(shop.org.slug) && leads[0]!.notes!.includes("مرة ثانية"));
 await db.delete(subscriptionLeadsTable).where(eq(subscriptionLeadsTable.phone, ownerU!.phone));
+
+// ── 11. Shop brings shop ──────────────────────────────────────────
+const shop2 = await makeShop("g", { plan: "free" });
+const [o1] = await db.select().from(orgsTable).where(eq(orgsTable.id, shop.org.id));
+const sc = await shopReferralCode(o1!);
+check("a shop gets one invitation code", /^M[A-Z0-9]{5}$/.test(sc) && (await shopReferralCode({ id: shop.org.id, referralCode: null })) === sc);
+check("a shop cannot bring itself", !(await setReferredBy(shop.org.id, sc)));
+check("the new shop remembers who brought it", await setReferredBy(shop2.org.id, sc.toLowerCase()));
+check("…only the first time", !(await setReferredBy(shop2.org.id, sc)));
+await db.update(branchesTable).set({ alertPhones: ["971509990011"] }).where(eq(branchesTable.id, shop.branch.id));
+const before1 = (await db.select().from(usersTable).where(eq(usersTable.id, shop.user.id)))[0]!.planExpiresAt;
+check("when the brought shop first pays, both get a month", await rewardShopReferral(shop2.org.id));
+const after1 = (await db.select().from(usersTable).where(eq(usersTable.id, shop.user.id)))[0]!.planExpiresAt!;
+const after2 = (await db.select().from(usersTable).where(eq(usersTable.id, shop2.user.id)))[0]!.planExpiresAt!;
+const base1 = Math.max(Date.now(), before1?.getTime() ?? 0);
+check("…30 days on top of what each had", Math.abs(after1.getTime() - base1 - 30 * 86_400_000) < 120_000 && Math.abs(after2.getTime() - Date.now() - 30 * 86_400_000) < 120_000, { after1, after2 });
+const ra = await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.kind, "alert_referral")));
+check("…and the shop that brought it is told on WhatsApp", ra.length === 1 && ra[0]!.text.includes(shop2.org.name));
+check("…once", !(await rewardShopReferral(shop2.org.id)));
+const ss = await shopReferralStats(shop.org.id);
+check("the owner sees who they brought and the days earned", ss.brought === 1 && ss.rewarded === 1 && ss.freeDays === 30, ss);
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

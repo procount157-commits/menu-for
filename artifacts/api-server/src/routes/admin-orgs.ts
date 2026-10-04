@@ -13,6 +13,7 @@ import { getStatus } from "../lib/whatsapp";
 import { publicUrl, menuPath } from "../lib/menu/urls";
 import { logger } from "../lib/logger";
 import { churnRisk } from "../lib/growth/churn";
+import { rewardShopReferral, setReferredBy } from "../lib/growth/shop-referrals";
 
 const router = Router();
 router.use(requireAdmin);
@@ -28,7 +29,9 @@ router.get("/", async (_req, res) => {
       (SELECT count(*)::int FROM orders r WHERE r.org_id = o.id AND r.created_at > now() - interval '7 days' AND r.status NOT IN ('pending','cancelled')) AS orders_7d,
       (SELECT count(*)::int FROM bookings k WHERE k.org_id = o.id AND k.created_at > now() - interval '7 days') AS bookings_7d,
       (SELECT count(*)::int FROM customers c WHERE c.org_id = o.id) AS customers,
-      (SELECT count(*)::int FROM notifications n WHERE n.org_id = o.id AND n.status = 'sent' AND n.sent_at > now() - interval '7 days') AS sent_7d
+      (SELECT count(*)::int FROM notifications n WHERE n.org_id = o.id AND n.status = 'sent' AND n.sent_at > now() - interval '7 days') AS sent_7d,
+      (SELECT name FROM orgs x WHERE x.id = o.referred_by_org_id) AS referred_by, o.referral_rewarded_at,
+      (SELECT count(*)::int FROM orgs y WHERE y.referred_by_org_id = o.id) AS brought
     FROM orgs o JOIN users u ON u.id = o.owner_user_id
     ORDER BY o.created_at DESC`);
   const branches = await db.select({ orgId: branchesTable.orgId, waUserId: branchesTable.waUserId }).from(branchesTable);
@@ -71,6 +74,8 @@ router.post("/", async (req, res) => {
       name: b.name, nameEn: b.nameEn, vertical: b.vertical, slug: b.slug || undefined,
       address: b.address, displayPhone: b.displayPhone,
     });
+    // Brought by another shop: remember it, and reward both if it starts on a paid plan.
+    if (b.referralCode && (await setReferredBy(org.id, b.referralCode)) && plan !== "free" && days > 0) await rewardShopReferral(org.id);
     await db.update(orgsTable).set({ onboardedAt: new Date() }).where(eq(orgsTable.id, org.id));
     logger.info({ orgId: org.id, ownerId: user!.id, plan }, "admin created shop");
     res.status(201).json({ org, branchId: branch.id, ownerPhone: phone, menuUrl: publicUrl(menuPath(org.slug)), loginUrl: publicUrl("/login") });
@@ -169,7 +174,10 @@ router.patch("/:id", async (req, res) => {
     up.planExpiresAt = d > 0 ? new Date(Date.now() + d * 24 * 3_600_000) : null;
   }
   if (Object.keys(up).length) await db.update(usersTable).set(up).where(eq(usersTable.id, o.ownerUserId));
-  logger.info({ orgId: id, patch, up }, "admin updated org");
+  // Shop brings shop: the brought shop's first paid plan gives both a month.
+  let referralRewarded = false;
+  if (typeof up.plan === "string" && up.plan !== "free" && Number(b.planDays) > 0) referralRewarded = await rewardShopReferral(id);
+  logger.info({ orgId: id, patch, up, referralRewarded }, "admin updated org");
   res.json({ ok: true });
 });
 

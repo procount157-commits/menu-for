@@ -1,6 +1,7 @@
 // ── The shop, its branches and its staff ──────────────────────────
 
 import { usageOf, requestUpgrade } from "../lib/growth/upgrade";
+import { setReferredBy } from "../lib/growth/shop-referrals";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
@@ -106,6 +107,7 @@ router.post("/onboarding/org", requireAuth, async (req, res) => {
   if (!u) return res.status(401).json({ error: "يجب تسجيل الدخول أولاً" });
   try {
     const { org, branch } = await createOrg(u.id, req.body ?? {});
+    if (req.body?.referralCode) await setReferredBy(org.id, req.body.referralCode);
     await attachOwner(req, u.id);
     logger.info({ userId: u.id, orgId: org.id, slug: org.slug }, "org created");
     res.status(201).json({ org, branch, menuUrl: publicUrl(menuPath(org.slug)) });

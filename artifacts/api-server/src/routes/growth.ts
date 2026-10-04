@@ -10,6 +10,7 @@ import { menuPlan } from "../lib/plans";
 import { branchesTable, menuStatsDailyTable, customersTable } from "@workspace/db";
 import { birthdayPrefs } from "../lib/growth/birthday";
 import { referralOn, referralPrefs, referralStats } from "../lib/growth/referrals";
+import { shopReferralCode, shopReferralLink, shopReferralStats, FREE_DAYS } from "../lib/growth/shop-referrals";
 import { sql } from "drizzle-orm";
 import { cleanReviewUrl, reviewStats } from "../lib/growth/reviews";
 import { buildReport, sendReport, recentReports, cleanPrefs, recipients, DEFAULT_PREFS } from "../lib/growth/weekly-report";
@@ -96,6 +97,13 @@ router.patch("/growth/birthday", requireAuth, withTenant(OWNER, async (req, res,
   const growthPrefs = { ...(t.org.growthPrefs ?? {}), birthday: { pct, days } };
   await db.update(orgsTable).set({ features, growthPrefs }).where(eq(orgsTable.id, t.org.id));
   res.json({ enabled: !!features.birthday, prefs: { pct, days } });
+}));
+
+// ── Shop brings shop ──────────────────────────────────────────────
+
+router.get("/growth/shop-referral", requireAuth, withTenant(OWNER, async (_req, res, t) => {
+  const code = await shopReferralCode(t.org);
+  res.json({ code, link: shopReferralLink(code), freeDays: FREE_DAYS, stats: await shopReferralStats(t.org.id) });
 }));
 
 // ── «ادعُ صديقاً» ─────────────────────────────────────────────────

@@ -23,6 +23,7 @@ interface OrgRow {
   branches: number; items: number; staff: number; tickets_7d: number; orders_7d: number; bookings_7d: number; customers: number; sent_7d: number;
   wa: { linked: number; total: number }; menuUrl: string;
   risk: { level: "high" | "watch" | "ok"; reasons: string[] };
+  referred_by: string | null; referral_rewarded_at: string | null; brought: number;
 }
 interface PlatformStats {
   orgs: number; active_orgs: number; branches: number; tickets_24h: number; orders_24h: number; bookings_24h: number;
@@ -150,6 +151,8 @@ function Inner() {
                         <span dir="ltr">/{o.slug}</span>
                         <span>{o.owner_name ?? "—"} · <span dir="ltr" className="tabular-nums">{o.owner_phone}</span></span>
                         <span>منذ {shortDate(o.created_at)}</span>
+                        {o.referred_by && <span className="text-primary">أحاله «{o.referred_by}»{o.referral_rewarded_at ? " ✓" : ""}</span>}
+                        {o.brought > 0 && <span className="text-primary">أحال {o.brought} محل</span>}
                       </div>
                     </div>
                     <div className="text-left shrink-0">
@@ -281,7 +284,7 @@ function PlanDialog({ o, onClose, onSave, saving }: { o: OrgRow | null; onClose:
 
 /** A shop made for a customer: their account, their shop and their plan in one step. */
 function CreateDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
-  const empty = { name: "", nameEn: "", vertical: "restaurant", slug: "", ownerName: "", ownerPhone: "", password: "", plan: "pro", planDays: "30" };
+  const empty = { name: "", nameEn: "", vertical: "restaurant", slug: "", ownerName: "", ownerPhone: "", password: "", plan: "pro", planDays: "30", referralCode: "" };
   const [f, setF] = useState(empty);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState<{ menuUrl: string; loginUrl: string; phone: string; password: string; name: string } | null>(null);
@@ -334,6 +337,11 @@ function CreateDialog({ open, onClose, onCreated }: { open: boolean; onClose: ()
           <div>
             <label className={labelCls}>كلمة المرور *</label>
             <div className="flex gap-2"><input className={inputCls} dir="ltr" value={f.password} onChange={set("password")} placeholder="6 أحرف على الأقل" /><Btn type="button" onClick={genPass}>توليد</Btn></div>
+          </div>
+          <div>
+            <label className={labelCls}>أحاله محل آخر؟ (كود الدعوة — اختياري)</label>
+            <input className={cn(inputCls, "font-mono uppercase")} dir="ltr" value={f.referralCode} onChange={set("referralCode")} placeholder="MXXXXX" />
+            <p className="text-[11px] text-muted-foreground mt-1">مع خطة مدفوعة، يأخذ المحلان 30 يوماً مجاناً.</p>
           </div>
           <div>
             <label className={labelCls}>الخطة والمدة</label>

@@ -131,6 +131,27 @@ function NextSteps() {
   );
 }
 
+/** Shop brings shop: the owner's invitation link, and what it has earned. */
+function ShopReferral() {
+  const q = useQuery<{ code: string; link: string; freeDays: number; stats: { brought: number; rewarded: number; freeDays: number } }>({ queryKey: ["/api/growth/shop-referral"], queryFn: () => get("/api/growth/shop-referral") });
+  if (!q.data) return null;
+  const d = q.data;
+  const text = `جرّب منيو فور يو لمحلك 👌 منيو رقمي، طلبات وصف انتظار على واتساب. اشترك من رابطي وتاخذ شهراً مجانياً:\n${d.link}`;
+  return (
+    <section className="rounded-2xl border border-card-border bg-card p-4 sm:p-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex-1 min-w-[12rem]">
+          <h3 className="font-semibold">🎁 ادعُ محلاً واكسب شهراً مجاناً</h3>
+          <p className="text-xs text-muted-foreground mt-1">تعرف صاحب محل ثاني؟ إذا اشترك من رابطك، تأخذان أنتما الاثنان {d.freeDays} يوماً مجاناً.</p>
+        </div>
+        <CopyButton text={d.link} label="نسخ الرابط" />
+        <a href={`https://wa.me/?text=${encodeURIComponent(text)}`} target="_blank" rel="noreferrer" className={cn(btnPrimary, "text-xs px-3 py-1.5")}><MessageCircle className="w-3.5 h-3.5" />أرسل على واتساب</a>
+      </div>
+      {d.stats.brought > 0 && <div className="text-xs text-muted-foreground mt-2">دعوت {d.stats.brought} محل · اشترك منهم {d.stats.rewarded} · كسبت {d.stats.freeDays} يوماً</div>}
+    </section>
+  );
+}
+
 /** How close each limit is; from 80% it says so and offers the next plan. */
 function PlanUsage() {
   const shop = useShop();
@@ -190,6 +211,7 @@ export default function ShopHome() {
       <NextSteps />
 
       {shop.role === "owner" && <PlanUsage />}
+      {shop.role === "owner" && <ShopReferral />}
 
       <div className="space-y-4">
         {live.isLoading && [0, 1].map((i) => <Skel key={i} className="h-64 rounded-2xl" />)}

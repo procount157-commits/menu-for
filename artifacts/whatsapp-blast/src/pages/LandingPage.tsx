@@ -399,7 +399,7 @@ function SubscribeModal({ planName, salesWaNum, onClose, lang }: {
       await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, phone, planName, businessType: biz, estimatedCustomers: size }),
+        body: JSON.stringify({ name, phone, planName, businessType: biz, estimatedCustomers: size, referralCode: (() => { try { return localStorage.getItem("mfy:shopref") || undefined; } catch { return undefined; } })() }),
       });
     } catch {}
     setSent(true);
@@ -509,6 +509,14 @@ function PriceCard({ label, price, period, badge, features, cta, highlight, dela
 // ── MAIN PAGE ─────────────────────────────────────────────────────
 export default function LandingPage() {
   const { user } = useAuth();
+  // Shop brings shop: /?ref=CODE is kept until this visitor subscribes or registers.
+  const [invited] = useState(() => {
+    try {
+      const r = new URLSearchParams(window.location.search).get("ref")?.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+      if (r) localStorage.setItem("mfy:shopref", r);
+      return !!(r || localStorage.getItem("mfy:shopref"));
+    } catch { return false; }
+  });
   const [lang, setLang] = useState<"ar" | "en">(() =>
     (localStorage.getItem("mfy-lang") as "ar" | "en") || "ar"
   );
@@ -566,6 +574,11 @@ export default function LandingPage() {
       dir={c.dir}
       style={{ fontFamily: lang === "ar" ? "'Cairo', sans-serif" : "'Inter', sans-serif" }}
     >
+      {invited && (
+        <div className="fixed bottom-4 inset-x-4 z-50 mx-auto max-w-md rounded-2xl bg-green-500 text-black px-4 py-3 text-sm font-semibold text-center shadow-2xl">
+          {lang === "ar" ? "🎁 وصلتك دعوة من محل يستخدم منيو فور يو — اشترك وخذ أول شهر إضافي مجاناً" : "🎁 You were invited by a shop on Menu For You — subscribe and get an extra month free"}
+        </div>
+      )}
       {/* ── NAV ──────────────────────────────────────────────────── */}
       <nav className="fixed top-0 inset-x-0 z-50 backdrop-blur-xl bg-black/40 border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
