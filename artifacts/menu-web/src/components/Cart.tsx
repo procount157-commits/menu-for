@@ -6,7 +6,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { addDays, dealDiscount, formatDayLabel, formatMoney, localDate, openWindow, zonedToUtc, type PublicMenu } from "@workspace/menu-shared";
 import { Icon, Img, Sheet, Spinner, Stepper, toast } from "./ui";
-import { clearCart, priced, setQty, useCart } from "@/lib/cart";
+import { addLine, clearCart, priced, setQty, useCart } from "@/lib/cart";
+import { track } from "@/lib/track";
 import { api, go, openWhatsApp, remember } from "@/lib/api";
 import { pick, t, type Lang } from "@/lib/i18n";
 
@@ -48,6 +49,19 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
   const [time, setTime] = useState("");
   const [busy, setBusy] = useState(false);
   const tz = menu.org.timezone;
+  // «يُطلب معه»: what goes with what is in the cart, one tap to add.
+  const suggestions = useMemo(() => {
+    const inCart = new Set(p.rows.map((r) => r.item.id));
+    const byId = new Map(menu.items.map((i) => [i.id, i]));
+    const seen = new Set<number>();
+    const out = [];
+    for (const r of p.rows) for (const id of menu.pairs?.[r.item.id] ?? []) {
+      const it = byId.get(id);
+      if (!it || inCart.has(id) || seen.has(id) || !it.available || it.options.some((g) => g.required || (g.min ?? 0) > 0)) continue;
+      seen.add(id); out.push(it);
+    }
+    return out.slice(0, 4);
+  }, [p.rows, menu.items, menu.pairs]);
   // A typed code replaces the timed deal; with none, the best running deal applies.
   const [codeOpen, setCodeOpen] = useState(false);
   const [code, setCode] = useState("");
@@ -150,6 +164,25 @@ export function CartSheet({ menu, lang, open, onClose, table }: { menu: PublicMe
             </li>
           ))}
         </ul>
+
+        {suggestions.length > 0 && (
+          <div className="mt-5">
+            <p className="font-semibold text-sm mb-2">✨ {t("goesWith", lang)}</p>
+            <div className="flex gap-2.5 overflow-x-auto no-scrollbar pb-1 -mx-5 px-5">
+              {suggestions.map((s) => (
+                <button key={s.id} type="button" onClick={() => { addLine(s.id, 1, []); track({ k: "upsell", id: s.id }); navigator.vibrate?.(12); }}
+                  className="flex-shrink-0 w-32 rounded-2xl overflow-hidden text-start" style={{ background: "var(--surface-2)" }}>
+                  {s.images[0] ? <Img img={s.images[0]} alt="" sizes="sm" className="w-full h-20" /> : <div className="w-full h-20" style={{ background: "var(--brand-soft)" }} />}
+                  <div className="p-2">
+                    <p className="text-[13px] font-semibold leading-tight line-clamp-2">{pick(lang, s.name, s.nameEn)}</p>
+                    <p className="text-xs mt-1 flex items-center justify-between"><span className="text-brand tabular">{formatMoney(s.price, menu.org.currency, lang)}</span>
+                      <span className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "var(--brand)", color: "var(--brand-ink)" }}><Icon name="plus" className="w-3.5 h-3.5" /></span></p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {p.rows.length > 0 && (
           <div className="mt-6 space-y-5">

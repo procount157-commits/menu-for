@@ -8,7 +8,7 @@ import { sql } from "drizzle-orm";
 import { db, menuStatsDailyTable, type Org } from "@workspace/db";
 import { localDate } from "@workspace/menu-shared";
 
-export type MenuEvent = { k: "menu" | "item" | "add" | "cart"; id?: number };
+export type MenuEvent = { k: "menu" | "item" | "add" | "cart" | "upsell"; id?: number };
 
 // A page left open or reloaded must not count the same look again: one
 // session counts a menu, an item, or the cart once per half hour.
@@ -24,31 +24,31 @@ function firstTime(key: string, now: number) {
 
 /** Events cleaned and folded into counters per item. Pure apart from the session memory. */
 export function fold(sid: string, events: unknown, validItems: Set<number>, now = Date.now()) {
-  const out = new Map<number, { views: number; adds: number; carts: number }>();
-  const bump = (id: number, k: "views" | "adds" | "carts") => {
-    const r = out.get(id) ?? { views: 0, adds: 0, carts: 0 };
+  const out = new Map<number, { views: number; adds: number; carts: number; upsells: number }>();
+  const bump = (id: number, k: "views" | "adds" | "carts" | "upsells") => {
+    const r = out.get(id) ?? { views: 0, adds: 0, carts: 0, upsells: 0 };
     r[k]++; out.set(id, r);
   };
   for (const e of (Array.isArray(events) ? events : []).slice(0, 50) as MenuEvent[]) {
     const id = Number(e?.id) || 0;
     if (e?.k === "menu") { if (firstTime(`${sid}|m`, now)) bump(0, "views"); }
     else if (e?.k === "cart") { if (firstTime(`${sid}|c`, now)) bump(0, "carts"); }
-    else if ((e?.k === "item" || e?.k === "add") && validItems.has(id)) {
+    else if ((e?.k === "item" || e?.k === "add" || e?.k === "upsell") && validItems.has(id)) {
       if (e.k === "item") { if (firstTime(`${sid}|i${id}`, now)) bump(id, "views"); }
-      else bump(id, "adds"); // every add counts: two adds are two in the cart
+      else { bump(id, "adds"); if (e.k === "upsell") bump(id, "upsells"); } // every add counts: two adds are two in the cart
     }
   }
   return out;
 }
 
-export async function record(org: Pick<Org, "id" | "timezone">, branchId: number, counts: Map<number, { views: number; adds: number; carts: number }>, now = new Date()) {
+export async function record(org: Pick<Org, "id" | "timezone">, branchId: number, counts: Map<number, { views: number; adds: number; carts: number; upsells?: number }>, now = new Date()) {
   if (!counts.size) return;
   const day = localDate(org.timezone, now);
   for (const [itemId, c] of counts) {
-    await db.insert(menuStatsDailyTable).values({ orgId: org.id, branchId, day, itemId, views: c.views, adds: c.adds, carts: c.carts })
+    await db.insert(menuStatsDailyTable).values({ orgId: org.id, branchId, day, itemId, views: c.views, adds: c.adds, carts: c.carts, upsells: c.upsells ?? 0 })
       .onConflictDoUpdate({
         target: [menuStatsDailyTable.orgId, menuStatsDailyTable.branchId, menuStatsDailyTable.day, menuStatsDailyTable.itemId],
-        set: { views: sql`${menuStatsDailyTable.views} + ${c.views}`, adds: sql`${menuStatsDailyTable.adds} + ${c.adds}`, carts: sql`${menuStatsDailyTable.carts} + ${c.carts}` },
+        set: { views: sql`${menuStatsDailyTable.views} + ${c.views}`, adds: sql`${menuStatsDailyTable.adds} + ${c.adds}`, carts: sql`${menuStatsDailyTable.carts} + ${c.carts}`, upsells: sql`${menuStatsDailyTable.upsells} + ${c.upsells ?? 0}` },
       });
   }
 }
@@ -68,7 +68,8 @@ export async function menuReport(org: Org, branchIds: number[], days: number) {
     SELECT coalesce(sum(views) FILTER (WHERE item_id = 0), 0)::int AS menu_views,
       coalesce(sum(views) FILTER (WHERE item_id <> 0), 0)::int AS item_views,
       coalesce(sum(adds), 0)::int AS adds,
-      coalesce(sum(carts), 0)::int AS carts
+      coalesce(sum(carts), 0)::int AS carts,
+      coalesce(sum(upsells), 0)::int AS upsells
     FROM menu_stats_daily WHERE org_id = ${org.id} AND branch_id IN (${ids}) AND day >= ${since}`)).rows;
   const sinceTs = sql`(${since}::date::timestamp AT TIME ZONE ${org.timezone})`;
   const [o] = (await db.execute<any>(sql`
@@ -99,7 +100,7 @@ export async function menuReport(org: Org, branchIds: number[], days: number) {
   const avgOrder = o?.avg_order ?? 0;
   return {
     days, since,
-    funnel: { menuViews: f?.menu_views ?? 0, itemViews: f?.item_views ?? 0, adds: f?.adds ?? 0, carts: f?.carts ?? 0, orders: o?.orders ?? 0 },
+    funnel: { menuViews: f?.menu_views ?? 0, itemViews: f?.item_views ?? 0, adds: f?.adds ?? 0, carts: f?.carts ?? 0, orders: o?.orders ?? 0, upsells: f?.upsells ?? 0 },
     items, lookedNotBought: lookedNotBought(items),
     byHour: hours,
     lostQueue: { people: q?.lost ?? 0, avgOrder, value: Math.round((q?.lost ?? 0) * avgOrder) },

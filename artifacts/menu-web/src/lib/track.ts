@@ -3,7 +3,7 @@
 // every few seconds and when the page hides. The session id lives only in
 // this tab; nothing identifies the person, and the server keeps counters.
 
-type Ev = { k: "menu" | "item" | "add" | "cart"; id?: number };
+type Ev = { k: "menu" | "item" | "add" | "cart" | "upsell"; id?: number };
 
 let ctx: { slug: string; branch: string } | null = null;
 let queue: Ev[] = [];

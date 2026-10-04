@@ -12,6 +12,7 @@ import {
 } from "@workspace/db";
 import { isOpenAt, vocab, type PublicMenu, type PublicItem, type PriceableItem } from "@workspace/menu-shared";
 import { liveDeals, hasCodes } from "../growth/deals";
+import { pairsFor } from "../growth/upsell";
 import { referralOn, referralPrefs } from "../growth/referrals";
 import { publicQueue } from "../queue/engine";
 import { getStatus } from "../whatsapp";
@@ -100,6 +101,7 @@ export async function publicMenu(org: Org, branch: Branch): Promise<PublicMenu> 
     categories: cats.map((c) => ({ id: c.id, name: c.name, nameEn: c.nameEn, imageUrl: c.imageUrl })),
     items: pubItems,
     deals: await liveDeals(org, branch.id),
+    pairs: await pairsFor(org.id, pubItems),
     hasCodes: (await hasCodes(org.id)) || !!org.features?.gifts,
     gifts: !!org.features?.gifts,
     referral: referralOn(org) ? { friendPct: referralPrefs(org).friendPct } : null,

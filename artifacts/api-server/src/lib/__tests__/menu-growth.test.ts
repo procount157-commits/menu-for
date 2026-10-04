@@ -23,6 +23,7 @@ import { shopReferralCode, setReferredBy, rewardShopReferral, shopReferralStats 
 import { subscriptionLeadsTable } from "@workspace/db";
 import { validBirthday, shouldAskBirthday, saveBirthday, birthdayToday, birthdayMessage, runBirthdays } from "../growth/birthday";
 import { createOrg, DEFAULT_FEATURES } from "../tenancy/org";
+import { buildPairs, oneTap, pairsFor } from "../growth/upsell";
 import { addStamp, loyaltyFor, loyaltyStats, rewardText, loyaltyPrefs } from "../growth/loyalty";
 import { cleanup, makeShop } from "./menu-fixtures";
 
@@ -376,6 +377,24 @@ const ls = await loyaltyStats(shop.org.id);
 check("the owner sees members and completed cards", ls.members >= 1 && ls.rewards === 1, ls);
 await db.update(orgsTable).set({ features: {} }).where(eq(orgsTable.id, shop.org.id));
 check("switched off, nobody is stamped", (await addStamp({ ...o14!, features: {} }, shop.branch, "971500001401", new Date("2026-10-09T12:00:00+04:00"))) === null);
+
+// ── 15. «يُطلب معه» ───────────────────────────────────────────────
+const PI = (id: number, cat: number, x: Partial<any> = {}) => ({ id, categoryId: cat, kind: "product", name: `i${id}`, nameEn: null, description: null, descriptionEn: null, price: 10 + id, compareAtPrice: null, durationMin: null, images: [], options: [], tags: [], calories: null, allergens: [], available: true, ...x }) as any;
+const menuItems = [PI(1, 1), PI(2, 1), PI(3, 2, { tags: ["popular"] }), PI(4, 2), PI(5, 3, { options: [{ name: "الحجم", required: true, min: 1, max: 1, choices: [] }] }), PI(6, 3, { available: false })];
+check("an item with required choices or sold out is never a one-tap suggestion", !oneTap(menuItems[4]) && !oneTap(menuItems[5]) && oneTap(menuItems[0]));
+const together = new Map<number, Array<[number, number]>>([[1, [[4, 5], [2, 1], [5, 9]]]]);
+const bp = buildPairs(menuItems, together, new Map([[3, 7]]));
+check("what customers ordered together comes first (twice or more, one tap only)", bp[1]![0] === 4 && !bp[1]!.includes(5), bp[1]);
+check("…then popular items from another section", bp[1]!.includes(3) && bp[1]!.length === 3);
+const cold = buildPairs(menuItems, new Map(), new Map())[1] ?? [];
+check("a new shop with no orders still gets suggestions, other sections first", cold.length === 3 && cold.slice(0, 2).every((id) => menuItems.find((m: any) => m.id === id)!.categoryId !== 1) && cold[0] === 3, cold);
+const pubMenuItems = (await import("../menu/service")).publicMenu;
+const pm = await pubMenuItems(o14!, shop.branch);
+check("the public menu carries the suggestions", typeof pm.pairs === "object" && Object.keys(pm.pairs).length > 0, Object.keys(pm.pairs).length);
+const fu = fold("sidUp", [{ k: "upsell", id: shop.items[1]!.id }], new Set([shop.items[1]!.id]), Date.now());
+check("an add from the suggestion counts as an add and as an upsell", fu.get(shop.items[1]!.id)?.adds === 1 && fu.get(shop.items[1]!.id)?.upsells === 1);
+await record(o14!, shop.branch.id, fu);
+check("…and shows in the menu analytics", (await menuReport(o14!, [shop.branch.id], 7)).funnel.upsells === 1);
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

@@ -108,6 +108,8 @@ export interface PublicMenu {
   categories: PublicCategory[];
   items: PublicItem[];
   offers: PublicOffer[];
+  /** «يُطلب معه»: for an item id, the item ids to suggest with it in the cart. */
+  pairs: Record<number, number[]>;
   /** Timed deals running right now — they apply by themselves at checkout. */
   deals: PublicDeal[];
   /** Whether the shop has codes a customer could type. */

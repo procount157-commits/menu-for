@@ -124,6 +124,7 @@ const S = {
   reorder: ["اطلب نفس الطلب مرة ثانية", "Order the same again"],
   haveCode: ["عندك كود خصم أو بطاقة هدية؟", "Have a discount code or gift card?"],
   giftCard: ["بطاقة هدية", "Gift card"],
+  goesWith: ["يُطلب معه", "Goes well with"],
   stampTitle: ["بطاقة الأختام", "Stamp card"],
   stampLeft: ["باقي {n} لتحصل على", "{n} more to get"],
   stampFull: ["اكتملت بطاقتك — وصلتك على واتساب", "Card complete — sent to your WhatsApp:"],

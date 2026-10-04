@@ -65,6 +65,8 @@ export const menuStatsDailyTable = pgTable("menu_stats_daily", {
   views:    integer("views").notNull().default(0),
   adds:     integer("adds").notNull().default(0),
   carts:    integer("carts").notNull().default(0),
+  // Of the adds, how many came from «يُطلب معه» in the cart.
+  upsells:  integer("upsells").notNull().default(0),
 }, (t) => [
   primaryKey({ columns: [t.orgId, t.branchId, t.day, t.itemId] }),
   index("idx_menu_stats_org_day").on(t.orgId, t.day),

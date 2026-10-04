@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 interface Item { item_id: number; name: string; views: number; adds: number; ordered: number }
 type Resp =
   | { locked: true; planName: string; recorded: number }
-  | { locked: false; days: number; funnel: { menuViews: number; itemViews: number; adds: number; carts: number; orders: number }; items: Item[]; lookedNotBought: Item[]; byHour: Array<{ hour: number; orders: number }>; lostQueue: { people: number; avgOrder: number; value: number } };
+  | { locked: false; days: number; funnel: { menuViews: number; itemViews: number; adds: number; carts: number; orders: number; upsells?: number }; items: Item[]; lookedNotBought: Item[]; byHour: Array<{ hour: number; orders: number }>; lostQueue: { people: number; avgOrder: number; value: number } };
 
 const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "—");
 
@@ -72,6 +72,11 @@ export function MenuStatsCard({ days, branch, currency, services }: { days: numb
                 <span className="w-12 text-left tabular-nums text-xs text-muted-foreground">{i ? pct(s.v, steps[0]!.v) : ""}</span>
               </div>
             ))}
+            {!!f.upsells && (
+              <div className="mt-3 rounded-lg bg-primary/10 border border-primary/25 px-3 py-2 text-sm">
+                ✨ {n(f.upsells)} أضافوا صنفاً من «يُطلب معه» في السلة — {pct(f.upsells, f.adds)} من كل الإضافات.
+              </div>
+            )}
             {!services && d.lostQueue.people > 0 && (
               <div className="mt-3 rounded-lg bg-amber-500/10 border border-amber-500/25 px-3 py-2 text-sm flex items-start gap-2">
                 <DoorOpen className="w-4 h-4 text-amber-300 mt-0.5 shrink-0" />
