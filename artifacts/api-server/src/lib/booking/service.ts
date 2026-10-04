@@ -3,6 +3,7 @@
 // and a name. Capacity is checked under a per-branch advisory lock, so two
 // people taking the last slot at once get one booking and one "just taken".
 
+import { shouldAskBirthday } from "../growth/birthday";
 import { and, asc, eq, gte, inArray, lt, isNull, lte, sql } from "drizzle-orm";
 import {
   db, bookingsTable, bookingSettingsTable, branchesTable, orgsTable, menuItemsTable, queuesTable,
@@ -156,6 +157,7 @@ export async function bookingView(b: Booking): Promise<PublicBookingView | null>
     service: svc ? (lang === "en" && svc.nameEn ? svc.nameEn : svc.name) : null,
     whatsappLinked: b.phoneVerified,
     waLink: waMeLink(c.branch.waPhone, bookingMessage(b, lang)),
+    askBirthday: await shouldAskBirthday(c.org, b.phone),
     org: { name: c.org.name, nameEn: c.org.nameEn, slug: c.org.slug, logoUrl: c.org.logoUrl, theme: c.org.theme, vertical: c.org.vertical as any, currency: c.org.currency, defaultLang: lang, timezone: c.org.timezone },
     branch: { name: c.branch.name, nameEn: c.branch.nameEn, slug: c.branch.slug, address: c.branch.address, mapUrl: c.branch.mapUrl },
   };

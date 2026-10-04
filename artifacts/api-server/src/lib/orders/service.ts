@@ -18,6 +18,7 @@ import { publicUrl, orderPath } from "../menu/urls";
 import { alertShop } from "../notify/alerts";
 import { resolveDeal, claimUse, releaseUse } from "../growth/deals";
 import { giftByCode, giftProblem, spendGift, refundGift } from "../growth/gifts";
+import { shouldAskBirthday } from "../growth/birthday";
 
 export class OrderError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -176,6 +177,7 @@ export async function orderView(o: Order): Promise<PublicOrderView | null> {
     waLink: waMeLink(c.branch.waPhone, orderMessage(o, c.org, lang)),
     createdAt: o.createdAt.toISOString(),
     reorder: reorderLines(o),
+    askBirthday: await shouldAskBirthday(c.org, o.phone),
     org: { name: c.org.name, nameEn: c.org.nameEn, slug: c.org.slug, logoUrl: c.org.logoUrl, theme: c.org.theme, vertical: c.org.vertical as any, currency: c.org.currency, defaultLang: lang },
     branch: { name: c.branch.name, nameEn: c.branch.nameEn, slug: c.branch.slug, address: c.branch.address, mapUrl: c.branch.mapUrl },
   };

@@ -6,6 +6,7 @@ import { Icon, Spinner, toast } from "@/components/ui";
 import { api, go, openWhatsApp } from "@/lib/api";
 import { pick, setLang, t, useLang } from "@/lib/i18n";
 import { applyTheme } from "@/lib/theme";
+import { BirthdayAsk } from "@/components/Birthday";
 import NotFound from "./NotFound";
 
 export default function BookingPage({ token, initial }: { token: string; initial: PublicBookingView | null }) {
@@ -75,6 +76,8 @@ export default function BookingPage({ token, initial }: { token: string; initial
             <Icon name="wa" className="w-5 h-5" />{t("confirmOnWa", lang)}
           </button>
         )}
+        {b.askBirthday && b.status !== "cancelled" && <BirthdayAsk lang={lang} kind="booking" token={b.token} shop={pick(lang, b.org.name, b.org.nameEn)} />}
+
         <div className="mt-4 grid grid-cols-2 gap-2.5">
           {live && <button onClick={ics} className="btn-ghost h-12 text-sm font-semibold flex items-center justify-center gap-2"><Icon name="calendar" className="w-4 h-4" />{t("addToCalendar", lang)}</button>}
           {b.branch.mapUrl && <a href={b.branch.mapUrl} target="_blank" rel="noreferrer" className="btn-ghost h-12 text-sm font-semibold flex items-center justify-center gap-2"><Icon name="map" className="w-4 h-4" />{t("directions", lang)}</a>}

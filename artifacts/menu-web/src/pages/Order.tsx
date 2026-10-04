@@ -9,6 +9,7 @@ import { Icon, Spinner } from "@/components/ui";
 import { go, openWhatsApp, useLive } from "@/lib/api";
 import { pick, setLang, t, useLang, type Key } from "@/lib/i18n";
 import { applyTheme } from "@/lib/theme";
+import { BirthdayAsk } from "@/components/Birthday";
 import NotFound from "./NotFound";
 
 const STEPS = ["received", "preparing", "ready", "completed"] as const;
@@ -97,6 +98,8 @@ export default function OrderPage({ token, initial }: { token: string; initial: 
             <Icon name="cart" className="w-5 h-5" />{t("reorder", lang)}
           </button>
         )}
+
+        {o.askBirthday && o.status !== "pending" && <BirthdayAsk lang={lang} kind="order" token={o.token} shop={pick(lang, o.org.name, o.org.nameEn)} />}
 
         <div className="mt-4 grid grid-cols-2 gap-2.5">
           {o.branch.mapUrl && <a href={o.branch.mapUrl} target="_blank" rel="noreferrer" className="btn-ghost h-12 flex items-center justify-center gap-2 text-sm font-semibold"><Icon name="map" className="w-4 h-4" />{t("directions", lang)}</a>}

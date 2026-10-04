@@ -15,6 +15,7 @@ import { slotsFor, createBooking, bookingByToken, bookingView, bookingMessage, s
 import { normalisePhone } from "../lib/customers";
 import { resolveDeal } from "../lib/growth/deals";
 import { giftByCode, giftProblem, giftView } from "../lib/growth/gifts";
+import { validBirthday, saveBirthday } from "../lib/growth/birthday";
 import { fold, record } from "../lib/growth/menu-stats";
 import { stream } from "../lib/realtime";
 import { limit } from "../lib/rate-limit";
@@ -185,6 +186,18 @@ router.post("/deals/check", limit("deal", 30, 10 * 60_000), async (req, res) => 
   if (!r) return res.status(400).json({ error: "الكود غير صحيح أو منتهي" });
   if ("error" in r) return res.status(400).json({ error: r.error });
   res.json({ ok: true, title: r.deal.title, discount: r.discount, code: r.deal.code });
+});
+
+/** «متى عيد ميلادك؟» from a ticket, order or booking page: the date goes on that customer. */
+router.post("/birthday", limit("birthday", 10, 10 * 60_000), async (req, res) => {
+  const b = req.body ?? {};
+  const date = validBirthday(b.month, b.day);
+  if (!date) return res.status(400).json({ error: "تاريخ غير صحيح" });
+  const tok = String(b.token ?? "");
+  const rec = b.kind === "order" ? await orderByToken(tok) : b.kind === "booking" ? await bookingByToken(tok) : b.kind === "ticket" ? await ticketByToken(tok) : null;
+  if (!rec?.phone) return res.status(404).json({ error: "غير موجود" });
+  await saveBirthday(rec.orgId, rec.phone, date.month, date.day);
+  res.json({ ok: true });
 });
 
 router.get("/gifts/:token", limit("ticket", 600, 60_000), async (req, res) => {

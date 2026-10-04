@@ -10,6 +10,7 @@
 //   • The wait shown is measured from today's calls (lib/menu-shared eta.ts),
 //     shown as a range, and recorded at join so its accuracy can be reported.
 
+import { shouldAskBirthday } from "../growth/birthday";
 import { and, asc, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import {
   db, queuesTable, queueTicketsTable, queueEventsTable, queueCountersTable, branchesTable, orgsTable,
@@ -239,6 +240,7 @@ export async function ticketView(t: QueueTicket): Promise<PublicTicket | null> {
     waLink: waMeLink(branch.waPhone, joinMessage(t, lang)),
     queue: { id: queue.id, name: queue.name, nameEn: queue.nameEn, isPaused: queue.isPaused, isOpen: queue.isOpen, noShowMin: queue.noShowMin },
     nowServing: s.called.slice(0, 3).map((c) => c.displayCode),
+    askBirthday: await shouldAskBirthday(org, t.phone),
     org: { name: org.name, nameEn: org.nameEn, slug: org.slug, logoUrl: org.logoUrl, theme: org.theme, vertical: org.vertical as any, currency: org.currency, defaultLang: lang },
     branch: { name: branch.name, nameEn: branch.nameEn, slug: branch.slug, address: branch.address, mapUrl: branch.mapUrl },
   };

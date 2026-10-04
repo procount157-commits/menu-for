@@ -12,6 +12,7 @@ import { startLifecycle } from "./lib/notify/lifecycle";
 import { startCampaignScheduler } from "./lib/wa-auto/start";
 import { startWaAutopilot } from "./lib/wa-auto/autopilot";
 import { startWeeklyReports } from "./lib/growth/weekly-report";
+import { startBirthdays } from "./lib/growth/birthday";
 import { startMonitorAgent } from "./lib/monitor-agent";
 import { startRoutineScheduler } from "./lib/agent-routines";
 import { startOpsAgent } from "./lib/ops-agent";
@@ -142,6 +143,7 @@ function startListening() {
     startCampaignScheduler();
     startWaAutopilot();
     startWeeklyReports();
+    startBirthdays();
     startMonitorAgent();
     startRoutineScheduler();
     startOpsAgent();

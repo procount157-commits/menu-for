@@ -14,6 +14,7 @@ import { shopDealsTable } from "@workspace/db";
 import { fold, record, menuReport, lookedNotBought } from "../growth/menu-stats";
 import { createGift, giftByCode, giftProblem, spendGift, giftMessage, giftView, listGifts } from "../growth/gifts";
 import { giftCardsTable, ordersTable } from "@workspace/db";
+import { validBirthday, shouldAskBirthday, saveBirthday, birthdayToday, birthdayMessage, runBirthdays } from "../growth/birthday";
 import { cleanup, makeShop } from "./menu-fixtures";
 
 let pass = 0, total = 0;
@@ -214,6 +215,29 @@ const gv = await giftView(gc.token);
 check("the card's page shows the balance, the message and the problem", gv?.balance === 34 && gv.message === "كل عام وأنتِ بخير" && gv.problem === "انتهت صلاحية البطاقة");
 const lg = await listGifts(shop.org.id);
 check("the shop sees what was sold and what is still owed", lg.stats.sold === 100 && lg.stats.outstanding === 0 && lg.stats.count === 1, lg.stats);
+
+// ── 7. Birthday gift ──────────────────────────────────────────────
+check("real dates only, 29 February allowed", !!validBirthday(2, 29) && !validBirthday(2, 30) && !validBirthday(13, 1) && !validBirthday(4, 31) && validBirthday("6", "15")?.day === 15);
+check("a 29 February birthday is greeted on the 28th in a common year", birthdayToday(2, 29, { month: 2, day: 28, year: 2027 }) && !birthdayToday(2, 29, { month: 2, day: 28, year: 2028 }));
+check("the greeting carries the code, the gift and the link", birthdayMessage({ name: "سالم", shop: "الفارس", pct: 15, days: 7, code: "BDXYZ12", link: "https://x/m", services: true }).includes("BDXYZ12") && birthdayMessage({ name: "سالم", shop: "الفارس", pct: 15, days: 7, code: "BDXYZ12", link: "https://x/m", services: true }).includes("خصم 15%"));
+await db.insert(customersTable).values({ orgId: shop.org.id, phone: "971500000701", name: "سالم" }).onConflictDoNothing();
+check("nobody is asked while the gift is off", !(await shouldAskBirthday({ id: shop.org.id, features: {} }, "971500000701")));
+check("a known customer is asked when it is on", await shouldAskBirthday({ id: shop.org.id, features: { birthday: true } }, "971500000701"));
+await db.update(orgsTable).set({ features: { birthday: true } }).where(eq(orgsTable.id, shop.org.id));
+const now7 = new Date(); // today, 11:00-ish local is needed: pick a moment at 12:00 Dubai today
+const noonDubai = new Date(`${new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(now7)}T12:00:00+04:00`);
+const md = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Dubai", month: "numeric", day: "numeric" }).formatToParts(noonDubai);
+await saveBirthday(shop.org.id, "971500000701", Number(md.find((x) => x.type === "month")!.value), Number(md.find((x) => x.type === "day")!.value));
+check("…and not again once the date is known", !(await shouldAskBirthday({ id: shop.org.id, features: { birthday: true } }, "971500000701")));
+const sentB = await runBirthdays(noonDubai);
+const bn = await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.kind, "birthday")));
+check("on the day, the greeting is queued with a personal code", sentB >= 1 && bn.length === 1 && bn[0]!.phone === "971500000701" && /BD[A-Z0-9]{5}/.test(bn[0]!.text) && bn[0]!.class === "consented");
+const code7 = bn[0]!.text.match(/BD[A-Z0-9]{5}/)![0];
+const [bdDeal] = await db.select().from(shopDealsTable).where(and(eq(shopDealsTable.orgId, shop.org.id), eq(shopDealsTable.code, code7)));
+check("…the code is for that phone, once, for a week", bdDeal?.phone === "971500000701" && bdDeal.maxUses === 1 && bdDeal.source === "birthday" && !!bdDeal.endsAt && bdDeal.endsAt.getTime() < Date.now() + 8 * 86_400_000);
+await runBirthdays(noonDubai);
+check("…and the same year is never greeted twice", (await db.select().from(notificationsTable).where(and(eq(notificationsTable.orgId, shop.org.id), eq(notificationsTable.kind, "birthday")))).length === 1);
+check("nothing goes out at night", (await runBirthdays(new Date(noonDubai.getTime() + 11 * 3_600_000))) === 0);
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

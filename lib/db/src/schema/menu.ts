@@ -37,11 +37,18 @@ export const orgsTable = pgTable("orgs", {
   // The weekly report to the owner's phone: on by default, Sunday 10:00 local.
   // The shop's «write a review» link on Google; a 4–5 rating is pointed there.
   googleReviewUrl: text("google_review_url"),
+  // The birthday gift and «ادعُ صديقاً» settings (see lib/growth).
+  growthPrefs: jsonb("growth_prefs").$type<GrowthPrefs>().notNull().default({}),
   reportPrefs: jsonb("report_prefs").$type<{ enabled: boolean; weekday: number; hour: number }>().notNull().default({ enabled: true, weekday: 0, hour: 10 }),
   status:      varchar("status", { length: 20 }).notNull().default("active"),
   onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
   createdAt:   timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+export interface GrowthPrefs {
+  birthday?: { pct?: number; days?: number };
+  referral?: { friendPct?: number; rewardPct?: number; rewardDays?: number };
+}
 
 export interface OrgTheme {
   template: "noir" | "cream" | "clean" | "rose";
@@ -363,6 +370,10 @@ export const customersTable = pgTable("customers", {
   ratingLast:     integer("rating_last"),
   ratedAt:        timestamp("rated_at", { withTimezone: true }),
   googleInvitedAt: timestamp("google_invited_at", { withTimezone: true }),
+  // Day and month only, given by the customer for a birthday gift.
+  birthMonth:     integer("birth_month"),
+  birthDay:       integer("birth_day"),
+  birthdaySentYear: integer("birthday_sent_year"),
   reviewAskedAt:  timestamp("review_asked_at", { withTimezone: true }),
   winbackAt:      timestamp("winback_at", { withTimezone: true }),
 }, (t) => [

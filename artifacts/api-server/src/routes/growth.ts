@@ -7,7 +7,8 @@ import { requireAuth } from "../lib/auth";
 import { withTenant, OWNER, MANAGERS } from "../lib/tenancy/context";
 import { menuReport } from "../lib/growth/menu-stats";
 import { menuPlan } from "../lib/plans";
-import { branchesTable, menuStatsDailyTable } from "@workspace/db";
+import { branchesTable, menuStatsDailyTable, customersTable } from "@workspace/db";
+import { birthdayPrefs } from "../lib/growth/birthday";
 import { sql } from "drizzle-orm";
 import { cleanReviewUrl, reviewStats } from "../lib/growth/reviews";
 import { buildReport, sendReport, recentReports, cleanPrefs, recipients, DEFAULT_PREFS } from "../lib/growth/weekly-report";
@@ -67,6 +68,33 @@ router.get("/growth/menu-stats", requireAuth, withTenant(MANAGERS, async (req, r
     return res.json({ locked: true, planName: plan.planName, recorded: c?.views ?? 0 });
   }
   res.json({ locked: false, ...(await menuReport(t.org, branchIds, days)) });
+}));
+
+// ── Birthday gift ─────────────────────────────────────────────────
+
+router.get("/growth/birthday", requireAuth, withTenant(OWNER, async (_req, res, t) => {
+  const year = new Date().getFullYear();
+  const [c] = await db.select({
+    known: sql<number>`count(*) filter (where birth_month is not null)::int`,
+    sent: sql<number>`count(*) filter (where birthday_sent_year = ${year})::int`,
+  }).from(customersTable).where(eq(customersTable.orgId, t.org.id));
+  const plan = await menuPlan(t.org.ownerUserId);
+  res.json({ enabled: !!t.org.features?.birthday, prefs: birthdayPrefs(t.org), known: c?.known ?? 0, sentThisYear: c?.sent ?? 0, allowed: plan.features.marketing, planName: plan.planName });
+}));
+
+router.patch("/growth/birthday", requireAuth, withTenant(OWNER, async (req, res, t) => {
+  const b = req.body ?? {};
+  if (b.enabled === true) {
+    const plan = await menuPlan(t.org.ownerUserId);
+    if (!plan.features.marketing) return res.status(402).json({ error: `هدية عيد الميلاد من خطة «احترافي» — خطتك ${plan.planName}.`, plan: true });
+  }
+  const features = { ...(t.org.features ?? {}), ...(typeof b.enabled === "boolean" ? { birthday: b.enabled } : {}) };
+  const cur = birthdayPrefs(t.org);
+  const pct = Number.isFinite(Number(b.pct)) ? Math.max(5, Math.min(50, Math.round(Number(b.pct)))) : cur.pct;
+  const days = Number.isFinite(Number(b.days)) ? Math.max(1, Math.min(30, Math.round(Number(b.days)))) : cur.days;
+  const growthPrefs = { ...(t.org.growthPrefs ?? {}), birthday: { pct, days } };
+  await db.update(orgsTable).set({ features, growthPrefs }).where(eq(orgsTable.id, t.org.id));
+  res.json({ enabled: !!features.birthday, prefs: { pct, days } });
 }));
 
 export default router;

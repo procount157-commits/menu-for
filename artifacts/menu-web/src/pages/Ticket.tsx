@@ -9,6 +9,7 @@ import { monogram, Icon, Img, Spinner, toast } from "@/components/ui";
 import { api, forget, go, openWhatsApp, useLive } from "@/lib/api";
 import { pick, setLang, t, useLang, type Lang } from "@/lib/i18n";
 import { applyTheme } from "@/lib/theme";
+import { BirthdayAsk } from "@/components/Birthday";
 import NotFound from "./NotFound";
 
 export default function TicketPage({ token, initial }: { token: string; initial: PublicTicket | null }) {
@@ -134,6 +135,7 @@ export default function TicketPage({ token, initial }: { token: string; initial:
           </section>
         )}
 
+        {tk.askBirthday && <BirthdayAsk lang={lang} kind="ticket" token={tk.token} shop={pick(lang, tk.org.name, tk.org.nameEn)} />}
         <Promo menu={menu} lang={lang} onMenu={() => go(menuPath)} waiting={tk.status === "waiting"} />
       </main>
 

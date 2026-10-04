@@ -122,6 +122,8 @@ export interface PublicMenu {
 export type TicketStatus = "waiting" | "called" | "serving" | "done" | "no_show" | "cancelled" | "left";
 
 export interface PublicTicket {
+  /** Ask for the customer's birthday (the shop gives a birthday gift and does not know it yet). */
+  askBirthday?: boolean;
   token: string;
   displayCode: string;
   joinCode: string;
@@ -154,6 +156,8 @@ export interface PublicDisplay {
 }
 
 export interface PublicOrderView {
+  /** Ask for the customer's birthday (the shop gives a birthday gift and does not know it yet). */
+  askBirthday?: boolean;
   code: string;
   token: string;
   status: string;
@@ -176,6 +180,8 @@ export interface PublicOrderView {
 }
 
 export interface PublicBookingView {
+  /** Ask for the customer's birthday (the shop gives a birthday gift and does not know it yet). */
+  askBirthday?: boolean;
   code: string;
   token: string;
   status: string;
