@@ -8,12 +8,12 @@ import { cleanReviewUrl, reviewStats } from "../growth/reviews";
 import { handleCustomerMessage } from "../notify/inbound";
 import { reorderLines, lastOrderOf, orderView } from "../orders/service";
 import { queueCommand, dealOpen, dealDiscount, bestAutoDeal, normaliseCode, type Deal } from "@workspace/menu-shared";
-import { cleanDeal, resolveDeal, createPersonalCode, liveDeals } from "../growth/deals";
+import { cleanDeal, resolveDeal, createPersonalCode, liveDeals, toDeal } from "../growth/deals";
 import { orderMessage } from "../orders/service";
 import { shopDealsTable } from "@workspace/db";
 import { fold, record, menuReport, lookedNotBought } from "../growth/menu-stats";
 import { createGift, giftByCode, giftProblem, spendGift, giftMessage, giftView, listGifts } from "../growth/gifts";
-import { giftCardsTable, ordersTable } from "@workspace/db";
+import { giftCardsTable, ordersTable, campaignsTable } from "@workspace/db";
 import { referralCodeFor, friendDiscount, referralStats } from "../growth/referrals";
 import { customerReferralsTable } from "@workspace/db";
 import { churnRisk, type ChurnInput } from "../growth/churn";
@@ -23,6 +23,7 @@ import { shopReferralCode, setReferredBy, rewardShopReferral, shopReferralStats 
 import { subscriptionLeadsTable } from "@workspace/db";
 import { validBirthday, shouldAskBirthday, saveBirthday, birthdayToday, birthdayMessage, runBirthdays } from "../growth/birthday";
 import { createOrg, DEFAULT_FEATURES } from "../tenancy/org";
+import { previewBroadcast, sendBroadcast, dealMessage } from "../growth/broadcast";
 import { buildPairs, oneTap, pairsFor } from "../growth/upsell";
 import { platformMetrics, monthly } from "../growth/platform-metrics";
 import { resolvePlan, loadPlans, invalidatePlans, menuPlan, DEFAULT_TRIAL, cleanTrialSettings } from "../plans";
@@ -468,6 +469,24 @@ const torg = await createOrg(tu!.id, { name: "محل تجريبي للاختبا
 check("a trial shop with no WhatsApp is not extended from the dashboard", (await maybeExtendTrial((await db.select().from(orgsTable).where(eq(orgsTable.id, torg.org.id)))[0]!)) === 0);
 await db.delete(orgsTable).where(eq(orgsTable.id, torg.org.id));
 await db.delete(usersTable).where(eq(usersTable.id, tu!.id));
+
+// ── «أرسله لزبائني» ───────────────────────────────────────────────
+await db.update(usersTable).set({ plan: "pro", planExpiresAt: null }).where(eq(usersTable.id, shop.user.id));
+const [ob] = await db.select().from(orgsTable).where(eq(orgsTable.id, shop.org.id));
+const [bd] = await db.insert(shopDealsTable).values({ orgId: shop.org.id, code: "BCAST15", title: "عرض الويكند", kind: "pct", value: "15", minSubtotal: "40", endsAt: new Date(Date.now() + 5 * 86_400_000) }).returning();
+const msgB = dealMessage(toDeal(bd!), { shop: "محل", currency: "AED", link: "https://x/m", tz: "Asia/Dubai" });
+check("the message is written from the deal: what, from how much, the code, the link, the opt-out", msgB.includes("خصم 15%") && msgB.includes("40") && msgB.includes("BCAST15") && msgB.includes("https://x/m") && msgB.includes("توقف"), msgB);
+await db.insert(customersTable).values([0, 1, 2].map((i) => ({ orgId: shop.org.id, phone: `97150000190${i}`, name: `زبون ${i}`, marketingOptIn: true }))).onConflictDoNothing();
+const pv = await previewBroadcast(ob!, shop.branch, bd!.id);
+check("the preview counts each segment of who agreed", !!pv && pv.segments.find((x) => x.key === "opted_in")!.count >= 3 && pv.waitDays === 0);
+let br = await sendBroadcast(ob!, shop.branch, bd!.id, "opted_in", "أهلاً {الاسم}، خصم 50% على كل شي!");
+check("an invented discount in an edited message is refused", !br.ok && /50/.test((br as any).error), br);
+br = await sendBroadcast(ob!, shop.branch, bd!.id, "opted_in");
+check("with WhatsApp unlinked it is prepared and waits to start by itself", br.ok && br.count >= 3 && !br.started, br);
+const [bc] = await db.select().from(campaignsTable).where(eq(campaignsTable.id, (br as any).campaignId));
+check("…as a campaign in the engine, scheduled", bc?.status === "draft" && !!bc.scheduledAt && bc.message.includes("BCAST15"));
+br = await sendBroadcast(ob!, shop.branch, bd!.id, "opted_in");
+check("the same deal is not sent again within three days", !br.ok && /3 أيام/.test((br as any).error));
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

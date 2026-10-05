@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertTriangle, Clock, Loader2, Plus, Tag, Ticket, Trash2 } from "lucide-react";
+import { AlertTriangle, Clock, Loader2, Plus, Send, Tag, Ticket, Trash2, Users } from "lucide-react";
 import { formatMoney } from "@workspace/menu-shared";
 import { get, patch, post, del, useShop, inputCls, labelCls } from "@/lib/shop-api";
 import { Switch } from "@/components/ui/switch";
@@ -21,6 +21,7 @@ interface Deal {
   days: number[]; fromTime: string | null; toTime: string | null; startsAt: string | null; endsAt: string | null;
   maxUses: number | null; uses: number; isActive: boolean; oncePerPhone: boolean; phone: string | null; source: string;
   status: "live" | "scheduled" | "ended" | "off" | "used_up"; orders: number; discountGiven: number; sales: number;
+  broadcasts?: Array<{ campaignId: number; at: string; count: number; segment: string }>;
 }
 interface Resp { allowed: boolean; planName: string; deals: Deal[] }
 
@@ -40,6 +41,7 @@ export default function Deals() {
   const q = useQuery<Resp>({ queryKey: ["/api/deals"], queryFn: () => get("/api/deals") });
   const [creating, setCreating] = useState<"code" | "auto" | null>(null);
   const [showPersonal, setShowPersonal] = useState(false);
+  const [sending, setSending] = useState<Deal | null>(null);
   const money = (v: number) => formatMoney(v, shop.org.currency);
   const refresh = () => qc.invalidateQueries({ queryKey: ["/api/deals"] });
 
@@ -84,7 +86,7 @@ export default function Deals() {
       <div className="rounded-xl border border-card-border bg-card divide-y divide-border/60">
         {owner.length === 0 ? (
           <Empty title="لا عروض بعد" icon={<Ticket />}>جرّب «ساعة سعيدة»: خصم 15% من 3 إلى 6 العصر أيام الأسبوع — يظهر في المنيو ويُطبّق وحده.</Empty>
-        ) : owner.map((d) => <Row key={d.id} d={d} money={money} tz={shop.org.timezone} onToggle={toggle} onRemove={remove} />)}
+        ) : owner.map((d) => <Row key={d.id} d={d} money={money} tz={shop.org.timezone} onToggle={toggle} onRemove={remove} onSend={shop.role === "owner" ? () => setSending(d) : undefined} />)}
       </div>
 
       {personal.length > 0 && (
@@ -100,12 +102,14 @@ export default function Deals() {
         </div>
       )}
 
+      <BroadcastDialog deal={sending} onClose={() => setSending(null)} onDone={() => { setSending(null); refresh(); }} />
       <DealDialog mode={creating} onClose={() => setCreating(null)} onSaved={() => { setCreating(null); refresh(); }} currency={shop.org.currency} />
     </div>
   );
 }
 
-function Row({ d, money, tz, onToggle, onRemove }: { d: Deal; money: (v: number) => string; tz: string; onToggle: (d: Deal, v: boolean) => void; onRemove: (d: Deal) => void }) {
+function Row({ d, money, tz, onToggle, onRemove, onSend }: { d: Deal; money: (v: number) => string; tz: string; onToggle: (d: Deal, v: boolean) => void; onRemove: (d: Deal) => void; onSend?: () => void }) {
+  const last = d.broadcasts?.at(-1);
   const when = [
     d.days.length && d.days.length < 7 ? d.days.map((x) => DAYS[x]).join("، ") : null,
     d.fromTime && d.toTime ? `${d.fromTime}–${d.toTime}` : null,
@@ -126,7 +130,10 @@ function Row({ d, money, tz, onToggle, onRemove }: { d: Deal; money: (v: number)
           {when ? ` · ${when}` : ""}{d.maxUses ? ` · ${d.uses}/${d.maxUses} استخدام` : ""}{d.oncePerPhone ? " · مرة لكل رقم" : ""}
         </div>
       </div>
-      <div className="text-xs text-muted-foreground tabular-nums text-left">{n(d.orders)} طلب · {money(d.sales)}</div>
+      <div className="text-xs text-muted-foreground tabular-nums text-left">{n(d.orders)} طلب · {money(d.sales)}{last ? <div className="text-[11px]">أُرسل لـ{n(last.count)} · {shortDate(last.at, tz)}</div> : null}</div>
+      {onSend && d.status !== "ended" && d.status !== "off" && d.status !== "used_up" && (
+        <Btn tone="plain" className="min-h-9 px-3 text-xs" onClick={onSend}><Send className="w-3.5 h-3.5" />أرسله لزبائني</Btn>
+      )}
       <Switch checked={d.isActive} onCheckedChange={(v) => onToggle(d, v)} dir="ltr" />
       <button onClick={() => onRemove(d)} className="w-8 h-8 grid place-items-center rounded-lg text-muted-foreground hover:text-red-300 hover:bg-secondary/60" aria-label="حذف"><Trash2 className="w-4 h-4" /></button>
     </div>
@@ -194,6 +201,64 @@ function DealDialog({ mode, onClose, onSaved, currency }: { mode: "code" | "auto
           <Btn tone="ghost" onClick={close}>إلغاء</Btn>
         </div>
       </div>
+    </Modal>
+  );
+}
+
+interface Preview { message: string; segments: Array<{ key: string; label: string; count: number }>; last: { at: string; count: number } | null; waitDays: number; allowed: boolean; planName: string }
+
+/** «أرسله لزبائني»: who, what they will read, and send — through the campaign engine and its protection. */
+function BroadcastDialog({ deal, onClose, onDone }: { deal: Deal | null; onClose: () => void; onDone: () => void }) {
+  const q = useQuery<Preview>({ queryKey: ["/api/deals/broadcast", deal?.id], queryFn: () => get(`/api/deals/${deal!.id}/broadcast`), enabled: !!deal });
+  const [segment, setSegment] = useState("opted_in");
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [lastId, setLastId] = useState<number | null>(null);
+  if (deal && deal.id !== lastId) { setLastId(deal.id); setText(""); setSegment("opted_in"); }
+  const d = q.data;
+  const message = text || d?.message || "";
+  const count = d?.segments.find((s) => s.key === segment)?.count ?? 0;
+  const send = async () => {
+    setBusy(true);
+    try {
+      const r = await post<{ count: number; started: boolean; note?: string }>(`/api/deals/${deal!.id}/broadcast`, { segment, message: text || undefined });
+      toast.success(r.started ? `بدأ الإرسال إلى ${r.count} زبوناً — بإيقاع آمن` : `جاهز لـ${r.count} زبوناً، ويبدأ وحده: ${r.note ?? ""}`);
+      onDone();
+    } catch (e) { toast.error(errText(e)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Modal open={!!deal} onOpenChange={(v) => !v && onClose()} wide title={`أرسل «${deal?.title ?? ""}» لزبائنك`}
+      description="يصل فقط لمن وافق على العروض، ولم تصله رسالة في آخر 3 أيام، ولم يرسل «توقف». يُرسل بإيقاع آمن من رقم المحل.">
+      {!d ? <div className="py-10 grid place-items-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div> : (
+        <div className="space-y-4">
+          {!d.allowed && <div className="text-sm text-amber-300">إرسال العروض يحتاج خطة فيها الحملات — خطتك {d.planName}.</div>}
+          {d.waitDays > 0 && <div className="text-sm text-amber-300">أُرسل هذا العرض مؤخراً — تقدر ترسله مرة ثانية بعد {d.waitDays} {d.waitDays === 1 ? "يوم" : "أيام"}.</div>}
+          <div>
+            <div className={labelCls}>لمن؟</div>
+            <div className="grid sm:grid-cols-2 gap-2">
+              {d.segments.map((s) => (
+                <button key={s.key} type="button" onClick={() => setSegment(s.key)} disabled={!s.count}
+                  className={cn("rounded-xl border p-3 text-start flex items-center gap-3 disabled:opacity-40", segment === s.key ? "border-primary bg-primary/10" : "border-border hover:bg-secondary/40")}>
+                  <Users className="w-4 h-4 text-primary shrink-0" /><span className="flex-1 text-sm">{s.label}</span><span className="font-bold tabular-nums">{n(s.count)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid md:grid-cols-[minmax(0,1fr)_17rem] gap-3">
+            <label className="block"><span className={labelCls}>الرسالة — {"{الاسم}"} يُستبدل باسم الزبون</span>
+              <textarea className={cn(inputCls, "leading-relaxed min-h-48")} value={message} maxLength={900} onChange={(e) => setText(e.target.value)} /></label>
+            <div className="rounded-2xl p-3 bg-[#0b141a] self-start">
+              <div className="rounded-xl rounded-tr-sm px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[#e9edef] bg-[#005c4b]">{message.replace(/\{الاسم\}/g, "أحمد").replace(/\*/g, "")}</div>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">لا يُقبل في الرسالة أي سعر أو نسبة غير موجودة في عروضك ومنيوك. كل رسالة تُحسب من رسائل الشهر في خطتك.</p>
+          <div className="flex gap-2">
+            <Btn tone="gold" disabled={busy || !d.allowed || d.waitDays > 0 || !count} onClick={send}>{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}أرسل إلى {n(count)} زبون</Btn>
+            <Btn tone="ghost" onClick={onClose}>إلغاء</Btn>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

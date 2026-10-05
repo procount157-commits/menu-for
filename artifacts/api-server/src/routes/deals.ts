@@ -4,7 +4,8 @@ import { Router } from "express";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db, shopDealsTable, ordersTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
-import { withTenant, MANAGERS } from "../lib/tenancy/context";
+import { withTenant, MANAGERS, OWNER } from "../lib/tenancy/context";
+import { previewBroadcast, sendBroadcast } from "../lib/growth/broadcast";
 import { menuPlan } from "../lib/plans";
 import { cleanDeal, toDeal, dealStatus } from "../lib/growth/deals";
 
@@ -22,7 +23,7 @@ router.get("/deals", requireAuth, withTenant(MANAGERS, async (_req, res, t) => {
     deals: rows.map((r) => {
       const d = toDeal(r);
       const u = by.get(r.id);
-      return { ...d, status: dealStatus(d, t.org.timezone), orders: u?.n ?? 0, discountGiven: u?.off ?? 0, sales: u?.sales ?? 0 };
+      return { ...d, status: dealStatus(d, t.org.timezone), orders: u?.n ?? 0, discountGiven: u?.off ?? 0, sales: u?.sales ?? 0, broadcasts: r.broadcasts ?? [] };
     }),
   });
 }));
@@ -51,6 +52,23 @@ router.patch("/deals/:id", requireAuth, withTenant(MANAGERS, async (req, res, t)
   try { await db.update(shopDealsTable).set(c.row as any).where(eq(shopDealsTable.id, id)); }
   catch { return res.status(409).json({ error: "هذا الكود مستخدم في عرض آخر" }); }
   res.json({ ok: true });
+}));
+
+// ── «أرسله لزبائني» ───────────────────────────────────────────────
+
+router.get("/deals/:id/broadcast", requireAuth, withTenant(OWNER, async (req, res, t) => {
+  const p = await previewBroadcast(t.org, t.branch, Number(req.params.id));
+  if (!p) return res.status(404).json({ error: "العرض غير موجود" });
+  const plan = await menuPlan(t.org.ownerUserId);
+  res.json({ ...p, allowed: plan.features.campaigns, planName: plan.planName });
+}));
+
+router.post("/deals/:id/broadcast", requireAuth, withTenant(OWNER, async (req, res, t) => {
+  const plan = await menuPlan(t.org.ownerUserId);
+  if (!plan.features.campaigns) return res.status(402).json({ error: `إرسال العروض للزبائن من خطة فيها الحملات — خطتك ${plan.planName}.`, plan: true });
+  const r = await sendBroadcast(t.org, t.branch, Number(req.params.id), req.body?.segment, req.body?.message);
+  if (!r.ok) return res.status(400).json({ error: r.error });
+  res.json(r);
 }));
 
 router.delete("/deals/:id", requireAuth, withTenant(MANAGERS, async (req, res, t) => {

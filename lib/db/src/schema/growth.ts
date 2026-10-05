@@ -47,6 +47,8 @@ export const shopDealsTable = pgTable("shop_deals", {
   phone:        varchar("phone", { length: 40 }),
   // owner | birthday | referral
   source:       varchar("source", { length: 12 }).notNull().default("owner"),
+  // «أرسله لزبائني»: [{ campaignId, at, count, segment }]
+  broadcasts:   jsonb("broadcasts").$type<Array<{ campaignId: number; at: string; count: number; segment: string }>>().notNull().default([]),
   isActive:     boolean("is_active").notNull().default(true),
   createdAt:    timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
