@@ -1,3 +1,4 @@
+import { startSalesEngine } from "./lib/sales/engine";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { restoreAllSessions, getActiveUserIds, getStatus, initWhatsApp, startWakeDetector } from "./lib/whatsapp";
@@ -135,6 +136,7 @@ function startListening() {
     // already claimed, or the agent would answer it too.
     startMenuInbound();
     startFollowUpEngine();
+    startSalesEngine();
     startNotifyWorker();
     startReceipts();
     startQueueSweeper();

@@ -52,6 +52,7 @@ import Gifts from "@/pages/shop/Gifts";
 import AdminOrgs from "@/pages/shop/AdminOrgs";
 import AdminMetrics from "@/pages/shop/AdminMetrics";
 import AdminPlans from "@/pages/shop/AdminPlans";
+import AdminSales from "@/pages/shop/AdminSales";
 import StaffLogin from "@/pages/shop/StaffLogin";
 import StaffLayout from "@/components/shop/StaffLayout";
 import { useShopQuery } from "@/lib/shop-api";
@@ -211,6 +212,7 @@ function AdminOnlyRoutes() {
         <Route path="/admin/orgs"     component={AdminOrgs} />
         <Route path="/admin/metrics"  component={AdminMetrics} />
         <Route path="/admin/plans"    component={AdminPlans} />
+        <Route path="/admin/sales"    component={AdminSales} />
         <Route path="/admin"          component={AdminPage} />
         <Route path="/email/:tab/:id" component={EmailMarketing} />
         <Route path="/email/:tab?"    component={EmailMarketing} />
@@ -267,6 +269,7 @@ function AuthenticatedRoutes() {
           <Route path="/admin/orgs"     component={AdminOrgs} />
           <Route path="/admin/metrics"  component={AdminMetrics} />
           <Route path="/admin/plans"    component={AdminPlans} />
+          <Route path="/admin/sales"    component={AdminSales} />
           <Route path="/dashboard"      component={Dashboard} />
           <Route path="/connect"        component={Connect} />
           <Route path="/contacts"       component={ContactsList} />

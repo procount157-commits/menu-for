@@ -2801,6 +2801,101 @@ ALTER SEQUENCE public.queues_id_seq OWNED BY public.queues.id;
 
 
 --
+-- Name: sales_prospects; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sales_prospects (
+    id integer NOT NULL,
+    wa_user_id integer NOT NULL,
+    phone character varying(20) NOT NULL,
+    name character varying(120),
+    business character varying(160),
+    vertical character varying(20),
+    city character varying(80),
+    source character varying(40) DEFAULT 'manual'::character varying NOT NULL,
+    stage character varying(16) DEFAULT 'new'::character varying NOT NULL,
+    step integer DEFAULT 0 NOT NULL,
+    token character varying(12) NOT NULL,
+    priority integer DEFAULT 0 NOT NULL,
+    next_at timestamp with time zone,
+    first_sent_at timestamp with time zone,
+    last_sent_at timestamp with time zone,
+    last_reply_at timestamp with time zone,
+    replies integer DEFAULT 0 NOT NULL,
+    clicks integer DEFAULT 0 NOT NULL,
+    last_click_at timestamp with time zone,
+    links_sent jsonb DEFAULT '[]'::jsonb NOT NULL,
+    facts jsonb DEFAULT '[]'::jsonb NOT NULL,
+    summary text,
+    interest smallint,
+    org_id integer,
+    stop_reason character varying(80),
+    note text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: sales_prospects_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.sales_prospects_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: sales_prospects_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.sales_prospects_id_seq OWNED BY public.sales_prospects.id;
+
+
+--
+-- Name: sales_touches; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sales_touches (
+    id integer NOT NULL,
+    prospect_id integer NOT NULL,
+    wa_user_id integer NOT NULL,
+    kind character varying(16) NOT NULL,
+    step integer,
+    text text,
+    links jsonb DEFAULT '[]'::jsonb NOT NULL,
+    by character varying(12) DEFAULT 'ai'::character varying NOT NULL,
+    status character varying(12) DEFAULT 'sent'::character varying NOT NULL,
+    meta jsonb,
+    at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: sales_touches_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.sales_touches_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: sales_touches_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.sales_touches_id_seq OWNED BY public.sales_touches.id;
+
+
+--
 -- Name: shop_deals; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3739,6 +3834,20 @@ ALTER TABLE ONLY public.queues ALTER COLUMN id SET DEFAULT nextval('public.queue
 
 
 --
+-- Name: sales_prospects id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sales_prospects ALTER COLUMN id SET DEFAULT nextval('public.sales_prospects_id_seq'::regclass);
+
+
+--
+-- Name: sales_touches id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sales_touches ALTER COLUMN id SET DEFAULT nextval('public.sales_touches_id_seq'::regclass);
+
+
+--
 -- Name: shop_deals id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -4529,6 +4638,38 @@ ALTER TABLE ONLY public.queues
 
 
 --
+-- Name: sales_prospects sales_prospects_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sales_prospects
+    ADD CONSTRAINT sales_prospects_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: sales_prospects sales_prospects_token_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sales_prospects
+    ADD CONSTRAINT sales_prospects_token_key UNIQUE (token);
+
+
+--
+-- Name: sales_prospects sales_prospects_wa_user_id_phone_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sales_prospects
+    ADD CONSTRAINT sales_prospects_wa_user_id_phone_key UNIQUE (wa_user_id, phone);
+
+
+--
+-- Name: sales_touches sales_touches_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sales_touches
+    ADD CONSTRAINT sales_touches_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: user_sessions session_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5140,6 +5281,34 @@ CREATE INDEX idx_routine_runs ON public.agent_routine_runs USING btree (routine_
 --
 
 CREATE INDEX idx_routines_due ON public.agent_routines USING btree (user_id, is_active, last_run_at);
+
+
+--
+-- Name: idx_sales_due; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_sales_due ON public.sales_prospects USING btree (wa_user_id, stage, next_at);
+
+
+--
+-- Name: idx_sales_new; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_sales_new ON public.sales_prospects USING btree (wa_user_id, stage, priority DESC, id);
+
+
+--
+-- Name: idx_sales_touch_day; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_sales_touch_day ON public.sales_touches USING btree (wa_user_id, kind, at);
+
+
+--
+-- Name: idx_sales_touch_p; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_sales_touch_p ON public.sales_touches USING btree (prospect_id, at);
 
 
 --
@@ -6196,6 +6365,30 @@ ALTER TABLE ONLY public.queues
 
 ALTER TABLE ONLY public.queues
     ADD CONSTRAINT queues_org_id_orgs_id_fk FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: sales_prospects sales_prospects_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sales_prospects
+    ADD CONSTRAINT sales_prospects_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE SET NULL;
+
+
+--
+-- Name: sales_prospects sales_prospects_wa_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sales_prospects
+    ADD CONSTRAINT sales_prospects_wa_user_id_fkey FOREIGN KEY (wa_user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: sales_touches sales_touches_prospect_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sales_touches
+    ADD CONSTRAINT sales_touches_prospect_id_fkey FOREIGN KEY (prospect_id) REFERENCES public.sales_prospects(id) ON DELETE CASCADE;
 
 
 --

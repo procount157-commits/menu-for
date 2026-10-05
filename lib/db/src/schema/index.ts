@@ -25,3 +25,4 @@ export * from "./email";
 export * from "./menu";
 export * from "./subscriptions";
 export * from "./growth";
+export * from "./sales";

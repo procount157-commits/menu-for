@@ -1,3 +1,4 @@
+import { markSalesSignup } from "../lib/sales/service";
 import { Router } from "express";
 import { randomUUID } from "crypto";
 import crypto from "crypto";
@@ -75,6 +76,8 @@ router.post("/register", async (req, res) => {
     // Open sign-up: the trial, with every switch on, for the days the admin set.
     await startTrial(user.id).catch((err) => logger.warn({ userId: user.id, err: String(err?.message ?? err) }, "trial could not start"));
   }
+  // A shop the Menu For You seller was talking to has just signed up.
+  void markSalesSignup(cleanPhone).catch(() => {});
 
   logger.info({ userId: user.id, phone: cleanPhone, invited: !open }, "New user registered");
 

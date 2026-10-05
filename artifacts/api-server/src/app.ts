@@ -5,6 +5,7 @@ import connectPgSimple from "connect-pg-simple";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import trackRouter from "./routes/track";
+import salesLinkRouter from "./routes/sales-link";
 import { logger } from "./lib/logger";
 import { mountMenuWeb } from "./lib/menu/web";
 
@@ -120,6 +121,8 @@ app.use(
 // inbound hook. Before the API router so /api/email/inbound/:token is not
 // caught by the session check on /api/email.
 app.use(trackRouter);
+// The seller's tracked links: /s/<token>/<key>.
+app.use(salesLinkRouter);
 
 app.use("/api", router);
 

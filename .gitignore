@@ -27,3 +27,6 @@ artifacts/api-server/uploads-tmp/
 # per-user Baileys session dirs and the last confirmed WA Web version
 whatsapp-session/
 settings.json
+
+# Sales prospect lists: real shops' phone numbers — never committed (the repo is public).
+data/sales/

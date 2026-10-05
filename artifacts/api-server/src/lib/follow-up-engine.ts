@@ -7,6 +7,7 @@
 // Ad leads identify themselves: a click-to-WhatsApp ad stamps the first
 // incoming message with referral data, which is what sourceFilter="ad" keys on.
 
+import { handleSalesInbound } from "./sales/service";
 import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import {
   db, leadSourcesTable, followUpSequencesTable, followUpJobsTable,
@@ -513,6 +514,8 @@ export async function handleInbound(ev: { userId: number; phone: string; text: s
   // A queue code, an order confirmation or «كم قدامي» is answered by the
   // menu side (lib/notify/inbound.ts); the agent must not also reply to it.
   if (await isClaimed(userId, phone, text)) return;
+  // A shop on the Menu For You sales list is the seller's, not the shop host's.
+  if (await handleSalesInbound(ev).catch((err) => { logger.warn({ err: String(err?.message ?? err) }, "sales inbound failed"); return false; })) return;
   const ref = extractReferral(ev.message);
   const source = await recordLead(userId, phone, ref);
   const first = await isFirstContact(userId, phone);

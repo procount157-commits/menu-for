@@ -284,6 +284,17 @@ export default function Layout({ children }: { children: ReactNode }) {
               الخطط والفترة التجريبية
             </Link>
           )}
+          {user?.isAdmin && (
+            <Link href="/admin/sales" className={cn(
+              "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer",
+              location.startsWith("/admin/sales")
+                ? "bg-primary/15 text-primary border border-primary/20"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            )}>
+              <Megaphone className="w-4 h-4 flex-shrink-0" />
+              موظف المبيعات
+            </Link>
+          )}
           {adminOnly && (
             <Link href="/email" className={cn(
               "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer",
