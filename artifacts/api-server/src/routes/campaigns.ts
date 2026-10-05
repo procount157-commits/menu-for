@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { campaignMessageAllowed } from "../lib/growth/quota";
 import { db, campaignsTable, contactGroupsTable, contactsTable, messageLogs, unsubscribedPhonesTable, waSessionEventsTable, campaignButtonResponsesTable } from "@workspace/db";
 import { assessDeliveryHealth, assessAccountHealth, MATURITY_MINUTES, MIN_SAMPLE as DELIVERY_MIN_SAMPLE } from "../lib/delivery-health";
 import { computeGap, diurnalFactor } from "../lib/pacing";
@@ -1392,6 +1393,17 @@ async function runCampaign(userId: number, campaign: any, contacts: any[], info:
           db.update(campaignsTable).set({ status: "paused" }).where(eq(campaignsTable.id, campaign.id))
         );
       } catch { /* ignore — watchdog will pick it up */ }
+      break;
+    }
+
+    // ── The shop's monthly message allowance (Menu For You) ────────
+    const monthQuota = await campaignMessageAllowed(userId).catch(() => ({ ok: true as const, reason: undefined }));
+    if (!monthQuota.ok) {
+      logger.info({ campaignId: campaign.id }, "monthly message quota reached — pausing campaign");
+      info.running = false;
+      activeCampaigns.delete(key);
+      await withDbRetry(() => db.update(campaignsTable).set({ status: "paused", autoPauseReason: monthQuota.reason ?? null })
+        .where(eq(campaignsTable.id, campaign.id))).catch(() => {});
       break;
     }
 

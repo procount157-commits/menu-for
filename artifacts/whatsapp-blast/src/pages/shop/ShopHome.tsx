@@ -158,15 +158,38 @@ function PlanUsage() {
   const L = shop.plan.limits, U = shop.usage;
   if (!U) return null;
   const rows = ([["الفروع", U.branches, L.branches], ["الأصناف", U.items, L.items], ["الموظفون", U.staff, L.staff]] as const).filter(([, , l]) => l > 0);
+  const m = U.messages;
   const near = rows.filter(([, u, l]) => u / l >= 0.8);
   const top = shop.plan.plan === "business";
-  if (!rows.length && top) return null;
+  const msgPct = m && m.monthly > 0 ? Math.min(100, Math.round((m.used / m.monthly) * 100)) : 0;
+  const msgHot = !!m && m.monthly > 0 && m.used / m.monthly >= 0.8;
+  if (!rows.length && top && !m) return null;
   return (
-    <section className={cn("rounded-2xl border p-4 sm:p-5", near.length ? "border-amber-500/40 bg-amber-500/5" : "border-card-border bg-card")}>
+    <section className={cn("rounded-2xl border p-4 sm:p-5", near.length || msgHot ? "border-amber-500/40 bg-amber-500/5" : "border-card-border bg-card")}>
+      {shop.plan.trial && (
+        <div className="mb-3 rounded-xl bg-primary/10 border border-primary/25 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+          <span className="font-semibold">🎁 تجربتك المجانية: {shop.plan.daysLeft ?? 0} {shop.plan.daysLeft === 1 ? "يوم" : "يوماً"} باقية</span>
+          <span className="text-muted-foreground">كل الميزات مفتوحة. اختر خطتك قبل انتهائها لتبقى رسائلك وزبائنك شغّالين.</span>
+          <button onClick={() => askUpgrade("أريد اختيار خطتي قبل انتهاء التجربة")} className={cn(btnPrimary, "text-xs px-3 py-1.5 ms-auto")}>اختر خطتك</button>
+        </div>
+      )}
+      {shop.plan.expired && (
+        <div className="mb-3 rounded-xl bg-red-500/10 border border-red-500/25 px-3 py-2 text-sm">انتهت خطتك — المنيو شغّال، لكن الرسائل والميزات المدفوعة متوقفة حتى التجديد.</div>
+      )}
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <h3 className="font-semibold flex-1">خطتك: {shop.plan.planName}</h3>
+        <h3 className="font-semibold flex-1">خطتك: {shop.plan.planName}{shop.plan.expiresAt && !shop.plan.trial && !shop.plan.expired ? <span className="text-xs text-muted-foreground font-normal"> · حتى {new Date(shop.plan.expiresAt).toLocaleDateString("ar-AE-u-nu-latn")}</span> : null}</h3>
         {!top && <button onClick={() => askUpgrade(near.length ? `وصلت ${near.map(([n]) => n).join(" و")} لحد خطتك تقريباً.` : "")} className={cn(btnPrimary, "text-xs px-3 py-1.5")}><TrendingUp className="w-3.5 h-3.5" />ارفع خطتك</button>}
       </div>
+      {m && m.monthly !== 0 && (
+        <div className="mb-3">
+          <div className="flex justify-between text-xs mb-1">
+            <span className="text-muted-foreground">رسائل واتساب لزبائنك هذا الشهر</span>
+            <span className={cn("tabular-nums", msgPct >= 100 ? "text-red-300" : msgHot ? "text-amber-300" : "")}>{m.used} / {m.monthly < 0 ? "∞" : m.monthly}{m.credits ? ` + ${m.credits} رصيد` : ""}</span>
+          </div>
+          {m.monthly > 0 && <div className="h-2 rounded-full bg-muted overflow-hidden"><div className={cn("h-full rounded-full", msgPct >= 100 ? "bg-red-400" : msgHot ? "bg-amber-400" : "bg-primary")} style={{ width: `${msgPct}%` }} /></div>}
+          {msgPct >= 100 && <p className="text-xs text-amber-200/90 mt-1">انتهت رسائل الشهر: رسائل الدور والطلب تستمر قليلاً، والتسويق ينتظر الشهر القادم. <button className="underline" onClick={() => askUpgrade("انتهت رسائل الشهر — أحتاج خطة أكبر أو رصيد رسائل")}>أضف رصيداً أو ارفع خطتك</button></p>}
+        </div>
+      )}
       <div className="grid sm:grid-cols-3 gap-3">
         {rows.map(([n, u, l]) => {
           const pct = Math.min(100, Math.round((u / l) * 100));

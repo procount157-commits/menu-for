@@ -120,3 +120,21 @@ export const customerReferralsTable = pgTable("customer_referrals", {
   uniqueIndex("uq_referral_friend").on(t.orgId, t.friendPhone),
   index("idx_referrals_referrer").on(t.orgId, t.referrerPhone),
 ]);
+
+/** A shop's month: customer messages sent (of which marketing), AI replies, campaigns started, credits spent. */
+export const orgUsageTable = pgTable("org_usage", {
+  orgId:        integer("org_id").notNull().references(() => orgsTable.id, { onDelete: "cascade" }),
+  month:        varchar("month", { length: 7 }).notNull(),
+  messages:     integer("messages").notNull().default(0),
+  marketing:    integer("marketing").notNull().default(0),
+  agentReplies: integer("agent_replies").notNull().default(0),
+  campaigns:    integer("campaigns").notNull().default(0),
+  creditsUsed:  integer("credits_used").notNull().default(0),
+}, (t) => [primaryKey({ columns: [t.orgId, t.month] })]);
+
+/** Platform-wide settings the admin edits (the trial's rules live here). */
+export const platformSettingsTable = pgTable("platform_settings", {
+  key:       varchar("key", { length: 40 }).primaryKey(),
+  value:     jsonb("value").$type<Record<string, unknown>>().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});

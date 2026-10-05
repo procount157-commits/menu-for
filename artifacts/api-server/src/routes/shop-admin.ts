@@ -60,6 +60,7 @@ router.patch("/customers/:phone", requireAuth, withTenant(OWNER, async (req, res
 }));
 
 router.get("/customers-export.csv", requireAuth, withTenant(OWNER, async (_req, res, t) => {
+  if (!(await menuPlan(t.org.ownerUserId)).features.exportData) return res.status(402).json({ error: "تصدير البيانات غير متاح في خطتك — رقّ الخطة لتفعيله.", plan: true });
   const rows = await db.select().from(customersTable).where(eq(customersTable.orgId, t.org.id)).orderBy(desc(customersTable.lastSeenAt));
   const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const lines = ["phone,name,visits,orders,bookings,no_shows,total_spent,marketing_opt_in,first_seen,last_seen,rating"]

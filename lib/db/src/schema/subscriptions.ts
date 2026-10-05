@@ -19,8 +19,17 @@ export const subscriptionPlansTable = pgTable("subscription_plans", {
   isActive:      boolean("is_active").notNull().default(true),
   isFeatured:    boolean("is_featured").notNull().default(false),
   sortOrder:     integer("sort_order").notNull().default(0),
-  // Which PLAN_LIMITS tier a subscriber of this plan is put on.
+  // The key a subscriber's `users.plan` holds; the matrix below is what it allows.
   planKey:       varchar("plan_key", { length: 20 }),
+  priceYearly:   numeric("price_yearly", { precision: 10, scale: 2 }),
+  extraBranchPrice: numeric("extra_branch_price", { precision: 10, scale: 2 }),
+  // Hide the price and show «تواصل معنا».
+  contactSales:  boolean("contact_sales").notNull().default(false),
+  // On the home page and in the upgrade dialog (the trial plan is not).
+  isPublic:      boolean("is_public").notNull().default(true),
+  // LimitKey → number (-1 unlimited) and ToggleKey → boolean; see menu-shared/plans.ts.
+  limits:        jsonb("limits").$type<Record<string, number>>().notNull().default({}),
+  toggles:       jsonb("toggles").$type<Record<string, boolean>>().notNull().default({}),
   createdAt:     timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

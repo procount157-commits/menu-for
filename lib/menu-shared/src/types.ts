@@ -108,6 +108,8 @@ export interface PublicMenu {
   categories: PublicCategory[];
   items: PublicItem[];
   offers: PublicOffer[];
+  /** Show «مدعوم من منيو فور يو» at the foot of the menu. */
+  branding: boolean;
   /** «يُطلب معه»: for an item id, the item ids to suggest with it in the cart. */
   pairs: Record<number, number[]>;
   /** Timed deals running right now — they apply by themselves at checkout. */

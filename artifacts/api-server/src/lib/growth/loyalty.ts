@@ -38,7 +38,7 @@ export type StampResult = { stamps: number; target: number; rewarded: boolean } 
 /** One stamp for today's visit or order; the gift when the card fills. */
 export async function addStamp(org: Org, branch: Pick<Branch, "waUserId" | "slug">, phone: string | null | undefined, now = new Date()): Promise<StampResult> {
   if (!phone || !loyaltyOn(org)) return null;
-  if (!(await menuPlan(org.ownerUserId)).features.marketing) return null;
+  if (!(await menuPlan(org.ownerUserId)).features.loyalty) return null;
   const today = localDate(org.timezone, new Date(now.getTime() - 4 * 3_600_000));
   const [row] = await db.update(customersTable).set({
     stamps: sql`${customersTable.stamps} + 1`, stampsTotal: sql`${customersTable.stampsTotal} + 1`, lastStampDay: today,

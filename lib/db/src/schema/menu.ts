@@ -43,6 +43,11 @@ export const orgsTable = pgTable("orgs", {
   referralCode: varchar("referral_code", { length: 12 }),
   referredByOrgId: integer("referred_by_org_id"),
   referralRewardedAt: timestamp("referral_rewarded_at", { withTimezone: true }),
+  // The admin's room for this one shop on top of its plan: { branches, items, staff, messagesMonthly, … }.
+  limitOverrides: jsonb("limit_overrides").$type<Record<string, number>>().notNull().default({}),
+  // Extra messages bought or granted, spent only after the month's allowance.
+  messageCredits: integer("message_credits").notNull().default(0),
+  trialExtendedAt: timestamp("trial_extended_at", { withTimezone: true }),
   reportPrefs: jsonb("report_prefs").$type<{ enabled: boolean; weekday: number; hour: number }>().notNull().default({ enabled: true, weekday: 0, hour: 10 }),
   status:      varchar("status", { length: 20 }).notNull().default("active"),
   onboardedAt: timestamp("onboarded_at", { withTimezone: true }),

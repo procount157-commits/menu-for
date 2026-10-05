@@ -56,10 +56,11 @@ export interface ShopBranch {
 }
 
 export interface Plan {
-  plan: string; planName: string; expired: boolean; expiresAt: string | null;
-  limits: { branches: number; items: number; staff: number };
-  features: { queue: boolean; booking: boolean; notify: boolean; marketing: boolean; display: boolean; branchNumbers: boolean; growth: boolean };
+  plan: string; planName: string; expired: boolean; expiresAt: string | null; trial: boolean; daysLeft: number | null; priceMonthly: number;
+  limits: Record<string, number> & { branches: number; items: number; staff: number; messagesMonthly: number };
+  features: Record<string, boolean> & { queue: boolean; booking: boolean; notify: boolean; marketing: boolean; display: boolean; branchNumbers: boolean; growth: boolean };
 }
+export interface MessageAllowance { month: string; monthly: number; used: number; marketing: number; agentReplies: number; agentMonthly: number; credits: number; creditsUsed: number; remaining: number; grace: number; share: number }
 
 export interface ShopMe {
   needsOnboarding?: false;
@@ -81,7 +82,7 @@ export interface ShopMe {
   };
   branches: ShopBranch[];
   plan: Plan;
-  usage: { branches: number; items: number; staff: number };
+  usage: { branches: number; items: number; staff: number; messages: MessageAllowance | null };
   /** Bookings are on for this branch and in the plan. */
   booking: { enabled: boolean };
   wa: WaState;

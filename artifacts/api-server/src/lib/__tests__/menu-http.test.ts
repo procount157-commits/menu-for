@@ -55,6 +55,14 @@ async function owner(n: string) {
 }
 const A = await owner("a");
 const B = await owner("b");
+{
+  // A sign-up with no invite starts on the trial.
+  const T = new Client();
+  const tr = await T.post("/api/auth/register", { phone: `9990074${tag}`, password: "secret123", displayName: "trial" });
+  const trow = (await db.select().from(usersTable).where(eq(usersTable.phone, `9990074${tag}`)))[0];
+  check("a shop that signs up by itself starts on the trial", tr.status === 201 && trow?.plan === "trial" && !!trow.planExpiresAt, trow?.plan);
+  await db.delete(usersTable).where(eq(usersTable.phone, `9990074${tag}`));
+}
 
 let r = await A.get("/api/tenancy/me");
 check("a new owner is asked to make their shop", r.json?.needsOnboarding === true, r.json);
@@ -259,6 +267,17 @@ check("every owner has a link that brings other shops", /^M[A-Z0-9]{5}$/.test(re
 r = await A.post("/api/admin/orgs", { name: "صالون جديد", nameEn: "New Salon", vertical: "beauty", ownerPhone: `9990073${tag}`, ownerName: "هدى", password: "secret123", plan: "pro", planDays: 30, referralCode: refOfB.code });
 check("the admin creates a shop with its owner and plan", r.status === 201 && r.json.org.vertical === "beauty" && /new-salon/.test(r.json.org.slug), r.json?.org?.slug ?? r.json);
 const madeSlug = r.json.org.slug;
+r = await A.get("/api/plans/admin/matrix");
+check("the admin sees the whole matrix: plans, rows, the trial", r.status === 200 && r.json.plans.some((p: any) => p.key === "trial") && r.json.rows.toggles.length > 15 && r.json.trial.days > 0, r.json?.plans?.map((p: any) => p.key));
+r = await A.req("PUT", "/api/plans/admin/matrix/basic", { toggles: { queue: true }, limits: { staff: 7 }, priceYearly: 990 });
+check("…and edits any cell", r.status === 200);
+r = await anon.get("/api/plans");
+const basicPub = r.json.find((p: any) => p.plan_key === "basic");
+check("the home page reads the same matrix, with bullets written from it", basicPub && Number(basicPub.price_yearly) === 990 && basicPub.features.some((f: string) => f.includes("7 حسابات موظفين")) && basicPub.toggles.queue === true, basicPub?.features);
+check("…and never shows the trial plan", !r.json.some((p: any) => p.plan_key === "trial"));
+await A.req("PUT", "/api/plans/admin/matrix/basic", { toggles: { queue: false }, limits: { staff: 3 }, priceYearly: "" });
+r = await B.get("/api/plans/admin/matrix");
+check("an owner cannot open the matrix", r.status === 403);
 r = await A.get("/api/admin/orgs/metrics");
 check("the admin sees the platform in numbers", r.status === 200 && typeof r.json.money.mrr === "number" && r.json.funnel.length === 6, r.json?.money);
 r = await B.get("/api/admin/orgs/metrics");

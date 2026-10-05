@@ -65,7 +65,7 @@ router.get("/growth/menu-stats", requireAuth, withTenant(MANAGERS, async (req, r
   const only = Number(req.query.branch);
   if (only && branchIds.includes(only)) branchIds = [only];
   const plan = await menuPlan(t.org.ownerUserId);
-  if (!plan.features.growth) {
+  if (!plan.features.analytics) {
     // Counting runs on every plan, so an upgrade opens months of history, not an empty page.
     const [c] = await db.select({ views: sql<number>`coalesce(sum(views), 0)::int` }).from(menuStatsDailyTable).where(eq(menuStatsDailyTable.orgId, t.org.id));
     return res.json({ locked: true, planName: plan.planName, recorded: c?.views ?? 0 });
@@ -82,14 +82,14 @@ router.get("/growth/birthday", requireAuth, withTenant(OWNER, async (_req, res, 
     sent: sql<number>`count(*) filter (where birthday_sent_year = ${year})::int`,
   }).from(customersTable).where(eq(customersTable.orgId, t.org.id));
   const plan = await menuPlan(t.org.ownerUserId);
-  res.json({ enabled: !!t.org.features?.birthday, prefs: birthdayPrefs(t.org), known: c?.known ?? 0, sentThisYear: c?.sent ?? 0, allowed: plan.features.marketing, planName: plan.planName });
+  res.json({ enabled: !!t.org.features?.birthday, prefs: birthdayPrefs(t.org), known: c?.known ?? 0, sentThisYear: c?.sent ?? 0, allowed: plan.features.birthday, planName: plan.planName });
 }));
 
 router.patch("/growth/birthday", requireAuth, withTenant(OWNER, async (req, res, t) => {
   const b = req.body ?? {};
   if (b.enabled === true) {
     const plan = await menuPlan(t.org.ownerUserId);
-    if (!plan.features.marketing) return res.status(402).json({ error: `هدية عيد الميلاد من خطة «احترافي» — خطتك ${plan.planName}.`, plan: true });
+    if (!plan.features.birthday) return res.status(402).json({ error: `هدية عيد الميلاد من خطة «احترافي» — خطتك ${plan.planName}.`, plan: true });
   }
   const features = { ...(t.org.features ?? {}), ...(typeof b.enabled === "boolean" ? { birthday: b.enabled } : {}) };
   const cur = birthdayPrefs(t.org);
@@ -112,14 +112,14 @@ router.get("/growth/shop-referral", requireAuth, withTenant(OWNER, async (_req, 
 router.get("/growth/loyalty", requireAuth, withTenant(MANAGERS, async (_req, res, t) => {
   const plan = await menuPlan(t.org.ownerUserId);
   const p = loyaltyPrefs(t.org);
-  res.json({ enabled: loyaltyOn(t.org), prefs: p, reward: rewardText(p, t.org.currency), stats: await loyaltyStats(t.org.id), allowed: plan.features.marketing, planName: plan.planName });
+  res.json({ enabled: loyaltyOn(t.org), prefs: p, reward: rewardText(p, t.org.currency), stats: await loyaltyStats(t.org.id), allowed: plan.features.loyalty, planName: plan.planName });
 }));
 
 router.patch("/growth/loyalty", requireAuth, withTenant(OWNER, async (req, res, t) => {
   const b = req.body ?? {};
   if (b.enabled === true) {
     const plan = await menuPlan(t.org.ownerUserId);
-    if (!plan.features.marketing) return res.status(402).json({ error: `بطاقة الأختام من خطة «احترافي» — خطتك ${plan.planName}.`, plan: true });
+    if (!plan.features.loyalty) return res.status(402).json({ error: `بطاقة الأختام من خطة «احترافي» — خطتك ${plan.planName}.`, plan: true });
   }
   const cur = loyaltyPrefs(t.org);
   const num = (v: unknown, lo: number, hi: number, d: number) => (v !== "" && v != null && Number.isFinite(Number(v)) ? Math.max(lo, Math.min(hi, Math.round(Number(v)))) : d);
@@ -139,14 +139,14 @@ router.patch("/growth/loyalty", requireAuth, withTenant(OWNER, async (req, res, 
 
 router.get("/growth/referral", requireAuth, withTenant(MANAGERS, async (_req, res, t) => {
   const plan = await menuPlan(t.org.ownerUserId);
-  res.json({ enabled: referralOn(t.org), prefs: referralPrefs(t.org), stats: await referralStats(t.org.id), allowed: plan.features.growth, planName: plan.planName });
+  res.json({ enabled: referralOn(t.org), prefs: referralPrefs(t.org), stats: await referralStats(t.org.id), allowed: plan.features.referral, planName: plan.planName });
 }));
 
 router.patch("/growth/referral", requireAuth, withTenant(OWNER, async (req, res, t) => {
   const b = req.body ?? {};
   if (b.enabled === true) {
     const plan = await menuPlan(t.org.ownerUserId);
-    if (!plan.features.growth) return res.status(402).json({ error: `«ادعُ صديقاً» من خطة «أعمال» — خطتك ${plan.planName}.`, plan: true });
+    if (!plan.features.referral) return res.status(402).json({ error: `«ادعُ صديقاً» من خطة «أعمال» — خطتك ${plan.planName}.`, plan: true });
   }
   const cur = referralPrefs(t.org);
   const num = (v: unknown, lo: number, hi: number, d: number) => (Number.isFinite(Number(v)) && v !== "" && v != null ? Math.max(lo, Math.min(hi, Math.round(Number(v)))) : d);

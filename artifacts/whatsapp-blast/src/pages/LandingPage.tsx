@@ -356,7 +356,10 @@ function FaqItem({ q, a }: { q: string; a: string }) {
 
 // ── Dynamic Plan type (from API) ──────────────────────────────────
 interface DynamicPlan {
-  id: number;
+  id: number | string;
+  price_yearly?: string | null;
+  contact_sales?: boolean;
+  trial_days?: number;
   name: string;
   name_en: string | null;
   price: string;
@@ -521,6 +524,7 @@ export default function LandingPage() {
     (localStorage.getItem("mfy-lang") as "ar" | "en") || "ar"
   );
   const [videoOpen,   setVideoOpen]   = useState(false);
+  const [yearly,      setYearly]      = useState(false);
   const [waNum,       setWaNum]       = useState("971588951186");
   const [salesWaNum,  setSalesWaNum]  = useState("971588951186");
   const [plans,       setPlans]       = useState<DynamicPlan[]>([]);
@@ -857,13 +861,21 @@ export default function LandingPage() {
             <h2 className="text-3xl sm:text-4xl font-black text-white mb-4">{c.pricing.title}</h2>
             <p className="text-white/50 max-w-md mx-auto text-sm">{c.pricing.sub}</p>
           </div>
-          <div className="grid sm:grid-cols-3 gap-6">
+          {plans.some((p) => p.price_yearly) && (
+            <div className="flex justify-center mb-8">
+              <div className="inline-flex rounded-full bg-white/5 border border-white/10 p-1 text-sm">
+                <button onClick={() => setYearly(false)} className={`px-5 h-9 rounded-full ${!yearly ? "bg-green-500 text-black font-bold" : "text-white/60"}`}>{lang === "ar" ? "شهري" : "Monthly"}</button>
+                <button onClick={() => setYearly(true)} className={`px-5 h-9 rounded-full ${yearly ? "bg-green-500 text-black font-bold" : "text-white/60"}`}>{lang === "ar" ? "سنوي — شهران مجاناً" : "Yearly — 2 months free"}</button>
+              </div>
+            </div>
+          )}
+          <div className={`grid gap-6 ${plans.length === 4 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
             {plans.length > 0
               ? plans.map((plan, i) => (
                   <PriceCard key={plan.id}
                     label={lang === "ar" ? plan.name : (plan.name_en || plan.name)}
-                    price={Number(plan.price).toLocaleString("en-US")}
-                    period={plan.period_label || plan.period}
+                    price={plan.contact_sales ? (lang === "ar" ? "تواصل معنا" : "Contact us") : Number(yearly && plan.price_yearly ? plan.price_yearly : plan.price).toLocaleString("en-US")}
+                    period={plan.contact_sales ? "" : yearly && plan.price_yearly ? (lang === "ar" ? "درهم / سنة" : "AED / year") : (lang === "ar" ? "درهم / شهر" : "AED / month")}
                     badge={lang === "ar" ? (plan.badge || undefined) : (plan.badge_en || plan.badge || undefined)}
                     features={lang === "ar" ? plan.features : (plan.features_en || plan.features)}
                     cta={lang === "ar" ? "اشترك الآن" : "Subscribe Now"}

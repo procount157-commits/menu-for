@@ -189,7 +189,7 @@ export async function runAutopilot(waUserId: number, opts: { manual?: boolean; n
   const base = { waUserId, orgId: org.id, audience: cfg.audience };
 
   const plan = await menuPlan(org.ownerUserId);
-  if (!plan.features.marketing) return logRun({ ...base, status: "skipped", note: `الحملات غير متاحة في خطة ${plan.planName}` });
+  if (!plan.features.autopilot) return logRun({ ...base, status: "skipped", note: `الحملات غير متاحة في خطة ${plan.planName}` });
 
   // One campaign of the autopilot's at a time: last week's still waiting or
   // still sending means this week's would pile onto it.

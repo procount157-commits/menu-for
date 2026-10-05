@@ -40,6 +40,7 @@ import { menuPlan } from "../plans";
 import { getControls } from "../ops-agent";
 import { getEffectiveDailyLimit } from "../daily-limit";
 import type { TemplateKey } from "./templates";
+import { takeMessage, kindOf } from "../growth/quota";
 
 export const REPLIED_WINDOW_MS = 24 * 3_600_000;
 /** Per number per day. Replies in a customer's own thread are the safe kind; still bounded. */
@@ -190,6 +191,16 @@ export async function drain(now = new Date()): Promise<number> {
       if (lane !== n.class) await db.update(notificationsTable).set({ class: lane }).where(eq(notificationsTable.id, n.id));
     }
 
+    if (n.class !== "staff") {
+      // One of the month's messages. Marketing waits when they run out; a turn gets a small grace.
+      const org = await orgById(n.orgId);
+      const take = org ? await takeMessage(org, kindOf(n.kind)) : { ok: true as const };
+      if (!take.ok) {
+        // A turn that cannot wait is dropped now; anything else waits for next month or credits.
+        if (take.reason === "quota_marketing" || (n.expiresAt && n.expiresAt.getTime() - now.getTime() < 30 * 60_000) || take.reason === "plan") await mark(n.id, "skipped", take.reason);
+        continue;
+      }
+    }
     nextAt.set(n.waUserId, Date.now() + gapMs() * throttle);
     try {
       const id = await sendMessage(n.waUserId, n.phone, n.text);

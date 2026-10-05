@@ -16,6 +16,7 @@ import { addDays, formatMoney, localDate, localParts, vocab, zonedToUtc } from "
 import { enqueue } from "../notify/outbox";
 import { publicUrl, menuPath } from "../menu/urls";
 import { logger } from "../logger";
+import { menuPlan } from "../plans";
 
 export const DEFAULT_PREFS: ReportPrefs = { enabled: true, weekday: 0, hour: 10 };
 
@@ -206,6 +207,7 @@ export async function runWeeklyReports(now = new Date()): Promise<number> {
   let sent = 0;
   for (const org of orgs) {
     if (!org.onboardedAt || !reportDue(org.reportPrefs, org.timezone, now)) continue;
+    if (!(await menuPlan(org.ownerUserId)).features.weeklyReport) continue;
     const week = weekWindow(org.timezone, now).from;
     const [done] = await db.select({ id: ownerReportsTable.id }).from(ownerReportsTable)
       .where(and(eq(ownerReportsTable.orgId, org.id), eq(ownerReportsTable.weekStart, week), sql`${ownerReportsTable.manual} IS NULL`)).limit(1);

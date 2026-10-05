@@ -102,7 +102,7 @@ router.patch("/wa-auto/autopilot", requireAuth, withTenant(OWNER, async (req, re
   const patch = cleanAutopilotPatch(req.body ?? {});
   if (patch.enabled) {
     const plan = await menuPlan(t.org.ownerUserId);
-    if (!plan.features.marketing) return res.status(402).json({ error: `الحملة الأسبوعية غير متاحة في خطة ${plan.planName} — رقّ الخطة لتفعيلها.`, plan: true });
+    if (!plan.features.autopilot) return res.status(402).json({ error: `الحملة الأسبوعية غير متاحة في خطة ${plan.planName} — رقّ الخطة لتفعيلها.`, plan: true });
   }
   await getAutopilot(t.org, t.waUserId);
   const [row] = await db.update(waAutopilotTable).set({ ...patch, updatedAt: new Date() }).where(eq(waAutopilotTable.waUserId, t.waUserId)).returning();
@@ -139,6 +139,7 @@ router.post("/wa-auto/segment-list", requireAuth, withTenant(OWNER, async (req, 
 
 /** People from a finished campaign who did not open it, opened without replying, or never got it. */
 router.post("/wa-auto/retarget", requireAuth, withTenant(OWNER, async (req, res, t) => {
+  if (!(await menuPlan(t.org.ownerUserId)).features.retarget) return res.status(402).json({ error: "إعادة الاستهداف غير متاحة في خطتك — رقّ الخطة لتفعيلها.", plan: true });
   const who = req.body?.who, campaignId = Number(req.body?.campaignId);
   if (!isRetarget(who) || !campaignId) return res.status(400).json({ error: "اختر الحملة ومن تعيد استهدافهم" });
   const people = await retargetPhones(t.waUserId, campaignId, who);

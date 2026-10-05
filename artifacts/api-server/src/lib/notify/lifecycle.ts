@@ -66,7 +66,7 @@ export async function runLifecycle(now = new Date()): Promise<{ reviews: number;
       }
     }
 
-    if (f.winback) {
+    if (f.winback && plan.features.campaigns) {
       const quietSince = new Date(now.getTime() - WINBACK_AFTER_DAYS * 24 * 3_600_000);
       const lastAsk = new Date(now.getTime() - WINBACK_EVERY_DAYS * 24 * 3_600_000);
       const regulars = await db.select().from(customersTable).where(and(

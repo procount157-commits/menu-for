@@ -6,7 +6,7 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import { db, branchesTable, menuItemsTable, staffTable, usersTable, subscriptionLeadsTable, type Org } from "@workspace/db";
-import type { MenuPlan } from "../plans";
+import { loadPlans, type MenuPlan } from "../plans";
 
 export interface Usage { branches: number; items: number; staff: number }
 
@@ -23,7 +23,7 @@ export interface Nudge { key: keyof Usage; used: number; limit: number; label: s
 const LABEL: Record<keyof Usage, string> = { branches: "الفروع", items: "الأصناف", staff: "الموظفون" };
 
 /** Limits at 80% or more, fullest first. Unlimited (-1) never nudges. Pure. */
-export function nudges(usage: Usage, limits: MenuPlan["limits"]): Nudge[] {
+export function nudges(usage: Usage, limits: Pick<MenuPlan["limits"], keyof Usage>): Nudge[] {
   return (Object.keys(LABEL) as Array<keyof Usage>)
     .map((k) => ({ key: k, used: usage[k], limit: limits[k], label: LABEL[k], full: limits[k] >= 0 && usage[k] >= limits[k] }))
     .filter((x) => x.limit > 0 && x.used / x.limit >= 0.8)
@@ -35,14 +35,16 @@ export function suggestedPlan(current: string): "pro" | "business" | null {
   return current === "business" ? null : current === "pro" ? "business" : "pro";
 }
 
-export async function requestUpgrade(org: Org, plan: unknown, reason: unknown) {
-  const want = plan === "business" ? "business" : "pro";
+export async function requestUpgrade(org: Org, plan: unknown, reason: unknown, yearly = false) {
+  const plans = await loadPlans();
+  const want = typeof plan === "string" && plans.has(plan) && plan !== "free" && plan !== "trial" ? plan : "pro";
+  const wantName = plans.get(want)?.name ?? want;
   const [u] = await db.select({ phone: usersTable.phone, name: usersTable.displayName, plan: usersTable.plan }).from(usersTable).where(eq(usersTable.id, org.ownerUserId)).limit(1);
   // One open request per shop and plan is enough: a second press refreshes it.
   const [open] = await db.select({ id: subscriptionLeadsTable.id }).from(subscriptionLeadsTable)
     .where(and(eq(subscriptionLeadsTable.phone, u?.phone ?? ""), eq(subscriptionLeadsTable.source, "in_app"), eq(subscriptionLeadsTable.status, "new"))).limit(1);
-  const notes = `ترقية من داخل اللوحة — المحل «${org.name}» (/${org.slug})، الخطة الحالية: ${u?.plan ?? "?"}.${reason ? ` السبب: ${String(reason).slice(0, 200)}` : ""}`;
-  const values = { name: u?.name ?? org.name, phone: u?.phone ?? "", planName: want === "business" ? "الأعمال" : "الاحترافية", businessType: org.vertical, notes, source: "in_app" };
+  const notes = `ترقية من داخل اللوحة — المحل «${org.name}» (/${org.slug})، الخطة الحالية: ${u?.plan ?? "?"}${yearly ? "، يريد الاشتراك السنوي" : ""}.${reason ? ` السبب: ${String(reason).slice(0, 200)}` : ""}`;
+  const values = { name: u?.name ?? org.name, phone: u?.phone ?? "", planName: wantName, businessType: org.vertical, notes, source: "in_app" };
   if (open) await db.update(subscriptionLeadsTable).set({ ...values, createdAt: new Date() }).where(eq(subscriptionLeadsTable.id, open.id));
   else await db.insert(subscriptionLeadsTable).values(values);
   return { plan: want };

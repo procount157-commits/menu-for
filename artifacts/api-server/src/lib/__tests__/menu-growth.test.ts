@@ -1,6 +1,6 @@
 // Growth features, one block each: the weekly report to the owner's phone.
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db, notificationsTable, ownerReportsTable, branchesTable, usersTable, customersTable, orgsTable } from "@workspace/db";
 import { createOrder, setOrderStatus } from "../orders/service";
 import { weekWindow, reportDue, formatReport, tipFor, ownerPhone, cleanPrefs, computeWeek, sendReport, runWeeklyReports, type WeekStats } from "../growth/weekly-report";
@@ -25,6 +25,11 @@ import { validBirthday, shouldAskBirthday, saveBirthday, birthdayToday, birthday
 import { createOrg, DEFAULT_FEATURES } from "../tenancy/org";
 import { buildPairs, oneTap, pairsFor } from "../growth/upsell";
 import { platformMetrics, monthly } from "../growth/platform-metrics";
+import { resolvePlan, loadPlans, invalidatePlans, menuPlan, DEFAULT_TRIAL, cleanTrialSettings } from "../plans";
+import { takeMessage, allowance, kindOf, monthKey } from "../growth/quota";
+import { startTrial, earnsExtension, maybeExtendTrial } from "../growth/trial";
+import { bulletsFor, DEFAULT_PLANS, type PlanDef } from "@workspace/menu-shared";
+import { orgUsageTable, subscriptionPlansTable } from "@workspace/db";
 import { addStamp, loyaltyFor, loyaltyStats, rewardText, loyaltyPrefs } from "../growth/loyalty";
 import { cleanup, makeShop } from "./menu-fixtures";
 
@@ -302,7 +307,7 @@ await requestUpgrade(org8!, "business", "وصلت الفروع لحد خطتك")
 await requestUpgrade(org8!, "business", "مرة ثانية");
 const [ownerU] = await db.select().from(usersTable).where(eq(usersTable.id, shop.user.id));
 const leads = await db.select().from(subscriptionLeadsTable).where(and(eq(subscriptionLeadsTable.phone, ownerU!.phone), eq(subscriptionLeadsTable.source, "in_app")));
-check("«اطلب الترقية» lands in the admin's requests with the shop and the reason — once", leads.length === 1 && leads[0]!.planName === "الأعمال" && leads[0]!.notes!.includes(shop.org.slug) && leads[0]!.notes!.includes("مرة ثانية"));
+check("«اطلب الترقية» lands in the admin's requests with the shop and the reason — once", leads.length === 1 && leads[0]!.planName === "الباقة الكاملة" && leads[0]!.notes!.includes(shop.org.slug) && leads[0]!.notes!.includes("مرة ثانية"));
 await db.delete(subscriptionLeadsTable).where(eq(subscriptionLeadsTable.phone, ownerU!.phone));
 
 // ── 11. Shop brings shop ──────────────────────────────────────────
@@ -406,6 +411,63 @@ check("the funnel runs from signing up to paying, never growing", pmx.funnel.len
 check("monthly revenue is the paying shops' plan prices", pmx.money.paying >= 1 && pmx.money.mrr >= 99 && pmx.money.arr === pmx.money.mrr * 12, pmx.money);
 check("six signup months, thirty days of activity", pmx.cohorts.length === 6 && pmx.daily.length === 30);
 check("adoption counts the shops that switched each tool on", pmx.adoption.length === 7 && pmx.adoption.every((a) => a.n >= 0));
+
+// ── The plan matrix, the month's messages, the trial ──────────────
+const P = (key: string, over: Partial<PlanDef> = {}): PlanDef => ({ key, name: DEFAULT_PLANS[key]!.name, nameEn: null, priceMonthly: DEFAULT_PLANS[key]!.priceMonthly, priceYearly: null, extraBranchPrice: null, contactSales: false, isPublic: true, isActive: true, isFeatured: false, badge: null, badgeEn: null, sort: 0, limits: { ...DEFAULT_PLANS[key]!.limits }, toggles: { ...DEFAULT_PLANS[key]!.toggles }, bullets: [], bulletsEn: [], ...over });
+const FREE = P("free"), PRO = P("pro"), TRIAL = P("trial");
+let rp = resolvePlan(PRO, FREE, null, false, null);
+check("a plan resolves to its own switches and limits", rp.features.coupons && !rp.features.gifts && rp.limits.messagesMonthly === 1500 && rp.planName === "احترافي");
+rp = resolvePlan(PRO, FREE, new Date(Date.now() - 1000), false, null);
+check("an expired plan becomes the «after» plan, named as expired", rp.expired && !rp.features.notify && rp.limits.messagesMonthly === 0 && /منتهية/.test(rp.planName));
+rp = resolvePlan(TRIAL, FREE, new Date(Date.now() + 86_400_000), false, null);
+check("a running trial has everything on", rp.trial && rp.features.autopilot && rp.features.gifts && rp.limits.messagesMonthly === 100);
+rp = resolvePlan(PRO, FREE, null, false, { branches: 10, items: 5, messagesMonthly: -1 });
+check("the admin's overrides only ever widen a limit", rp.limits.branches === 10 && rp.limits.items === -1 && rp.limits.messagesMonthly === -1);
+check("an admin is never limited", resolvePlan(FREE, FREE, null, true, null).features.gifts && resolvePlan(FREE, FREE, null, true, null).limits.items === -1);
+const bl = bulletsFor(PRO);
+check("the home-page bullets are written from the matrix", bl.some((b) => b.includes("1,500 رسالة")) && bl.some((b) => b.includes("حتى 3 فروع")) && !bl.some((b) => b.includes("بطاقات هدايا")));
+check("the trial settings are bounded", cleanTrialSettings({ days: 9999, extensionDays: -5, afterPlan: " basic " }, DEFAULT_TRIAL).days === 365 && cleanTrialSettings({ extensionDays: -5 }, DEFAULT_TRIAL).extensionDays === 0 && cleanTrialSettings({ afterPlan: " basic " }, DEFAULT_TRIAL).afterPlan === "basic");
+check("message kinds: a turn is operational, a win-back is marketing", kindOf("queue_turn") === "operational" && kindOf("winback") === "marketing" && kindOf("birthday") === "marketing");
+
+// The database matrix: a cell changed there is what the server enforces.
+await db.update(subscriptionPlansTable).set({ limits: sql`limits || '{"messagesMonthly": 3}'::jsonb` }).where(eq(subscriptionPlansTable.planKey, "pro"));
+invalidatePlans();
+await db.update(usersTable).set({ plan: "pro", planExpiresAt: null }).where(eq(usersTable.id, shop.user.id));
+check("the server reads the matrix from the database", (await loadPlans()).get("pro")!.limits.messagesMonthly === 3 && (await menuPlan(shop.user.id)).limits.messagesMonthly === 3);
+const [orgQ] = await db.select().from(orgsTable).where(eq(orgsTable.id, shop.org.id));
+await db.delete(orgUsageTable).where(eq(orgUsageTable.orgId, shop.org.id));
+await db.update(orgsTable).set({ messageCredits: 0 }).where(eq(orgsTable.id, shop.org.id));
+const takes = [];
+for (let i = 0; i < 3; i++) takes.push(await takeMessage(orgQ!, "operational"));
+check("three messages fit a quota of three", takes.every((t) => t.ok));
+let t4 = await takeMessage(orgQ!, "marketing");
+check("the fourth, marketing, waits", !t4.ok && t4.reason === "quota_marketing");
+t4 = await takeMessage(orgQ!, "operational");
+check("…but a turn gets the grace (a tenth, at least one)", t4.ok);
+t4 = await takeMessage(orgQ!, "operational");
+check("…and then stops too", !t4.ok && t4.reason === "quota");
+await db.update(orgsTable).set({ messageCredits: 2 }).where(eq(orgsTable.id, shop.org.id));
+t4 = await takeMessage(orgQ!, "marketing");
+check("a credit lets marketing through, one per message", t4.ok && (t4 as any).fromCredit === true && (await db.select().from(orgsTable).where(eq(orgsTable.id, shop.org.id)))[0]!.messageCredits === 1);
+const al = await allowance(orgQ!);
+check("the dashboard sees used, monthly, credits and what is left", al.monthly === 3 && al.used === 5 && al.credits === 1 && al.remaining === 1 && al.month === monthKey(orgQ!.timezone), al);
+await db.update(subscriptionPlansTable).set({ limits: sql`limits - 'messagesMonthly'` }).where(eq(subscriptionPlansTable.planKey, "pro"));
+invalidatePlans();
+check("removing the cell falls back to the built-in default", (await loadPlans()).get("pro")!.limits.messagesMonthly === 1500);
+
+// The trial.
+await db.delete(usersTable).where(eq(usersTable.phone, "971509998866"));
+const [tu] = await db.insert(usersTable).values({ phone: "971509998866", passwordHash: "!" }).returning();
+check("a new sign-up starts on the trial for the configured days", await startTrial(tu!.id) && (await db.select().from(usersTable).where(eq(usersTable.id, tu!.id)))[0]!.plan === "trial");
+const tExp = (await db.select().from(usersTable).where(eq(usersTable.id, tu!.id)))[0]!.planExpiresAt!;
+check("…about 30 days from now", Math.abs(tExp.getTime() - Date.now() - DEFAULT_TRIAL.days * 86_400_000) < 120_000);
+const ts = DEFAULT_TRIAL;
+check("the extension is earned inside the first week with WhatsApp linked and a real menu", earnsExtension({ createdAt: new Date(Date.now() - 3 * 86_400_000), trialExtendedAt: null }, true, 12, ts));
+check("…not without WhatsApp, not with a thin menu, not after the week, not twice", !earnsExtension({ createdAt: new Date(Date.now() - 3 * 86_400_000), trialExtendedAt: null }, false, 12, ts) && !earnsExtension({ createdAt: new Date(Date.now() - 3 * 86_400_000), trialExtendedAt: null }, true, 4, ts) && !earnsExtension({ createdAt: new Date(Date.now() - 9 * 86_400_000), trialExtendedAt: null }, true, 12, ts) && !earnsExtension({ createdAt: new Date(Date.now() - 3 * 86_400_000), trialExtendedAt: new Date() }, true, 12, ts));
+const torg = await createOrg(tu!.id, { name: "محل تجريبي للاختبار" } as any);
+check("a trial shop with no WhatsApp is not extended from the dashboard", (await maybeExtendTrial((await db.select().from(orgsTable).where(eq(orgsTable.id, torg.org.id)))[0]!)) === 0);
+await db.delete(orgsTable).where(eq(orgsTable.id, torg.org.id));
+await db.delete(usersTable).where(eq(usersTable.id, tu!.id));
 
 await cleanup("g");
 console.log(`\n${pass}/${total} مرّ`);

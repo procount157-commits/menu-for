@@ -80,7 +80,7 @@ export async function createOrg(ownerUserId: number, input: NewOrg): Promise<{ o
   // the owner can switch any of it off.
   const [owner] = await db.select({ phone: usersTable.phone }).from(usersTable).where(eq(usersTable.id, ownerUserId)).limit(1);
   const alertPhone = ownerPhone(owner?.phone);
-  const offers = (await menuPlan(ownerUserId)).features.marketing;
+  const offers = (await menuPlan(ownerUserId)).features.coupons;
 
   return db.transaction(async (tx) => {
     const [org] = await tx.insert(orgsTable).values({

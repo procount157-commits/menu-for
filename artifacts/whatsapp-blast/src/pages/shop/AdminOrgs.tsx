@@ -24,6 +24,7 @@ interface OrgRow {
   wa: { linked: number; total: number }; menuUrl: string;
   risk: { level: "high" | "watch" | "ok"; reasons: string[] };
   referred_by: string | null; referral_rewarded_at: string | null; brought: number;
+  message_credits: number; limit_overrides: Record<string, number> | null; trial_extended_at: string | null; messages_month: number;
 }
 interface PlatformStats {
   orgs: number; active_orgs: number; branches: number; tickets_24h: number; orders_24h: number; bookings_24h: number;
@@ -176,7 +177,7 @@ function Inner() {
                   <div className="grid grid-cols-4 gap-1.5 text-center">
                     {[
                       ["فروع", o.branches], ["أصناف", o.items], ["موظفون", o.staff], ["زبائن", o.customers],
-                      ["تذاكر الأسبوع", o.tickets_7d], ["طلبات الأسبوع", o.orders_7d], ["حجوزات الأسبوع", o.bookings_7d], ["رسائل الأسبوع", o.sent_7d],
+                      ["تذاكر الأسبوع", o.tickets_7d], ["طلبات الأسبوع", o.orders_7d], ["حجوزات الأسبوع", o.bookings_7d], ["رسائل الشهر", o.messages_month],
                     ].map(([l, v]) => (
                       <div key={l as string} className="rounded-lg bg-secondary/50 py-1.5">
                         <div className="font-bold tabular-nums text-sm">{v as number}</div>
@@ -224,9 +225,13 @@ function PlanDialog({ o, onClose, onSave, saving }: { o: OrgRow | null; onClose:
   const [days, setDays] = useState<string>("30");
   const [touchDays, setTouchDays] = useState(false);
   const [features, setFeatures] = useState<Record<string, boolean>>({});
+  const [credits, setCredits] = useState("");
+  const [ov, setOv] = useState<Record<string, string>>({});
+  const matrix = useQuery<{ plans: Array<{ key: string; name: string; isActive: boolean }> }>({ queryKey: ["/api/plans/admin/matrix"], queryFn: () => get("/api/plans/admin/matrix"), enabled: !!o });
   const [lastId, setLastId] = useState<number | null>(null);
   if (o && o.id !== lastId) {
-    setLastId(o.id); setPlan(o.plan); setDays("30"); setTouchDays(false); setFeatures({ ...(o.features ?? {}) });
+    setLastId(o.id); setPlan(o.plan); setDays("30"); setTouchDays(false); setFeatures({ ...(o.features ?? {}) }); setCredits("");
+    setOv(Object.fromEntries(["branches", "items", "staff", "messagesMonthly"].map((k) => [k, o.limit_overrides?.[k] == null ? "" : String(o.limit_overrides[k])])));
   }
   if (!o) return null;
   const keys = Array.from(new Set([...FEATURES.map((f) => f.key), ...Object.keys(o.features ?? {}).filter((k) => !["reviews", "winback"].includes(k))]));
@@ -237,6 +242,10 @@ function PlanDialog({ o, onClose, onSave, saving }: { o: OrgRow | null; onClose:
     if (touchDays || plan !== o.plan) body.planDays = Number(days) || 0;
     const changed = Object.fromEntries(keys.filter((k) => !!features[k] !== !!o.features?.[k]).map((k) => [k, !!features[k]]));
     if (Object.keys(changed).length) body.features = changed;
+    if (Number(credits)) body.addCredits = Number(credits);
+    const ovChanged: Record<string, string | null> = {};
+    for (const k of Object.keys(ov)) { const was = o.limit_overrides?.[k] == null ? "" : String(o.limit_overrides[k]); if (ov[k] !== was) ovChanged[k] = ov[k] === "" ? null : ov[k]!; }
+    if (Object.keys(ovChanged).length) body.overrides = ovChanged;
     if (!Object.keys(body).length) { onClose(); return; }
     onSave(o, body);
   };
@@ -246,9 +255,24 @@ function PlanDialog({ o, onClose, onSave, saving }: { o: OrgRow | null; onClose:
       <div className="space-y-4">
         <div>
           <label className={labelCls}>الخطة</label>
+          <div className="grid grid-cols-3 gap-1.5">
+            {(matrix.data?.plans ?? Object.entries(PLAN_AR).map(([key, name]) => ({ key, name, isActive: true }))).filter((p) => p.isActive).map((p) => (
+              <button key={p.key} type="button" onClick={() => setPlan(p.key)} className={cn("h-11 rounded-lg text-sm", plan === p.key ? "bg-primary text-primary-foreground font-semibold" : "bg-secondary")}>{p.name}</button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className={labelCls}>رسائل هذا الشهر: {o.messages_month} · رصيد إضافي: {o.message_credits}</label>
+          <div className="flex items-center gap-2">
+            <input className={cn(inputCls, "w-28 tabular-nums")} type="number" placeholder="+500" value={credits} onChange={(e) => setCredits(e.target.value)} />
+            <span className="text-xs text-muted-foreground">أضف (أو اطرح بالسالب) رصيد رسائل لا ينتهي، يُصرف بعد سقف الشهر.</span>
+          </div>
+        </div>
+        <div>
+          <label className={labelCls}>سعة إضافية لهذا المحل فوق خطته (فارغ = حسب الخطة، -1 = بلا حد)</label>
           <div className="grid grid-cols-4 gap-1.5">
-            {Object.entries(PLAN_AR).map(([k, l]) => (
-              <button key={k} type="button" onClick={() => setPlan(k)} className={cn("h-11 rounded-lg text-sm", plan === k ? "bg-primary text-primary-foreground font-semibold" : "bg-secondary")}>{l}</button>
+            {([["branches", "فروع"], ["items", "أصناف"], ["staff", "موظفون"], ["messagesMonthly", "رسائل/شهر"]] as const).map(([k, l]) => (
+              <label key={k} className="block"><span className="text-[10px] text-muted-foreground">{l}</span><input className={cn(inputCls, "tabular-nums")} type="number" min={-1} value={ov[k] ?? ""} onChange={(e) => setOv({ ...ov, [k]: e.target.value })} /></label>
             ))}
           </div>
         </div>

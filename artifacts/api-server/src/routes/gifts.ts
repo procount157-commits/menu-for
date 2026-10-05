@@ -26,7 +26,7 @@ async function who(t: Tenant): Promise<string> {
 
 async function allowed(ownerUserId: number) {
   const plan = await menuPlan(ownerUserId);
-  return { ok: plan.features.growth, planName: plan.planName };
+  return { ok: plan.features.gifts, planName: plan.planName };
 }
 
 router.get("/gifts", requireAuth, withTenant(MANAGERS, async (_req, res, t) => {

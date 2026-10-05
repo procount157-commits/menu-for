@@ -2,6 +2,8 @@
 
 import { usageOf, requestUpgrade } from "../lib/growth/upgrade";
 import { setReferredBy } from "../lib/growth/shop-referrals";
+import { maybeExtendTrial, daysLeft } from "../lib/growth/trial";
+import { allowance } from "../lib/growth/quota";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
@@ -36,7 +38,9 @@ router.get("/tenancy/me", requireAuth, async (req, res) => {
       ? (await db.select({ id: staffTable.id, name: staffTable.name, username: staffTable.username }).from(staffTable).where(eq(staffTable.id, t.staffId)).limit(1))[0]
       : await signedInUser(req).then((u) => u && { id: u.id, name: u.displayName, phone: u.phone, isAdmin: u.isAdmin });
     const branches = await db.select().from(branchesTable).where(eq(branchesTable.orgId, t.org.id)).orderBy(asc(branchesTable.sort), asc(branchesTable.id));
+    if (t.role === "owner") await maybeExtendTrial(t.org).catch(() => 0);
     const plan = await menuPlan(t.org.ownerUserId);
+    const quota = await allowance(t.org, plan).catch(() => null);
     const { settingsFor } = await import("../lib/booking/service");
     const bk = await settingsFor(t.branch.id);
     res.json({
@@ -54,8 +58,8 @@ router.get("/tenancy/me", requireAuth, async (req, res) => {
           ownNumber: hasOwnNumber(t.org, b), wa: waState(b.waUserId),
           menuUrl: publicUrl(menuPath(t.org.slug, b.slug)),
         })),
-      plan,
-      usage: await usageOf(t.org.id),
+      plan: { ...plan, daysLeft: daysLeft(plan.expiresAt) },
+      usage: { ...(await usageOf(t.org.id)), messages: quota },
       wa: waState(t.waUserId),
       links: {
         menu: publicUrl(menuPath(t.org.slug, t.branch.slug)),
@@ -322,7 +326,7 @@ router.get("/tenancy/queues", requireAuth, withTenant(ALL, async (_req, res, t) 
 
 /** «اطلب الترقية» — lands in the admin's subscription requests with the shop and the reason. */
 router.post("/tenancy/upgrade-request", requireAuth, withTenant(OWNER, async (req, res, t) => {
-  res.json(await requestUpgrade(t.org, req.body?.plan, req.body?.reason));
+  res.json(await requestUpgrade(t.org, req.body?.plan, req.body?.reason, !!req.body?.yearly));
 }));
 
 export default router;

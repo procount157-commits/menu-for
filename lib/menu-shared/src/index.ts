@@ -15,3 +15,4 @@ export function waMeLink(phone: string | null | undefined, text: string): string
   if (p.length < 8) return null;
   return `https://wa.me/${p}?text=${encodeURIComponent(text)}`;
 }
+export * from "./plans";

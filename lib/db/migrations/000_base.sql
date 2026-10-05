@@ -2526,6 +2526,21 @@ ALTER SEQUENCE public.orders_id_seq OWNED BY public.orders.id;
 
 
 --
+-- Name: org_usage; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_usage (
+    org_id integer NOT NULL,
+    month character varying(7) NOT NULL,
+    messages integer DEFAULT 0 NOT NULL,
+    marketing integer DEFAULT 0 NOT NULL,
+    agent_replies integer DEFAULT 0 NOT NULL,
+    campaigns integer DEFAULT 0 NOT NULL,
+    credits_used integer DEFAULT 0 NOT NULL
+);
+
+
+--
 -- Name: orgs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2555,7 +2570,10 @@ CREATE TABLE public.orgs (
     growth_prefs jsonb DEFAULT '{}'::jsonb NOT NULL,
     referral_code character varying(12),
     referred_by_org_id integer,
-    referral_rewarded_at timestamp with time zone
+    referral_rewarded_at timestamp with time zone,
+    limit_overrides jsonb DEFAULT '{}'::jsonb NOT NULL,
+    message_credits integer DEFAULT 0 NOT NULL,
+    trial_extended_at timestamp with time zone
 );
 
 
@@ -2613,6 +2631,17 @@ CREATE SEQUENCE public.owner_reports_id_seq
 --
 
 ALTER SEQUENCE public.owner_reports_id_seq OWNED BY public.owner_reports.id;
+
+
+--
+-- Name: platform_settings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.platform_settings (
+    key character varying(40) NOT NULL,
+    value jsonb NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
 
 
 --
@@ -2914,7 +2943,13 @@ CREATE TABLE public.subscription_plans (
     is_featured boolean DEFAULT false NOT NULL,
     sort_order integer DEFAULT 0 NOT NULL,
     plan_key character varying(20),
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    price_yearly numeric(10,2),
+    extra_branch_price numeric(10,2),
+    contact_sales boolean DEFAULT false NOT NULL,
+    is_public boolean DEFAULT true NOT NULL,
+    limits jsonb DEFAULT '{}'::jsonb NOT NULL,
+    toggles jsonb DEFAULT '{}'::jsonb NOT NULL
 );
 
 
@@ -4401,6 +4436,14 @@ ALTER TABLE ONLY public.orders
 
 
 --
+-- Name: org_usage org_usage_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_usage
+    ADD CONSTRAINT org_usage_pkey PRIMARY KEY (org_id, month);
+
+
+--
 -- Name: orgs orgs_owner_user_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4430,6 +4473,14 @@ ALTER TABLE ONLY public.orgs
 
 ALTER TABLE ONLY public.owner_reports
     ADD CONSTRAINT owner_reports_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: platform_settings platform_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.platform_settings
+    ADD CONSTRAINT platform_settings_pkey PRIMARY KEY (key);
 
 
 --
@@ -5234,6 +5285,13 @@ CREATE UNIQUE INDEX uq_staff_username ON public.staff USING btree (org_id, usern
 
 
 --
+-- Name: uq_subscription_plan_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_subscription_plan_key ON public.subscription_plans USING btree (plan_key) WHERE (plan_key IS NOT NULL);
+
+
+--
 -- Name: uq_ticket_number; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -6029,6 +6087,14 @@ ALTER TABLE ONLY public.orders
 
 ALTER TABLE ONLY public.orders
     ADD CONSTRAINT orders_org_id_orgs_id_fk FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: org_usage org_usage_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_usage
+    ADD CONSTRAINT org_usage_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
 
 
 --

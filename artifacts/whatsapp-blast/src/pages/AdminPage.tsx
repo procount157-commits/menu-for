@@ -1094,6 +1094,12 @@ export default function AdminPage() {
       {tab === "coupons" && <CouponsPanel />}
 
       {/* Plans Tab */}
+      {tab === "plans" && (
+        <div className="mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm flex flex-wrap items-center gap-3">
+          <span className="flex-1">أسعار الخطط وميزاتها وحدودها والفترة التجريبية صارت في صفحة واحدة: <b>الخطط والفترة التجريبية</b>. ما هنا للنصوص القديمة فقط.</span>
+          <a href="/admin/plans" className="inline-flex items-center rounded-lg bg-primary text-primary-foreground px-4 h-9 font-semibold">افتح مصفوفة الخطط</a>
+        </div>
+      )}
       {tab === "plans" && <PlansPanel />}
 
       {/* Leads Tab */}

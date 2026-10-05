@@ -2,7 +2,7 @@
 
 import { Router } from "express";
 import { asc, desc, eq, sql } from "drizzle-orm";
-import { db, orgsTable, branchesTable, usersTable, llmKeysTable, PLAN_LIMITS } from "@workspace/db";
+import { db, orgsTable, branchesTable, usersTable, llmKeysTable, platformSettingsTable, PLAN_LIMITS } from "@workspace/db";
 import { testKey, invalidateChannelKeys, KEY_PROVIDERS } from "../lib/llm";
 import { requireAdmin } from "../lib/auth";
 import bcrypt from "bcryptjs";
@@ -13,6 +13,8 @@ import { getStatus } from "../lib/whatsapp";
 import { publicUrl, menuPath } from "../lib/menu/urls";
 import { logger } from "../lib/logger";
 import { churnRisk } from "../lib/growth/churn";
+import { trialSettings, cleanTrialSettings, invalidateSettings, loadPlans } from "../lib/plans";
+import { LIMITS } from "@workspace/menu-shared";
 import { platformMetrics } from "../lib/growth/platform-metrics";
 import { rewardShopReferral, setReferredBy } from "../lib/growth/shop-referrals";
 
@@ -32,7 +34,9 @@ router.get("/", async (_req, res) => {
       (SELECT count(*)::int FROM customers c WHERE c.org_id = o.id) AS customers,
       (SELECT count(*)::int FROM notifications n WHERE n.org_id = o.id AND n.status = 'sent' AND n.sent_at > now() - interval '7 days') AS sent_7d,
       (SELECT name FROM orgs x WHERE x.id = o.referred_by_org_id) AS referred_by, o.referral_rewarded_at,
-      (SELECT count(*)::int FROM orgs y WHERE y.referred_by_org_id = o.id) AS brought
+      (SELECT count(*)::int FROM orgs y WHERE y.referred_by_org_id = o.id) AS brought,
+      o.message_credits, o.limit_overrides, o.trial_extended_at,
+      coalesce((SELECT messages FROM org_usage x WHERE x.org_id = o.id AND x.month = to_char(now() AT TIME ZONE o.timezone, 'YYYY-MM')), 0) AS messages_month
     FROM orgs o JOIN users u ON u.id = o.owner_user_id
     ORDER BY o.created_at DESC`);
   const branches = await db.select({ orgId: branchesTable.orgId, waUserId: branchesTable.waUserId }).from(branchesTable);
@@ -62,7 +66,8 @@ router.post("/", async (req, res) => {
   if (String(b.name ?? "").trim().length < 2) return res.status(400).json({ error: "اكتب اسم المحل" });
   const [dup] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.phone, phone)).limit(1);
   if (dup) return res.status(409).json({ error: "هذا الرقم مسجّل مسبقاً — ابحث عن محله في القائمة" });
-  const plan = typeof b.plan === "string" && b.plan in PLAN_LIMITS ? b.plan : "free";
+  const plans = await loadPlans();
+  const plan = typeof b.plan === "string" && plans.has(b.plan) ? b.plan : "free";
   const days = Number(b.planDays);
   const [user] = await db.insert(usersTable).values({
     phone, passwordHash: await bcrypt.hash(String(b.password), 10),
@@ -146,6 +151,15 @@ router.get("/metrics", async (_req, res) => {
   res.json(await platformMetrics());
 });
 
+/** The trial's rules. */
+router.get("/settings/trial", async (_req, res) => { res.json(await trialSettings()); });
+router.put("/settings/trial", async (req, res) => {
+  const next = cleanTrialSettings(req.body, await trialSettings());
+  await db.insert(platformSettingsTable).values({ key: "trial", value: next as any }).onConflictDoUpdate({ target: platformSettingsTable.key, set: { value: next as any, updatedAt: new Date() } });
+  invalidateSettings();
+  res.json(next);
+});
+
 router.get("/platform/stats", async (_req, res) => {
   const [s] = (await db.execute<any>(sql`
     SELECT
@@ -172,9 +186,16 @@ router.patch("/:id", async (req, res) => {
   const patch: Record<string, unknown> = {};
   if (b.status === "active" || b.status === "suspended") patch.status = b.status;
   if (b.features && typeof b.features === "object") patch.features = { ...(o.features ?? {}), ...Object.fromEntries(Object.entries(b.features).filter(([, v]) => typeof v === "boolean")) };
+  // Room on top of the plan for this one shop, and extra messages that never expire.
+  if (b.overrides && typeof b.overrides === "object") {
+    const next = { ...(o.limitOverrides ?? {}) } as Record<string, number>;
+    for (const l of LIMITS) { const v = b.overrides[l.key]; if (v === null || v === "") delete next[l.key]; else if (Number.isFinite(Number(v))) next[l.key] = Math.round(Number(v)); }
+    patch.limitOverrides = next;
+  }
+  if (Number.isFinite(Number(b.addCredits)) && Number(b.addCredits) !== 0) patch.messageCredits = sql`greatest(0, ${orgsTable.messageCredits} + ${Math.round(Number(b.addCredits))})`;
   if (Object.keys(patch).length) await db.update(orgsTable).set(patch).where(eq(orgsTable.id, id));
   const up: Record<string, unknown> = {};
-  if (typeof b.plan === "string" && b.plan in PLAN_LIMITS) up.plan = b.plan;
+  if (typeof b.plan === "string" && (await loadPlans()).has(b.plan)) up.plan = b.plan;
   if (b.planDays !== undefined) {
     const d = Number(b.planDays);
     up.planExpiresAt = d > 0 ? new Date(Date.now() + d * 24 * 3_600_000) : null;

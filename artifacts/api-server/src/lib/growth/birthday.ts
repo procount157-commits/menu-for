@@ -60,7 +60,7 @@ export async function runBirthdays(now = new Date()): Promise<number> {
     const p = localParts(org.timezone, now);
     if (p.hour < 10 || p.hour >= 20) continue;
     const plan = await menuPlan(org.ownerUserId);
-    if (!plan.features.marketing) continue;
+    if (!plan.features.birthday) continue;
     const prefs = birthdayPrefs(org);
     const [main] = await db.select().from(branchesTable).where(and(eq(branchesTable.orgId, org.id), eq(branchesTable.isActive, true))).orderBy(branchesTable.sort).limit(1);
     if (!main) continue;

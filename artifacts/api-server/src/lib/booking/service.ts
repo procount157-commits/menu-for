@@ -4,6 +4,7 @@
 // people taking the last slot at once get one booking and one "just taken".
 
 import { shouldAskBirthday } from "../growth/birthday";
+import { menuPlan } from "../plans";
 import { addStamp, loyaltyFor } from "../growth/loyalty";
 import { and, asc, eq, gte, inArray, lt, isNull, lte, sql } from "drizzle-orm";
 import {
@@ -262,6 +263,7 @@ export async function sendDueReminders(now = new Date()): Promise<number> {
       continue;
     }
     await db.update(bookingsTable).set({ reminderSentAt: now }).where(eq(bookingsTable.id, b.id));
+    if (!(await menuPlan((await ctxOf(b))?.org.ownerUserId ?? 0)).features.reminders) continue;
     await notifyBooking(b, "booking_reminder");
     n++;
   }

@@ -8,6 +8,7 @@ import { requireAuth } from "../lib/auth";
 import { logger } from "../lib/logger";
 import { checkCoupon, redeemCoupon, CouponError } from "../lib/coupons";
 import { attachOwner, signedInUser } from "../lib/tenancy/context";
+import { startTrial } from "../lib/growth/trial";
 import { staffTable } from "@workspace/db";
 
 const router = Router();
@@ -70,6 +71,9 @@ router.post("/register", async (req, res) => {
   if (!open && typeof code === "string") {
     await redeemCoupon(user.id, code).catch((err) =>
       logger.warn({ userId: user.id, err: String(err?.message ?? err) }, "invite code could not be redeemed after sign-up"));
+  } else {
+    // Open sign-up: the trial, with every switch on, for the days the admin set.
+    await startTrial(user.id).catch((err) => logger.warn({ userId: user.id, err: String(err?.message ?? err) }, "trial could not start"));
   }
 
   logger.info({ userId: user.id, phone: cleanPhone, invited: !open }, "New user registered");

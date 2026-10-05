@@ -18,7 +18,7 @@ router.get("/deals", requireAuth, withTenant(MANAGERS, async (_req, res, t) => {
   const by = new Map(usage.map((u) => [u.id, u]));
   const plan = await menuPlan(t.org.ownerUserId);
   res.json({
-    allowed: plan.features.marketing, planName: plan.planName,
+    allowed: plan.features.coupons, planName: plan.planName,
     deals: rows.map((r) => {
       const d = toDeal(r);
       const u = by.get(r.id);
@@ -29,7 +29,7 @@ router.get("/deals", requireAuth, withTenant(MANAGERS, async (_req, res, t) => {
 
 router.post("/deals", requireAuth, withTenant(MANAGERS, async (req, res, t) => {
   const plan = await menuPlan(t.org.ownerUserId);
-  if (!plan.features.marketing) return res.status(402).json({ error: `الكوبونات والعروض بالساعات من خطة «احترافي» — خطتك ${plan.planName}.`, plan: true });
+  if (!plan.features.coupons) return res.status(402).json({ error: `الكوبونات والعروض بالساعات من خطة «احترافي» — خطتك ${plan.planName}.`, plan: true });
   const c = cleanDeal(req.body);
   if (!c.ok) return res.status(400).json({ error: c.error });
   const [row] = await db.insert(shopDealsTable).values({ ...c.row, orgId: t.org.id, source: "owner" } as any).onConflictDoNothing().returning();

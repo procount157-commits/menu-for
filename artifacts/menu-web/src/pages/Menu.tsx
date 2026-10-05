@@ -434,7 +434,7 @@ function About({ menu, lang }: { menu: PublicMenu; lang: Lang }) {
           )}
         </div>
       </div>
-      <p className="text-center text-xs text-muted mt-7 mb-4 opacity-70">{t("poweredBy", lang)}</p>
+      {menu.branding !== false && <a href="/" className="block text-center text-xs text-muted mt-7 mb-4 opacity-70">{lang === "ar" ? "مدعوم من" : "Powered by"} {t("poweredBy", lang)}</a>}
     </footer>
   );
 }

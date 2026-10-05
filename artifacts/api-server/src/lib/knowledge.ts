@@ -5,6 +5,7 @@
 // still works when no model is configured at all, so the bot is useful before
 // anyone signs up for an API key.
 
+import { agentReplyAllowed } from "./growth/quota";
 import { and, eq, desc, isNotNull, ne, sql } from "drizzle-orm";
 import {
   db, knowledgeBaseTable, businessProfileTable, autoReplyLogTable,
@@ -501,6 +502,8 @@ export async function shouldAutoReply(
 ): Promise<{ ok: boolean; reason?: string }> {
   const profile = await getProfile(userId);
   if (!profile?.autoReply) return { ok: false, reason: "الرد التلقائي غير مفعّل" };
+  // A shop's plan: the AI host switch, and the month's replies (counted here, when it answers).
+  if (!(await agentReplyAllowed(userId))) return { ok: false, reason: "ردود الوكيل غير متاحة في الخطة أو انتهت لهذا الشهر" };
   if (NEVER_AUTO.includes(intent)) return { ok: false, reason: `تدخّل بشري مطلوب (${intent})` };
   if (intent === "complaint" && !hasSpecialist) {
     return { ok: false, reason: "شكوى بلا موظف مختص — تدخّل بشري مطلوب" };
