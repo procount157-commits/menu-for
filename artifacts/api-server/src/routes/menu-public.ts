@@ -80,7 +80,7 @@ router.post("/queues/:id/join", limit("join", 12, 10 * 60_000), async (req, res)
   const ctx = await queueCtx(Number(req.params.id));
   if (!ctx || !ctx.queue.isActive || ctx.org.status !== "active") return res.status(404).json({ error: "الصف غير موجود" });
   const plan = await menuPlan(ctx.org.ownerUserId);
-  if (!plan.features.queue) return res.status(403).json({ error: "الصف الرقمي غير مفعّل لهذا المحل" });
+  if (!plan.features.queue || ctx.org.features?.queueOn === false) return res.status(403).json({ error: "الصف الرقمي غير مفعّل لهذا المحل" });
   const b = req.body ?? {};
   const phone = normalisePhone(b.phone, ctx.org.currency);
   if (b.phone && !phone) return res.status(400).json({ error: "رقم الواتساب غير صحيح" });

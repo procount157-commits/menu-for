@@ -224,6 +224,7 @@ function AdminOnlyRoutes() {
 /** Staff and managers: the queue, orders and bookings, in their own shell. */
 function StaffRoutes() {
   const { user } = useAuth();
+  const shop = useShopQuery().data as any;
   return (
     <StaffLayout>
       <Switch>
@@ -235,7 +236,7 @@ function StaffRoutes() {
         {user?.role === "manager" && <Route path="/reports" component={Reports} />}
         {user?.role === "manager" && <Route path="/deals" component={Deals} />}
         <Route path="/gifts"     component={Gifts} />
-        <Route><Redirect to="/queue" /></Route>
+        <Route><Redirect to={shop?.org?.features?.queueOn === false ? "/orders" : "/queue"} /></Route>
       </Switch>
     </StaffLayout>
   );

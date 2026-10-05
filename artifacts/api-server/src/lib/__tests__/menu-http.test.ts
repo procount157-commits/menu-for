@@ -113,8 +113,18 @@ check("…and A's item is untouched", stillA && Number(stillA.price) === 55 && s
 const catStill = (await A.get("/api/menu/categories")).json.find((c: any) => c.id === catA.id);
 check("…and A's category keeps its name", catStill?.name === "مشويات");
 
-// ── Public pages, no session ─────────────────────────────────────
+// ── «ماذا يقدّم منيوك؟» ──────────────────────────────────────────
 const anon = new Client();
+r = await anon.get(`/api/public/m/alpha-${tag}`);
+check("a new restaurant's menu has no queue (it is a salon's door)", r.status === 200 && r.json.queues.length === 0);
+r = await A.get("/api/offerings");
+check("the owner sees the three doors: ordering on, queue off, booking off", r.status === 200 && r.json.ordering === true && r.json.queue === false && r.json.booking === false, r.json);
+r = await A.patch("/api/offerings", { queue: true });
+check("…and turns the queue on with one switch", r.status === 200);
+r = await anon.get(`/api/public/m/beta-${tag}`);
+check("a new salon starts with its queue on", r.json.queues.length === 1);
+
+// ── Public pages, no session ─────────────────────────────────────
 r = await anon.get(`/api/public/m/alpha-${tag}`);
 check("the menu opens with no sign-up", r.status === 200 && r.json.items.some((i: any) => i.name === "مشاوي مشكل"));
 check("…with its queue", r.json.queues.length === 1 && r.json.queues[0].waiting === 0);

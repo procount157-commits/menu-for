@@ -12,7 +12,7 @@ import { withTenant, MANAGERS, OWNER } from "../lib/tenancy/context";
 import { listTemplates, saveTemplate } from "../lib/notify/templates";
 import { recentNotifications, notifyStats } from "../lib/notify/outbox";
 import { publicUrl, menuPath, displayPath, joinKey } from "../lib/menu/urls";
-import { menuPlan } from "../lib/plans";
+import { menuPlan, assertFeature, planErrorToResponse } from "../lib/plans";
 
 const router = Router();
 
@@ -108,6 +108,35 @@ router.patch("/wa-templates/features", requireAuth, withTenant(OWNER, async (req
   for (const k of ["reviews", "winback"]) if (typeof req.body?.[k] === "boolean") f[k] = req.body[k];
   const [o] = await db.update(orgsTable).set({ features: f }).where(eq(orgsTable.id, t.org.id)).returning();
   res.json({ features: o!.features });
+}));
+
+/** «ماذا يقدّم منيوك؟» — the three doors on the menu: ordering, the queue, bookings. */
+router.get("/offerings", requireAuth, withTenant(OWNER, async (_req, res, t) => {
+  const { settingsFor } = await import("../lib/booking/service");
+  const plan = await menuPlan(t.org.ownerUserId);
+  const bk = await settingsFor(t.branch.id);
+  res.json({
+    ordering: t.org.features?.ordering !== false, queue: t.org.features?.queueOn !== false, booking: bk.enabled,
+    allowed: { ordering: plan.features.ordering !== false, queue: plan.features.queue, booking: plan.features.booking },
+    waLinked: !!t.branch.waPhone,
+  });
+}));
+
+router.patch("/offerings", requireAuth, withTenant(OWNER, async (req, res, t) => {
+  const b = req.body ?? {};
+  const f = { ...(t.org.features ?? {}) };
+  if (typeof b.ordering === "boolean") f.ordering = b.ordering;
+  if (typeof b.queue === "boolean") {
+    if (b.queue && !(await menuPlan(t.org.ownerUserId)).features.queue) return res.status(402).json({ error: "الصف الرقمي غير متاح في خطتك — رقّ الخطة لتفعيله.", plan: true });
+    f.queueOn = b.queue;
+  }
+  await db.update(orgsTable).set({ features: f }).where(eq(orgsTable.id, t.org.id));
+  if (typeof b.booking === "boolean") {
+    if (b.booking) { try { await assertFeature(t.org.ownerUserId, "booking"); } catch (err) { if (planErrorToResponse(err, res)) return; throw err; } }
+    const { bookingSettingsTable } = await import("@workspace/db");
+    await db.insert(bookingSettingsTable).values({ branchId: t.branch.id, enabled: b.booking }).onConflictDoUpdate({ target: bookingSettingsTable.branchId, set: { enabled: b.booking } });
+  }
+  res.json({ ok: true });
 }));
 
 router.get("/notifications", requireAuth, withTenant(OWNER, async (_req, res, t) => {

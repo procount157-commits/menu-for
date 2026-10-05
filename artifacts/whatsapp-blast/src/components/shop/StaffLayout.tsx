@@ -19,8 +19,9 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
   const [path] = useLocation();
   const manager = (user?.role ?? shop.role) === "manager";
 
+  const queueOn = shop.org.features?.queueOn !== false;
   const tabs = [
-    { href: "/queue", label: "الصف", icon: ListOrdered },
+    ...(queueOn ? [{ href: "/queue", label: "الصف", icon: ListOrdered }] : []),
     { href: "/orders", label: "الطلبات", icon: ClipboardList },
     { href: "/bookings", label: "الحجوزات", icon: CalendarDays },
     { href: "/gifts", label: "الهدايا", icon: Gift },

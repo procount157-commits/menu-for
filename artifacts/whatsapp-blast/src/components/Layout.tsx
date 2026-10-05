@@ -221,7 +221,8 @@ export default function Layout({ children }: { children: ReactNode }) {
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {adminOnly && <p className="px-3 pt-2 pb-1 text-[10px] font-semibold tracking-wide text-muted-foreground/70">إدارة المنصة</p>}
           {!adminOnly && NAV.map((group) => {
-            const items = group.items.filter((it) => (!it.owner || user?.isAdmin) && (!it.feature || !plan || plan.features[it.feature] || it.feature === "marketing"));
+            const queueOff = !!shop && !shop.needsOnboarding && shop.org.features?.queueOn === false;
+            const items = group.items.filter((it) => (!it.owner || user?.isAdmin) && (!it.feature || !plan || plan.features[it.feature] || it.feature === "marketing") && !(it.href === "/queue" && queueOff));
             if (!items.length) return null;
             return (
               <div key={group.title} className="pb-2">

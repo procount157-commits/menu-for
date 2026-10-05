@@ -87,7 +87,9 @@ export async function createOrg(ownerUserId: number, input: NewOrg): Promise<{ o
       ownerUserId, name, nameEn: input.nameEn?.trim() || null, slug, vertical,
       tagline: input.tagline?.trim() || null,
       theme: { template, brand },
-      features: { ...DEFAULT_FEATURES },
+      // A restaurant, a café or a sweets shop starts with the queue off — it is a
+      // salon's and a barber's door, not theirs; one switch turns it on.
+      features: { ...DEFAULT_FEATURES, queueOn: v.services },
     }).returning();
     if (offers) {
       await tx.insert(shopDealsTable).values({ orgId: org!.id, code: "WELCOME10", title: "خصم أول طلب", kind: "pct", value: "10", maxDiscount: "20", oncePerPhone: true });

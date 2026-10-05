@@ -107,11 +107,11 @@ export async function publicMenu(org: Org, branch: Branch): Promise<PublicMenu> 
     gifts: !!org.features?.gifts,
     referral: referralOn(org) ? { friendPct: referralPrefs(org).friendPct } : null,
     offers: offers.map((o) => ({ id: o.id, title: o.title, titleEn: o.titleEn, body: o.body, bodyEn: o.bodyEn, imageUrl: o.imageUrl, itemId: o.itemId, endsAt: o.endsAt?.toISOString() ?? null })),
-    queues: plan.features.queue ? await Promise.all(queues.map((q) => publicQueue({ queue: q, branch, org }))) : [],
+    queues: plan.features.queue && org.features?.queueOn !== false ? await Promise.all(queues.map((q) => publicQueue({ queue: q, branch, org }))) : [],
     booking: plan.features.booking && bk?.enabled
       ? { enabled: true, maxParty: bk.maxParty, slotMin: bk.slotMin, maxDaysAhead: bk.maxDaysAhead, services: v.services }
       : null,
-    ordering: { enabled: !!branch.waPhone, types: vocab(org.vertical).services ? ["pickup"] : ["dine_in", "pickup", "delivery", "preorder"] },
+    ordering: { enabled: !!branch.waPhone && org.features?.ordering !== false && plan.features.ordering !== false, types: vocab(org.vertical).services ? ["pickup"] : ["dine_in", "pickup", "delivery", "preorder"] },
     whatsapp: !!wa?.connected,
   };
 }

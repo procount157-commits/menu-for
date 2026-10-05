@@ -40,6 +40,8 @@ function Stat({ icon, label, value, tone }: { icon: ReactNode; label: string; va
 }
 
 function BranchCard({ b, currency, current, multi }: { b: LiveBranch; currency: string; current: boolean; multi: boolean }) {
+  const shop = useShop();
+  const queueOn = shop.org.features?.queueOn !== false;
   const switchBranch = useSwitchBranch();
   const [, go] = useLocation();
   // Every staff screen follows the session's branch, so step into this one first.
@@ -62,7 +64,7 @@ function BranchCard({ b, currency, current, multi }: { b: LiveBranch; currency: 
         )}
       </div>
 
-      <div className="grid grid-cols-[1.2fr_1fr] gap-3">
+      {queueOn && <div className="grid grid-cols-[1.2fr_1fr] gap-3">
         <button onClick={() => open("/queue")} className="text-start rounded-xl bg-primary/10 border border-primary/25 p-3 hover:border-primary/50 transition-colors">
           <div className="text-xs text-primary/90 flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />ينتظرون الآن</div>
           <div className="text-4xl font-bold tabular-nums mt-1">{b.waiting}</div>
@@ -72,7 +74,7 @@ function BranchCard({ b, currency, current, multi }: { b: LiveBranch; currency: 
           <Stat icon={<CheckCircle2 className="w-3 h-3" />} label="خُدموا اليوم" value={b.served} />
           <Stat icon={<UserX className="w-3 h-3" />} label="ما حضروا" value={b.noShowRate == null ? "—" : `${b.noShowRate}%`} tone={b.noShowRate != null && b.noShowRate >= 20 ? "warn" : undefined} />
         </div>
-      </div>
+      </div>}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <Stat icon={<ShoppingBag className="w-3 h-3" />} label="طلبات مفتوحة" value={b.openOrders} />
@@ -82,7 +84,7 @@ function BranchCard({ b, currency, current, multi }: { b: LiveBranch; currency: 
       </div>
 
       <div className="flex flex-wrap items-center gap-2 pt-1">
-        <button onClick={() => open("/queue")} className={cn(btnGhost, "text-xs")}><Users className="w-3.5 h-3.5" />شاشة الصف</button>
+        {queueOn && <button onClick={() => open("/queue")} className={cn(btnGhost, "text-xs")}><Users className="w-3.5 h-3.5" />شاشة الصف</button>}
         <button onClick={() => open("/orders")} className={cn(btnGhost, "text-xs")}><ShoppingBag className="w-3.5 h-3.5" />الطلبات</button>
         <button onClick={() => open("/bookings")} className={cn(btnGhost, "text-xs")}><CalendarCheck className="w-3.5 h-3.5" />الحجوزات</button>
         {b.avgWait != null && <span className="ms-auto text-xs text-muted-foreground flex items-center gap-1"><Clock className="w-3 h-3" />متوسط الانتظار اليوم {b.avgWait} د</span>}

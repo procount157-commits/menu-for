@@ -9,6 +9,8 @@ import { toast } from "sonner";
 import { AlertTriangle, CalendarCheck, Loader2, Palette, Plus, Settings2, Store, Users } from "lucide-react";
 import { TEMPLATES, type Template, type Vertical } from "@workspace/menu-shared";
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
+import { errText } from "@/components/shop/ops/kit";
 import { SHOP_KEY, get, patch, post, useShop, useSwitchBranch, inputCls } from "@/lib/shop-api";
 import {
   Field, ImageDrop, PageHeader, Section, SegTabs, Skel, ToggleRow, UpgradeNotice, btnPrimary, isPlanError,
@@ -64,6 +66,36 @@ function useSaveOrg() {
 
 // ── المحل ─────────────────────────────────────────────────────────
 
+/** «ماذا يقدّم منيوك؟» — the three doors on the menu. A restaurant usually wants ordering alone. */
+function Offerings() {
+  const shop = useShop();
+  const qc = useQueryClient();
+  const q = useQuery<{ ordering: boolean; queue: boolean; booking: boolean; allowed: { ordering: boolean; queue: boolean; booking: boolean }; waLinked: boolean }>({ queryKey: ["/api/offerings", shop.branch.id], queryFn: () => get("/api/offerings") });
+  if (!q.data) return null;
+  const d = q.data;
+  const set = async (k: "ordering" | "queue" | "booking", v: boolean) => {
+    try { await patch("/api/offerings", { [k]: v }); await qc.invalidateQueries(); toast.success(v ? "ظهر في المنيو" : "أُخفي من المنيو"); }
+    catch (e) { toast.error(errText(e)); }
+  };
+  const rows: Array<[typeof set extends (k: infer K, v: boolean) => unknown ? K : never, string, string, boolean, boolean, string?]> = [
+    ["ordering", "الطلب من المنيو", d.waLinked ? "السلة وزر «أرسل الطلب على واتساب». أوقفه ليصير المنيو للعرض فقط." : "يحتاج رقم واتساب مربوطاً للفرع.", d.ordering, d.allowed.ordering],
+    ["queue", shop.vocab.services ? "الدور (الانتظار بلا موعد)" : "قائمة الانتظار (الصف الرقمي)", shop.vocab.services ? "الزبون يأخذ دوره من الجوال ويصله «جاء دورك»." : "للمطاعم المزدحمة وقت الذروة فقط — أغلب المطاعم لا تحتاجه.", d.queue, d.allowed.queue],
+    ["booking", shop.vocab.services ? "المواعيد" : "حجز الطاولات", "زر «احجز» في المنيو، مع تذكير قبل الموعد.", d.booking, d.allowed.booking],
+  ];
+  return (
+    <Section title="ماذا يقدّم منيوك؟">
+      <div className="grid sm:grid-cols-3 gap-2">
+        {rows.map(([k, title, hint, on, allowed]) => (
+          <div key={k} className={cn("rounded-xl border p-3 flex gap-3", on ? "border-primary/40 bg-primary/5" : "border-border")}>
+            <div className="flex-1 min-w-0"><div className="font-semibold text-sm">{title}</div><div className="text-xs text-muted-foreground mt-1 leading-relaxed">{hint}</div>{!allowed && <div className="text-[11px] text-amber-300 mt-1">في خطة أعلى</div>}</div>
+            <Switch checked={on} disabled={!allowed && !on} onCheckedChange={(v: boolean) => set(k, v)} dir="ltr" />
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 function ShopTab() {
   const { org, links } = useShop();
   // The public host can differ from the dashboard's, so take it from the menu link.
@@ -87,6 +119,7 @@ function ShopTab() {
 
   return (
     <div className="space-y-4">
+      <Offerings />
       <Section title="الاسم والتعريف">
         <div className="grid sm:grid-cols-2 gap-4">
           <Field label="اسم المحل"><input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
