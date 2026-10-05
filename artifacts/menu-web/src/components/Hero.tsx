@@ -4,12 +4,15 @@
 // first thing read after its name.
 
 import { useEffect, useRef } from "react";
-import { formatClock, type PublicMenu } from "@workspace/menu-shared";
+import { formatClock, type HeroStyle, type PublicMenu } from "@workspace/menu-shared";
 import { monogram, Icon } from "./ui";
 import { pick, setLang, t, type Lang } from "@/lib/i18n";
 import { go } from "@/lib/api";
 
-export function Hero({ menu, lang }: { menu: PublicMenu; lang: Lang }) {
+const HEIGHT: Record<HeroStyle, string> = { cover: "h-[44vh] min-h-[260px] max-h-[460px]", compact: "h-[24vh] min-h-[160px] max-h-[240px]", center: "h-[32vh] min-h-[200px] max-h-[320px]" };
+
+export function Hero({ menu, lang, style = "cover" }: { menu: PublicMenu; lang: Lang; style?: HeroStyle }) {
+  const mid = style === "center";
   const { org, branch, branches } = menu;
   const cover = useRef<HTMLDivElement>(null);
   const shade = useRef<HTMLDivElement>(null);
@@ -37,7 +40,7 @@ export function Hero({ menu, lang }: { menu: PublicMenu; lang: Lang }) {
 
   return (
     <header className="relative">
-      <div className="relative h-[44vh] min-h-[260px] max-h-[460px] overflow-hidden">
+      <div className={`relative ${HEIGHT[style] ?? HEIGHT.cover} overflow-hidden`}>
         <div ref={cover} className="absolute inset-0 will-change-transform" style={{ transform: "scale(1.06)" }}>
           {org.coverUrl ? (
             <img src={org.coverUrl} alt="" className="w-full h-full object-cover animate-fade" fetchPriority="high" />
@@ -68,9 +71,9 @@ export function Hero({ menu, lang }: { menu: PublicMenu; lang: Lang }) {
         </div>
       </div>
 
-      <div className="relative -mt-16 px-5 max-w-3xl mx-auto">
-        <div className="flex items-end gap-4">
-          <div className="w-[88px] h-[88px] rounded-[26px] overflow-hidden flex-shrink-0 animate-rise flex items-center justify-center"
+      <div className={`relative ${style === "compact" ? "-mt-12" : "-mt-16"} px-5 max-w-3xl mx-auto ${mid ? "text-center" : ""}`}>
+        <div className={`flex gap-4 ${mid ? "flex-col items-center" : "items-end"}`}>
+          <div className={`${mid ? "w-[104px] h-[104px] rounded-full" : style === "compact" ? "w-[72px] h-[72px] rounded-[var(--radius)]" : "w-[88px] h-[88px] rounded-[var(--radius)]"} overflow-hidden flex-shrink-0 animate-rise flex items-center justify-center`}
             style={{ background: "var(--surface)", boxShadow: "var(--shadow), 0 0 0 4px var(--bg)" }}>
             {org.logoUrl ? <img src={org.logoUrl} alt={org.name} className="w-full h-full object-cover" />
               : <span className="font-display text-4xl text-brand">{monogram(pick(lang, org.name, org.nameEn))}</span>}
@@ -84,11 +87,11 @@ export function Hero({ menu, lang }: { menu: PublicMenu; lang: Lang }) {
             )}
           </div>
         </div>
-        <h1 className="font-display text-[32px] leading-[1.2] mt-4 animate-rise" style={{ animationDelay: "120ms" }}>{pick(lang, org.name, org.nameEn)}</h1>
+        <h1 className={`font-display ${style === "compact" ? "text-[26px] mt-3" : "text-[32px] mt-4"} leading-[1.2] animate-rise`} style={{ animationDelay: "120ms" }}>{pick(lang, org.name, org.nameEn)}</h1>
         {(org.tagline || org.taglineEn) && (
           <p className="text-muted mt-1.5 text-[15px] leading-relaxed animate-rise" style={{ animationDelay: "160ms" }}>{pick(lang, org.tagline, org.taglineEn)}</p>
         )}
-        <div className="flex flex-wrap gap-2 mt-4 animate-rise" style={{ animationDelay: "200ms" }}>
+        <div className={`flex flex-wrap gap-2 mt-4 animate-rise ${mid ? "justify-center" : ""}`} style={{ animationDelay: "200ms" }}>
           {branch.mapUrl && (
             <a href={branch.mapUrl} target="_blank" rel="noreferrer" className="btn-ghost h-9 px-3.5 text-sm flex items-center gap-1.5">
               <Icon name="pin" className="w-4 h-4 text-brand" />{pick(lang, branch.name, branch.nameEn)}

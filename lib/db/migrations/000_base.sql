@@ -2170,7 +2170,8 @@ CREATE TABLE public.menu_categories (
     image_url text,
     sort integer DEFAULT 0 NOT NULL,
     is_active boolean DEFAULT true NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    hours jsonb
 );
 
 
@@ -2218,7 +2219,10 @@ CREATE TABLE public.menu_items (
     sort integer DEFAULT 0 NOT NULL,
     is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    serves integer,
+    prep_min integer,
+    pinned boolean DEFAULT false NOT NULL
 );
 
 
@@ -2821,7 +2825,8 @@ CREATE TABLE public.shop_deals (
     phone character varying(40),
     source character varying(12) DEFAULT 'owner'::character varying NOT NULL,
     is_active boolean DEFAULT true NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    broadcasts jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 

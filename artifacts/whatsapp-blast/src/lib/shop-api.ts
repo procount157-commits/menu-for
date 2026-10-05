@@ -1,3 +1,4 @@
+import type { MenuDesign, Template } from "@workspace/menu-shared";
 // ── The dashboard's way to the Menu For You API ───────────────────
 // One fetch helper, the signed-in shop (useShop), and live streams with a
 // polling fallback (useStream). Every shop page uses these rather than its
@@ -70,7 +71,7 @@ export interface ShopMe {
   org: {
     id: number; ownerUserId: number; name: string; nameEn: string | null; slug: string; vertical: Vertical;
     tagline: string | null; taglineEn: string | null; about: string | null; logoUrl: string | null; coverUrl: string | null;
-    theme: { template: "noir" | "cream" | "clean" | "rose"; brand: string; font?: string };
+    theme: { template: Template; brand: string; font?: string; design?: Partial<MenuDesign> };
     defaultLang: "ar" | "en"; currency: string; timezone: string; socials: Record<string, string>;
     features: Record<string, boolean>; status: string; onboardedAt: string | null; createdAt: string;
   };

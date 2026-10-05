@@ -59,6 +59,9 @@ function itemPatch(b: any) {
   if (b.kind === "product" || b.kind === "service") p.kind = b.kind;
   if ("durationMin" in b) p.durationMin = b.durationMin ? Math.max(5, Math.min(600, Math.floor(Number(b.durationMin)))) : null;
   if ("calories" in b) p.calories = b.calories ? Math.max(0, Math.min(10000, Math.floor(Number(b.calories)))) : null;
+  if ("serves" in b) p.serves = b.serves ? Math.max(1, Math.min(100, Math.floor(Number(b.serves)))) : null;
+  if ("prepMin" in b) p.prepMin = b.prepMin ? Math.max(1, Math.min(600, Math.floor(Number(b.prepMin)))) : null;
+  if (typeof b.pinned === "boolean") p.pinned = b.pinned;
   if (Array.isArray(b.tags)) p.tags = b.tags.filter((x: unknown) => TAGS.has(String(x)));
   if (Array.isArray(b.allergens)) p.allergens = b.allergens.map((x: unknown) => String(x).slice(0, 30)).slice(0, 14);
   if (Array.isArray(b.images)) p.images = b.images.slice(0, 6).filter((i: any) => typeof i?.url === "string" && i.url.startsWith("/api/media/file/"))
@@ -97,6 +100,12 @@ router.patch("/categories/:id", requireAuth, withTenant(MANAGERS, async (req, re
   if (str(b.name, 120)) p.name = str(b.name, 120);
   if ("nameEn" in b) p.nameEn = str(b.nameEn, 120) || null;
   if ("imageUrl" in b) p.imageUrl = str(b.imageUrl, 500) || null;
+  if ("hours" in b) {
+    const h = b.hours, T = /^([01]\d|2[0-3]):[0-5]\d$/;
+    const days = Array.isArray(h?.days) ? [...new Set((h.days as unknown[]).map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))] : [];
+    const from = T.test(String(h?.from ?? "")) ? String(h.from) : null, to = T.test(String(h?.to ?? "")) ? String(h.to) : null;
+    p.hours = (from && to) || days.length ? { from: from && to ? from : null, to: from && to ? to : null, days } : null;
+  }
   if (typeof b.isActive === "boolean") p.isActive = b.isActive;
   const [c] = await db.update(menuCategoriesTable).set(p).where(and(eq(menuCategoriesTable.id, Number(req.params.id)), eq(menuCategoriesTable.orgId, t.org.id))).returning();
   if (!c) return res.status(404).json({ error: "التصنيف غير موجود" });

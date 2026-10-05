@@ -142,6 +142,42 @@ r = await anon.post(`/api/public/orders`, { slug: `alpha-${tag}`, lines: [{ item
 check("an order is priced by the server, not the request", r.status === 201 && r.json.subtotal === 110, r.json);
 r = await anon.post(`/api/public/orders`, { slug: `alpha-${tag}`, lines: [{ itemId: itemB.id, qty: 1 }] });
 check("another shop's item cannot be ordered here", r.status === 400);
+
+// ── The menu designer, item details and section hours ────────────
+r = await A.patch("/api/org", { theme: { template: "midnight", brand: "#c2410c", design: { font: "kufi", hero: "center", view: "text", radius: "sharp", showDesc: false, announcement: { text: "  جديد: قهوة مختصة  ", tone: "warn" }, evil: "<script>" } } });
+check("the owner saves a design: font, header, view, corners, news line", r.status === 200, r.json);
+r = await anon.get(`/api/public/m/alpha-${tag}`);
+const dz = r.json.org.theme.design;
+check("…the public menu carries it, cleaned (trimmed text, nothing extra)", r.json.org.theme.template === "midnight" && dz?.font === "kufi" && dz.view === "text" && dz.showDesc === false && dz.announcement?.text === "جديد: قهوة مختصة" && dz.announcement.tone === "warn" && !("evil" in dz), r.json.org.theme);
+await A.patch("/api/org", { theme: { template: "noir", brand: "#c2410c", design: { font: "comic-sans", view: "carousel" } } });
+r = await anon.get(`/api/public/m/alpha-${tag}`);
+check("an unknown font or view keeps the last good one", r.json.org.theme.design.font === "kufi" && r.json.org.theme.design.view === "text" && r.json.org.theme.design.announcement?.text === "جديد: قهوة مختصة", r.json.org.theme.design);
+await A.patch("/api/org", { theme: { template: "noir", brand: "#c2410c", design: { announcement: null } } });
+r = await anon.get(`/api/public/m/alpha-${tag}`);
+check("…and the news line is removed with null", r.json.org.theme.design.announcement === null);
+
+const pinned = (await A.post("/api/menu/items", { name: "صنف مثبّت", price: 20, categoryId: catA.id, serves: 4, prepMin: 25, pinned: true })).json;
+r = await anon.get(`/api/public/m/alpha-${tag}`);
+const inA = r.json.items.filter((i: any) => i.categoryId === catA.id);
+check("a pinned item leads its section, with «serves 4» and «25 min»", inA[0]?.id === pinned.id && inA[0].serves === 4 && inA[0].prepMin === 25, inA.map((i: any) => i.name));
+r = await A.patch(`/api/menu/items/${pinned.id}`, { serves: 900, prepMin: -5 });
+check("…out-of-range details are bounded", r.status === 200 && r.json.serves === 100 && r.json.prepMin === 1, r.json);
+
+const lp = (await import("@workspace/menu-shared")).localParts("Asia/Dubai");
+const hhmm = (m: number) => `${String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padStart(2, "0")}:${String(((m % 60) + 60) % 60).padStart(2, "0")}`;
+const nowM = lp.hour * 60 + lp.minute;
+r = await A.patch(`/api/menu/categories/${catA.id}`, { hours: { from: hhmm(nowM + 120), to: hhmm(nowM + 180), days: [9, 2, 2, "x"] } });
+check("a section gets serving hours; bad days are dropped", r.status === 200 && r.json.hours?.from === hhmm(nowM + 120) && JSON.stringify(r.json.hours.days) === "[2]", r.json.hours);
+await A.patch(`/api/menu/categories/${catA.id}`, { hours: { from: hhmm(nowM + 120), to: hhmm(nowM + 180), days: [] } });
+r = await anon.get(`/api/public/m/alpha-${tag}`);
+check("…the public menu shows them", r.json.categories.find((c: any) => c.id === catA.id)?.hours?.to === hhmm(nowM + 180));
+r = await anon.post(`/api/public/orders`, { slug: `alpha-${tag}`, lines: [{ itemId: itemA.id, qty: 1 }], type: "pickup" });
+check("an item from a section not served now cannot be ordered", r.status === 400 && /يُقدَّم من/.test(r.json.error ?? ""), r.json);
+r = await A.patch(`/api/menu/categories/${catA.id}`, { hours: { from: "25:00", to: "nope", days: [] } });
+check("nonsense hours clear the section back to always", r.status === 200 && r.json.hours === null, r.json.hours);
+r = await anon.post(`/api/public/orders`, { slug: `alpha-${tag}`, lines: [{ itemId: itemA.id, qty: 1 }], type: "pickup" });
+check("…and it orders again", r.status === 201, r.json);
+await A.del(`/api/menu/items/${pinned.id}`);
 r = await anon.get(`/api/queue/${qA.id}`);
 check("the staff queue needs a session", r.status === 401);
 

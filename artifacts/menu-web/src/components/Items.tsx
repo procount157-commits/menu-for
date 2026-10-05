@@ -48,7 +48,7 @@ export function ItemCard({ item, i, currency, lang, onOpen, onQuickAdd }: {
   return (
     <article className="reveal h-full" style={{ ["--i" as string]: i % 6 }}>
       <button type="button" onClick={() => onOpen(item, photo.current)}
-        className={`w-full h-full text-start flex flex-col rounded-[20px] overflow-hidden transition-transform active:scale-[0.98] ${item.available ? "" : "opacity-60"}`}
+        className={`w-full h-full text-start flex flex-col rounded-[var(--radius)] overflow-hidden transition-transform active:scale-[0.98] ${item.available ? "" : "opacity-60"}`}
         style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
         <div className="relative w-full">
           <Img img={item.images[0]} alt={pick(lang, item.name, item.nameEn)} sizes="md" imgRef={photo} className="w-full aspect-[4/3]" fallback={item.name} />
@@ -63,10 +63,11 @@ export function ItemCard({ item, i, currency, lang, onOpen, onQuickAdd }: {
         <div className="p-3 flex-1 flex flex-col">
           <h3 className="font-bold text-[15px] leading-snug line-clamp-1">{pick(lang, item.name, item.nameEn)}</h3>
           {(item.description || item.descriptionEn) && (
-            <p className="text-[12px] text-muted mt-1 leading-relaxed line-clamp-2">{pick(lang, item.description, item.descriptionEn)}</p>
+            <p className="item-desc text-[12px] text-muted mt-1 leading-relaxed line-clamp-2">{pick(lang, item.description, item.descriptionEn)}</p>
           )}
-          {(item.calories || item.durationMin) ? (
+          {(item.calories || item.durationMin || item.serves) ? (
             <p className="text-[11px] text-muted mt-1.5 flex items-center gap-2.5">
+              {item.serves && item.serves > 1 ? <span className="inline-flex items-center gap-1"><Icon name="users" className="w-3 h-3" />{t("servesN", lang).replace("{n}", String(item.serves))}</span> : null}
               {item.calories ? <span className="inline-flex items-center gap-1"><Icon name="flame" className="w-3 h-3" />{item.calories} {t("kcal", lang)}</span> : null}
               {item.durationMin ? <span className="inline-flex items-center gap-1"><Icon name="clock" className="w-3 h-3" />{item.durationMin} {t("minutes", lang)}</span> : null}
             </p>
@@ -97,7 +98,7 @@ export function ItemRow({ item, i, currency, lang, onOpen, onQuickAdd }: {
         <div className="flex-1 min-w-0 py-0.5">
           <h3 className="font-semibold text-[16px] leading-snug">{pick(lang, item.name, item.nameEn)}</h3>
           {(item.description || item.descriptionEn) && (
-            <p className="text-[13px] text-muted mt-1 leading-relaxed line-clamp-2">{pick(lang, item.description, item.descriptionEn)}</p>
+            <p className="item-desc text-[13px] text-muted mt-1 leading-relaxed line-clamp-2">{pick(lang, item.description, item.descriptionEn)}</p>
           )}
           <div className="mt-2"><Tags tags={item.tags} lang={lang} max={2} /></div>
           <div className="mt-2.5 flex items-center gap-2">
@@ -111,6 +112,36 @@ export function ItemRow({ item, i, currency, lang, onOpen, onQuickAdd }: {
             className="w-[108px] h-[108px] rounded-2xl" fallback={item.name} />
           {item.available && <AddDot quick={quick} item={item} lang={lang} photo={photo} onOpen={onOpen} onQuickAdd={onQuickAdd} className="absolute -bottom-2 start-1/2 -translate-x-1/2 rtl:translate-x-1/2" />}
         </div>
+      </button>
+    </article>
+  );
+}
+
+/** The classic menu line: name, dotted leader, price — no photos. */
+export function ItemLine({ item, i, currency, lang, onOpen, onQuickAdd }: {
+  item: PublicItem; i: number; currency: string; lang: Lang;
+  onOpen: (item: PublicItem, from: HTMLElement | null) => void;
+  onQuickAdd: (item: PublicItem, from: HTMLElement) => void;
+}) {
+  const none = useRef<HTMLDivElement>(null);
+  const quick = item.options.length === 0 && item.available;
+  return (
+    <article className="reveal" style={{ ["--i" as string]: i % 10 }}>
+      <button type="button" onClick={() => onOpen(item, null)}
+        className={`w-full text-start flex items-start gap-3 py-3.5 border-b ${item.available ? "" : "opacity-55"}`} style={{ borderColor: "var(--line)" }}>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2">
+            <h3 className="font-bold text-[16px] leading-snug">{pick(lang, item.name, item.nameEn)}</h3>
+            <span aria-hidden className="flex-1 min-w-4 border-b-2 border-dotted -translate-y-1" style={{ borderColor: "color-mix(in srgb, var(--muted) 45%, transparent)" }} />
+            {item.available ? <Price item={item} currency={currency} lang={lang} className="text-[15px] text-brand flex-shrink-0" />
+              : <span className="text-xs font-semibold text-danger flex-shrink-0">{t("soldOut", lang)}</span>}
+          </div>
+          {(item.description || item.descriptionEn) && (
+            <p className="item-desc text-[13px] text-muted mt-1 leading-relaxed line-clamp-2">{pick(lang, item.description, item.descriptionEn)}</p>
+          )}
+          {item.tags.length > 0 && <div className="mt-1.5"><Tags tags={item.tags} lang={lang} max={3} /></div>}
+        </div>
+        {item.available && <AddDot quick={quick} item={item} lang={lang} photo={none} onOpen={onOpen} onQuickAdd={onQuickAdd} className="!w-8 !h-8 mt-0.5" />}
       </button>
     </article>
   );
@@ -150,7 +181,7 @@ function FeaturedCard({ item, i, currency, lang, onOpen }: { item: PublicItem; i
   const photo = useRef<HTMLDivElement>(null);
   return (
     <button type="button" onClick={() => onOpen(item, photo.current)}
-      className="snap-start flex-shrink-0 w-[240px] text-start rounded-[22px] overflow-hidden animate-rise active:scale-[0.98] transition-transform"
+      className="snap-start flex-shrink-0 w-[240px] text-start rounded-[var(--radius)] overflow-hidden animate-rise active:scale-[0.98] transition-transform"
       style={{ background: "var(--surface)", animationDelay: `${120 + i * 60}ms` }}>
       <div className="relative">
         <Img img={item.images[0]} alt={pick(lang, item.name, item.nameEn)} imgRef={photo} className="w-full aspect-[4/3]" fallback={item.name} />
@@ -166,8 +197,10 @@ function FeaturedCard({ item, i, currency, lang, onOpen }: { item: PublicItem; i
 
 // ── The item sheet ────────────────────────────────────────────────
 
-export function ItemSheet({ item, from, currency, lang, onClose, onAdd }: {
+export function ItemSheet({ item, from, currency, lang, onClose, onAdd, blocked }: {
   item: PublicItem | null; from: HTMLElement | null; currency: string; lang: Lang;
+  /** Why this item cannot be added now (its section is not served at this hour), or null. */
+  blocked?: (item: PublicItem) => string | null;
   onClose: () => void;
   onAdd: (item: PublicItem, qty: number, selections: Selection[], note: string | undefined, button: HTMLElement) => void;
 }) {
@@ -241,8 +274,18 @@ export function ItemSheet({ item, from, currency, lang, onClose, onAdd }: {
             </div>
             <div className="mt-2"><Tags tags={it.tags} lang={lang} max={4} /></div>
             {(it.description || it.descriptionEn) && <p className="text-muted mt-3 leading-relaxed">{pick(lang, it.description, it.descriptionEn)}</p>}
-            {(it.calories || it.durationMin || it.allergens.length > 0) && (
+            {(it.calories || it.durationMin || it.serves || it.prepMin || it.allergens.length > 0) && (
               <div className="mt-4 flex flex-wrap gap-2 text-[13px]">
+                {it.serves ? (
+                  <span className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full" style={{ background: "var(--surface-2)" }}>
+                    <Icon name="users" className="w-4 h-4 text-brand" /><span className="text-muted">{t("servesN", lang).replace("{n}", String(it.serves))}</span>
+                  </span>
+                ) : null}
+                {it.prepMin ? (
+                  <span className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full" style={{ background: "var(--surface-2)" }}>
+                    <Icon name="clock" className="w-4 h-4 text-brand" /><span className="text-muted">{t("prepN", lang).replace("{n}", String(it.prepMin))}</span>
+                  </span>
+                ) : null}
                 {it.calories ? (
                   <span className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full" style={{ background: "var(--surface-2)" }}>
                     <Icon name="flame" className="w-4 h-4 text-brand" /><b className="tabular">{it.calories}</b><span className="text-muted">{t("kcal", lang)}</span>
@@ -301,7 +344,9 @@ export function ItemSheet({ item, from, currency, lang, onClose, onAdd }: {
             )}
           </div>
 
-          {it.available ? (
+          {it.available && blocked?.(it) ? (
+            <div className="px-5 pt-3 safe-bottom"><div className="min-h-12 py-2 px-4 rounded-full flex items-center justify-center text-center text-sm font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>{blocked(it)}</div></div>
+          ) : it.available ? (
             <div className="px-5 pt-3 safe-bottom border-t flex items-center gap-3" style={{ borderColor: "var(--line)" }}>
               <Stepper value={qty} onChange={setQty} />
               <button ref={addBtn} type="button" disabled={!!missing || !r?.ok}

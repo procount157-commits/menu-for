@@ -2,7 +2,10 @@
 // Four templates and a brand colour; everything else is derived, including
 // whether text on the brand colour is dark or light.
 
-import { TEMPLATES, type Template } from "@workspace/menu-shared";
+import { TEMPLATES, FONTS, RADII, DEFAULT_DESIGN, type MenuDesign, type Template } from "@workspace/menu-shared";
+
+/** The owner's design, filled in with the defaults. */
+export const designOf = (theme: { design?: Partial<MenuDesign> } | null | undefined): MenuDesign => ({ ...DEFAULT_DESIGN, ...(theme?.design ?? {}) });
 
 function hexToRgb(h: string): [number, number, number] {
   const m = h.replace("#", "").match(/^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
@@ -14,7 +17,7 @@ function luminance([r, g, b]: [number, number, number]) {
   return 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
 }
 
-export function applyTheme(theme: { template?: Template; brand?: string } | null | undefined) {
+export function applyTheme(theme: { template?: Template; brand?: string; design?: Partial<MenuDesign> } | null | undefined) {
   const tpl = TEMPLATES[(theme?.template ?? "noir") as Template] ?? TEMPLATES.noir;
   const brand = /^#[0-9a-f]{6}$/i.test(theme?.brand ?? "") ? theme!.brand! : "#22c55e";
   const rgb = hexToRgb(brand);
@@ -33,6 +36,10 @@ export function applyTheme(theme: { template?: Template; brand?: string } | null
   root.setProperty("--brand-soft", `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${tpl.dark ? 0.16 : 0.12})`);
   root.setProperty("--shadow", tpl.dark ? "0 10px 40px -12px rgba(0,0,0,.6)" : "0 12px 36px -14px rgba(60,40,20,.22)");
   root.setProperty("color-scheme", tpl.dark ? "dark" : "light");
+  const d = designOf(theme);
+  root.setProperty("--shop-font", (FONTS[d.font] ?? FONTS.cairo).family);
+  root.setProperty("--radius", `${(RADII[d.radius] ?? RADII.round).px}px`);
+  document.documentElement.dataset.desc = d.showDesc ? "1" : "0";
   const meta = document.querySelector('meta[name="theme-color"]') ?? Object.assign(document.createElement("meta"), { name: "theme-color" });
   meta.setAttribute("content", tpl.bg);
   if (!meta.parentNode) document.head.appendChild(meta);

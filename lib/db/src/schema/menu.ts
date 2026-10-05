@@ -61,9 +61,11 @@ export interface GrowthPrefs {
 }
 
 export interface OrgTheme {
-  template: "noir" | "cream" | "clean" | "rose";
+  template: "noir" | "cream" | "clean" | "rose" | "midnight" | "sand";
   brand: string;
   font?: string;
+  // The menu designer's choices (menu-shared/design.ts).
+  design?: Record<string, any>;
 }
 
 export interface DayHours { open: string; close: string; closed?: boolean }
@@ -120,6 +122,8 @@ export const menuCategoriesTable = pgTable("menu_categories", {
   name:      varchar("name", { length: 120 }).notNull(),
   nameEn:    varchar("name_en", { length: 120 }),
   imageUrl:  text("image_url"),
+  // When the section is served: { from: "07:00", to: "11:30", days: [5, 6] } — null for always.
+  hours:     jsonb("hours").$type<{ from: string | null; to: string | null; days: number[] } | null>(),
   sort:      integer("sort").notNull().default(0),
   isActive:  boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -147,6 +151,10 @@ export const menuItemsTable = pgTable("menu_items", {
   // new | popular | spicy | vegetarian | chef | preorder
   tags:          jsonb("tags").$type<string[]>().notNull().default([]),
   calories:      integer("calories"),
+  // How many it feeds, how long it takes, and whether it leads its section.
+  serves:         integer("serves"),
+  prepMin:        integer("prep_min"),
+  pinned:         boolean("pinned").notNull().default(false),
   allergens:     jsonb("allergens").$type<string[]>().notNull().default([]),
   sort:          integer("sort").notNull().default(0),
   isActive:      boolean("is_active").notNull().default(true),

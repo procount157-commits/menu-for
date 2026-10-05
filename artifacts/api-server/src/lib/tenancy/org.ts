@@ -70,7 +70,7 @@ export async function createOrg(ownerUserId: number, input: NewOrg): Promise<{ o
   } else {
     slug = await suggestSlug(name, input.nameEn);
   }
-  const template = (["noir", "cream", "clean", "rose"].includes(String(input.template)) ? input.template : v.template) as Org["theme"]["template"];
+  const template = (["noir", "cream", "clean", "rose", "midnight", "sand"].includes(String(input.template)) ? input.template : v.template) as Org["theme"]["template"];
   const brand = /^#[0-9a-f]{6}$/i.test(String(input.brand)) ? String(input.brand) : v.brand;
 
   // Smart defaults: a new shop starts with what pays off switched on — the

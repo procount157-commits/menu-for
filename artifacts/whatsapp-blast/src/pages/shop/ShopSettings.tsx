@@ -7,7 +7,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AlertTriangle, CalendarCheck, Loader2, Palette, Plus, Settings2, Store, Users } from "lucide-react";
-import { TEMPLATES, type Template, type Vertical } from "@workspace/menu-shared";
+import { TEMPLATES, FONTS, HEROES, VIEWS, RADII, DEFAULT_DESIGN, type MenuDesign, type Template, type Vertical } from "@workspace/menu-shared";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { errText } from "@/components/shop/ops/kit";
@@ -209,7 +209,11 @@ function LookTab() {
     return () => clearTimeout(h);
   }, [brand]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const tpl = TEMPLATES[org.theme.template];
+  const tpl = TEMPLATES[org.theme.template] ?? TEMPLATES.noir;
+  const design: MenuDesign = { ...DEFAULT_DESIGN, ...(org.theme.design ?? {}) };
+  const setDesign = (p: Partial<MenuDesign>) => save.mutate({ theme: { ...org.theme, brand, design: { ...design, ...p } } });
+  // The preview is the real menu; it reloads after each saved change.
+  const previewUrl = `${shop.links.menu}${shop.links.menu.includes("?") ? "&" : "?"}preview=1&v=${hashOf(JSON.stringify([org.theme, org.logoUrl, org.coverUrl, org.name, org.tagline]))}`;
 
   return (
     <div className="grid lg:grid-cols-[1fr_300px] gap-4 items-start">
@@ -228,7 +232,7 @@ function LookTab() {
         </Section>
 
         <Section title="القالب">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {(Object.keys(TEMPLATES) as Template[]).map((k) => {
               const t = TEMPLATES[k];
               const on = org.theme.template === k;
@@ -263,36 +267,96 @@ function LookTab() {
             {save.isPending && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
           </div>
         </Section>
+
+        <Designer design={design} onChange={setDesign} busy={save.isPending} />
       </div>
 
-      {/* phone-sized preview */}
+      {/* the real menu, phone-sized */}
       <div className="lg:sticky lg:top-4">
         <div className="text-xs text-muted-foreground mb-2 flex items-center justify-between">
-          <span>كذا يشوفه الزبون</span>
+          <span>كذا يشوفه الزبون — مباشر</span>
           <a href={shop.links.menu} target="_blank" rel="noreferrer" className="text-primary">افتح المنيو</a>
         </div>
-        <div className="rounded-[28px] border-[6px] border-black/60 overflow-hidden shadow-2xl mx-auto max-w-[300px]" style={{ background: tpl.bg, color: tpl.text }}>
-          <div className="h-24 bg-cover bg-center" style={{ backgroundImage: org.coverUrl ? `url(${media(org.coverUrl)})` : `linear-gradient(135deg, ${brand}55, ${tpl.surface})` }} />
-          <div className="px-4 -mt-7">
-            <div className="w-14 h-14 rounded-full overflow-hidden border-4 flex items-center justify-center font-bold text-white" style={{ borderColor: tpl.bg, background: brand }}>
-              {org.logoUrl ? <img src={media(org.logoUrl)!} alt="" className="w-full h-full object-cover" /> : org.name.trim()[0]}
-            </div>
-            <div className="font-bold mt-2">{org.name}</div>
-            <div className="text-xs" style={{ color: tpl.muted }}>{org.tagline || shop.vocab.label[0]}</div>
-          </div>
-          <div className="p-4 space-y-2">
-            {["الأكثر طلباً", "جديد"].map((c, i) => (
-              <div key={c} className="rounded-xl p-3 flex items-center gap-3" style={{ background: tpl.surface, border: `1px solid ${tpl.muted}22` }}>
-                <div className="w-10 h-10 rounded-lg shrink-0" style={{ background: `${brand}33` }} />
-                <div className="flex-1 min-w-0"><div className="text-sm font-medium">{shop.vocab.item[0]} {i + 1}</div><div className="text-[11px]" style={{ color: tpl.muted }}>{c}</div></div>
-                <span className="text-sm font-semibold" style={{ color: brand }}>{i ? 28 : 45}</span>
-              </div>
-            ))}
-            <div className="rounded-full py-2.5 text-center text-sm font-semibold mt-3 text-white" style={{ background: brand }}>احجز دورك · قدامك 3</div>
-          </div>
+        <div className="rounded-[34px] border-[7px] border-black/70 overflow-hidden shadow-2xl mx-auto w-[300px] h-[600px] relative" style={{ background: tpl.bg }}>
+          <iframe key={previewUrl} src={previewUrl} title="معاينة المنيو" className="absolute top-0 left-0 border-0 origin-top-left"
+            style={{ width: 390, height: 780, transform: "scale(0.7538)" }} />
         </div>
+        <p className="text-[11px] text-muted-foreground text-center mt-2">كل تغيير ينحفظ ويظهر هنا خلال ثانية.</p>
       </div>
     </div>
+  );
+}
+
+/** A short fingerprint, so the preview reloads only when the look changed. */
+function hashOf(s: string) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
+
+/** Font, header, layout, corners, descriptions, and the line of news on top. */
+function Designer({ design, onChange, busy }: { design: MenuDesign; onChange: (p: Partial<MenuDesign>) => void; busy: boolean }) {
+  const [ann, setAnn] = useState(design.announcement?.text ?? "");
+  const [annEn, setAnnEn] = useState(design.announcement?.textEn ?? "");
+  const [tone, setTone] = useState<"brand" | "warn" | "info">(design.announcement?.tone ?? "brand");
+  useEffect(() => { setAnn(design.announcement?.text ?? ""); setAnnEn(design.announcement?.textEn ?? ""); setTone(design.announcement?.tone ?? "brand"); }, [design.announcement]);
+  const pill = (on: boolean) => cn("rounded-xl border px-3 py-2 text-sm text-start transition-all", on ? "border-primary bg-primary/10 text-foreground" : "border-card-border hover:border-primary/40 text-muted-foreground");
+  return (
+    <>
+      <Section title="الخط" sub="خط المنيو كله — الأسماء والأسعار والأقسام.">
+        <div className="grid sm:grid-cols-2 gap-2">
+          {(Object.keys(FONTS) as (keyof typeof FONTS)[]).map((k) => (
+            <button key={k} type="button" onClick={() => k !== design.font && onChange({ font: k })} className={pill(design.font === k)}>
+              <span className="block text-lg leading-tight text-foreground" style={{ fontFamily: `${FONTS[k].family}, sans-serif` }}>منيو فور يو ١٢٣</span>
+              <span className="text-xs">{FONTS[k].label}</span>
+            </button>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="شكل الأعلى والعرض" sub="الزبون يقدر يبدّل العرض من زر بجانب الأقسام، لكن المنيو يفتح على اختيارك.">
+        <div className="space-y-4">
+          <div>
+            <div className="text-xs text-muted-foreground mb-2">رأس المنيو</div>
+            <div className="grid grid-cols-3 gap-2">
+              {(Object.keys(HEROES) as (keyof typeof HEROES)[]).map((k) => <button key={k} type="button" onClick={() => onChange({ hero: k })} className={pill(design.hero === k)}>{HEROES[k]}</button>)}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground mb-2">عرض الأصناف</div>
+            <div className="grid grid-cols-3 gap-2">
+              {(Object.keys(VIEWS) as (keyof typeof VIEWS)[]).map((k) => <button key={k} type="button" onClick={() => onChange({ view: k })} className={pill(design.view === k)}>{VIEWS[k]}</button>)}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground mb-2">الزوايا</div>
+            <div className="grid grid-cols-3 gap-2">
+              {(Object.keys(RADII) as (keyof typeof RADII)[]).map((k) => (
+                <button key={k} type="button" onClick={() => onChange({ radius: k })} className={cn(pill(design.radius === k), "flex items-center gap-2")}>
+                  <span className="w-6 h-6 border-2 border-current shrink-0" style={{ borderRadius: RADII[k].px / 2.5 }} />{RADII[k].label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="flex items-center justify-between gap-3 rounded-xl border border-card-border px-3 py-2.5">
+            <span className="text-sm">اعرض وصف الصنف في القائمة<span className="block text-xs text-muted-foreground">الوصف يظل ظاهراً عند فتح الصنف.</span></span>
+            <Switch checked={design.showDesc} onCheckedChange={(v) => onChange({ showDesc: v })} />
+          </label>
+        </div>
+      </Section>
+
+      <Section title="شريط الإعلان" sub="سطر واحد أعلى المنيو: «جديد: قهوة مختصة»، «مغلق الجمعة للصيانة»، «توصيل مجاني فوق 50». اتركه فاضي ليختفي.">
+        <div className="space-y-2.5">
+          <input className={inputCls} maxLength={160} value={ann} onChange={(e) => setAnn(e.target.value)} placeholder="نص الإعلان بالعربي" />
+          <input className={inputCls} maxLength={160} dir="ltr" value={annEn} onChange={(e) => setAnnEn(e.target.value)} placeholder="English (optional)" />
+          <div className="flex flex-wrap items-center gap-2">
+            {([["brand", "بلون الهوية"], ["warn", "تنبيه"], ["info", "هادئ"]] as const).map(([k, l]) => (
+              <button key={k} type="button" onClick={() => setTone(k)} className={pill(tone === k)}>{l}</button>
+            ))}
+            <div className="flex-1" />
+            {design.announcement && <button type="button" className="text-xs text-muted-foreground hover:text-destructive" onClick={() => onChange({ announcement: null })}>إزالة</button>}
+            <button type="button" disabled={busy} className="rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold disabled:opacity-50"
+              onClick={() => onChange({ announcement: ann.trim() ? { text: ann.trim(), textEn: annEn.trim() || null, tone } : null })}>حفظ الإعلان</button>
+          </div>
+        </div>
+      </Section>
+    </>
   );
 }
 

@@ -4,7 +4,7 @@
 // with. Nothing else branches on the vertical.
 
 export type Vertical = "restaurant" | "cafe" | "sweets" | "beauty" | "barber";
-export type Template = "noir" | "cream" | "clean" | "rose";
+export type Template = "noir" | "cream" | "clean" | "rose" | "midnight" | "sand";
 
 export interface Vocab {
   label: [string, string];
@@ -75,4 +75,6 @@ export const TEMPLATES: Record<Template, { label: [string, string]; bg: string; 
   cream: { label: ["كريمي دافئ", "Warm cream"],  bg: "#faf5ec", surface: "#ffffff", text: "#2b2118", muted: "#7d6e5c", dark: false },
   clean: { label: ["أبيض نظيف", "Clean white"],  bg: "#f6f7f9", surface: "#ffffff", text: "#111418", muted: "#667085", dark: false },
   rose:  { label: ["وردي ناعم", "Soft rose"],    bg: "#fbf3f5", surface: "#ffffff", text: "#2d1b22", muted: "#8a6b77", dark: false },
+  midnight: { label: ["ليلي فاخر", "Midnight"],   bg: "#0c1020", surface: "#141a2e", text: "#e8e6df", muted: "#8f93a6", dark: true },
+  sand:  { label: ["رملي", "Sand"],              bg: "#f3ece1", surface: "#fffaf2", text: "#3a2e22", muted: "#8b7a66", dark: false },
 };

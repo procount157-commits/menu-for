@@ -16,3 +16,4 @@ export function waMeLink(phone: string | null | undefined, text: string): string
   return `https://wa.me/${p}?text=${encodeURIComponent(text)}`;
 }
 export * from "./plans";
+export * from "./design";

@@ -7,6 +7,19 @@
 @import "@fontsource/cairo/700.css";
 @import "@fontsource/cairo/800.css";
 @import "@fontsource/cairo/900.css";
+/* The other faces an owner can choose in the menu designer. */
+@import "@fontsource/tajawal/400.css";
+@import "@fontsource/tajawal/700.css";
+@import "@fontsource/tajawal/900.css";
+@import "@fontsource/almarai/400.css";
+@import "@fontsource/almarai/700.css";
+@import "@fontsource/almarai/800.css";
+@import "@fontsource/ibm-plex-sans-arabic/400.css";
+@import "@fontsource/ibm-plex-sans-arabic/600.css";
+@import "@fontsource/ibm-plex-sans-arabic/700.css";
+@import "@fontsource/noto-kufi-arabic/400.css";
+@import "@fontsource/noto-kufi-arabic/700.css";
+@import "@fontsource/noto-kufi-arabic/900.css";
 
 
 /* ── Tokens ─────────────────────────────────────────────────────
@@ -43,9 +56,12 @@
   --color-brand-soft: var(--brand-soft);
   --color-ok: var(--ok);
   --color-danger: var(--danger);
-  --font-sans: "Cairo", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Cairo", system-ui, sans-serif;
+  --font-sans: var(--shop-font, "Cairo"), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--shop-font, "Cairo"), system-ui, sans-serif;
 }
+
+/* The owner chose to hide descriptions: the item sheet still shows them. */
+html[data-desc="0"] .item-desc { display: none; }
 
 html, body {
   background: var(--bg);

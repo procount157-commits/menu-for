@@ -5,9 +5,10 @@
 // hours, location and contacts at the end.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { vocab, type PublicImage, type PublicItem, type PublicMenu, type PublicOrderView, type Selection } from "@workspace/menu-shared";
+import { localParts, sectionOpen, vocab, type MenuView, type PublicImage, type PublicItem, type PublicMenu, type PublicOrderView, type Selection } from "@workspace/menu-shared";
 import { Hero } from "@/components/Hero";
-import { FeaturedRail, ItemCard, ItemRow, ItemSheet, flyToCart } from "@/components/Items";
+import { FeaturedRail, ItemCard, ItemLine, ItemRow, ItemSheet, flyToCart } from "@/components/Items";
+import { designOf } from "@/lib/theme";
 import { CartBar, CartSheet } from "@/components/Cart";
 import { QueueFab, JoinSheet } from "@/components/Queue";
 import { BookingSheet } from "@/components/Booking";
@@ -19,8 +20,15 @@ import { initTrack, track } from "@/lib/track";
 
 const DAYS = { ar: ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"], en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] };
 
-interface SectionData { id: number; title: string; image: PublicImage | null; items: PublicItem[] }
-type View = "grid" | "list";
+interface SectionData { id: number; title: string; image: PublicImage | null; items: PublicItem[]; hours: string | null; closed: boolean }
+type View = MenuView;
+const VIEW_ORDER: View[] = ["grid", "list", "text"];
+
+/** «7:00 ص – 11:30 ص» in the diner's language. */
+function clock(hhmm: string, lang: Lang) {
+  const [h, m] = hhmm.split(":").map(Number);
+  return new Intl.DateTimeFormat(lang === "ar" ? "ar-AE" : "en-GB", { hour: "numeric", minute: m ? "2-digit" : undefined, timeZone: "UTC" }).format(new Date(Date.UTC(2020, 0, 1, h, m)));
+}
 
 export default function MenuPage({ initial }: { initial: PublicMenu }) {
   const lang = useLang();
@@ -37,8 +45,13 @@ export default function MenuPage({ initial }: { initial: PublicMenu }) {
   const [joinOpen, setJoinOpen] = useState(() => location.hash === "#queue" && menu.queues.length > 0);
   const [bookOpen, setBookOpen] = useState(() => params.get("book") === "1" && !!menu.booking && menu.org.vertical !== "sweets");
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<View>(() => { try { return localStorage.getItem("mfy:view") === "list" ? "list" : "grid"; } catch { return "grid"; } });
-  const changeView = (v: View) => { setView(v); try { localStorage.setItem("mfy:view", v); } catch { /* ignore */ } };
+  const design = designOf(menu.org.theme);
+  const closedRef = useRef(new Map<number, string>());
+  // The owner picks how the menu opens; a diner who switched keeps their own choice.
+  // ?preview=1 is the owner's designer: no counting, and the owner's view, not a remembered one.
+  const preview = params.get("preview") === "1";
+  const [view, setView] = useState<View>(() => { if (preview) return design.view; try { const v = localStorage.getItem("mfy:view") as View | null; return v && VIEW_ORDER.includes(v) ? v : design.view; } catch { return design.view; } });
+  const changeView = (v: View) => { setView(v); if (!preview) try { localStorage.setItem("mfy:view", v); } catch { /* ignore */ } };
 
   const cart = useCart();
   const cartCount = useMemo(() => priced(cart, menu.items).count, [cart, menu.items]);
@@ -94,11 +107,12 @@ export default function MenuPage({ initial }: { initial: PublicMenu }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { initTrack(menu.org.slug, menu.branch.slug); }, [menu.org.slug, menu.branch.slug]);
+  useEffect(() => { if (!preview) initTrack(menu.org.slug, menu.branch.slug); }, [menu.org.slug, menu.branch.slug, preview]);
   useEffect(() => { if (cartOpen) track({ k: "cart" }); }, [cartOpen]);
   const open = useCallback((it: PublicItem, el: HTMLElement | null) => { setFrom(el); setItem(it); track({ k: "item", id: it.id }); }, []);
-  const quickAdd = useCallback((it: PublicItem, el: HTMLElement) => { addLine(it.id, 1, []); track({ k: "add", id: it.id }); flyToCart(el); navigator.vibrate?.(12); }, []);
+  const quickAdd = useCallback((it: PublicItem, el: HTMLElement) => { const why = closedRef.current.get(it.id); if (why) { toast(why); return; } addLine(it.id, 1, []); track({ k: "add", id: it.id }); flyToCart(el); navigator.vibrate?.(12); }, []);
   const addFromSheet = (it: PublicItem, qty: number, sel: Selection[], note: string | undefined, btn: HTMLElement) => {
+    const why = closedRef.current.get(it.id); if (why) { toast(why); return; }
     addLine(it.id, qty, sel, note);
     track({ k: "add", id: it.id });
     flyToCart(btn);
@@ -113,12 +127,28 @@ export default function MenuPage({ initial }: { initial: PublicMenu }) {
     if (own) return { url: own, sm: own, md: own };
     return items.find((i) => i.categoryId === catId && i.images[0])?.images[0] ?? null;
   }, [items]);
+  // Sections with hours (breakfast, lunch) are read in the shop's own clock;
+  // one not served now moves to the end and cannot be added to the cart.
+  const [tick, setTick] = useState(0);
+  useEffect(() => { const iv = setInterval(() => setTick((x) => x + 1), 60_000); return () => clearInterval(iv); }, []);
   const sections: SectionData[] = useMemo(() => {
-    const out = menu.categories.map((c) => ({ id: c.id, title: pick(lang, c.name, c.nameEn), image: imageOf(c.id, c.imageUrl), items: filtered.filter((i) => i.categoryId === c.id) }));
+    const now = localParts(menu.org.timezone);
+    const out: SectionData[] = menu.categories.map((c) => {
+      const h = c.hours ?? null;
+      const hours = h?.from && h.to ? `${clock(h.from, lang)} – ${clock(h.to, lang)}` : null;
+      return { id: c.id, title: pick(lang, c.name, c.nameEn), image: imageOf(c.id, c.imageUrl), items: filtered.filter((i) => i.categoryId === c.id), hours, closed: !sectionOpen(h, now.weekday, now.hour * 60 + now.minute) };
+    });
     const loose = filtered.filter((i) => !i.categoryId || !menu.categories.some((c) => c.id === i.categoryId));
-    if (loose.length) out.push({ id: -1, title: t("menu", lang), image: loose.find((i) => i.images[0])?.images[0] ?? null, items: loose });
-    return out.filter((s) => s.items.length);
-  }, [menu.categories, filtered, lang, imageOf]);
+    if (loose.length) out.push({ id: -1, title: t("menu", lang), image: loose.find((i) => i.images[0])?.images[0] ?? null, items: loose, hours: null, closed: false });
+    return out.filter((s) => s.items.length).sort((a, b) => Number(a.closed) - Number(b.closed));
+  }, [menu.categories, menu.org.timezone, filtered, lang, imageOf, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  const closedWhy = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const s of sections) if (s.closed) for (const it of s.items) m.set(it.id, s.hours ? t("servedAt", lang).replace("{h}", s.hours) : t("notServedNow", lang));
+    return m;
+  }, [sections, lang]);
+  closedRef.current = closedWhy;
+  const blocked = useCallback((it: PublicItem) => closedWhy.get(it.id) ?? null, [closedWhy]);
   const featured = q ? [] : items.filter((i) => i.available && (i.tags.includes("popular") || i.tags.includes("chef"))).slice(0, 8);
 
   const bookingVisible = !!menu.booking && menu.org.vertical !== "sweets";
@@ -130,7 +160,8 @@ export default function MenuPage({ initial }: { initial: PublicMenu }) {
 
   return (
     <div className="min-h-dvh pb-44">
-      <Hero menu={menu} lang={lang} />
+      {design.announcement && <Announcement a={design.announcement} lang={lang} />}
+      <Hero menu={menu} lang={lang} style={design.hero} />
 
       <div className="px-4 mt-5 max-w-3xl mx-auto animate-rise" style={{ animationDelay: "220ms" }}>
         <label className="flex items-center gap-3 h-12 px-4 rounded-2xl" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
@@ -176,7 +207,7 @@ export default function MenuPage({ initial }: { initial: PublicMenu }) {
 
       <About menu={menu} lang={lang} />
 
-      <ItemSheet item={item} from={from} currency={menu.org.currency} lang={lang} onClose={() => setItem(null)} onAdd={addFromSheet} />
+      <ItemSheet item={item} from={from} currency={menu.org.currency} lang={lang} onClose={() => setItem(null)} onAdd={addFromSheet} blocked={blocked} />
       <CartSheet menu={{ ...menu, items }} lang={lang} open={cartOpen} onClose={() => setCartOpen(false)} table={table} />
       {queueVisible && <JoinSheet menu={menu} lang={lang} open={joinOpen} onClose={() => { setJoinOpen(false); if (location.hash) history.replaceState(null, "", location.pathname + location.search); }} joinKey={joinKey} source={source} />}
       {bookingVisible && <BookingSheet menu={menu} lang={lang} open={bookOpen} onClose={() => setBookOpen(false)} />}
@@ -206,7 +237,7 @@ function CategoryTiles({ sections, lang, onPick }: { sections: SectionData[]; la
       <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 pb-1">
         {sections.map((s, i) => (
           <button key={s.id} onClick={() => onPick(s.id)} className="flex-shrink-0 w-[104px] text-center animate-rise active:scale-95 transition-transform" style={{ animationDelay: `${160 + i * 50}ms` }}>
-            <div className="relative w-[104px] h-[104px] rounded-[26px] overflow-hidden" style={{ border: "1px solid var(--line)" }}>
+            <div className="relative w-[104px] h-[104px] rounded-[var(--radius)] overflow-hidden" style={{ border: "1px solid var(--line)" }}>
               <Img img={s.image} alt="" sizes="sm" className="w-full h-full" fallback={s.title} />
               <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,.55), transparent 55%)" }} />
               <span className="absolute bottom-1.5 inset-x-0 text-[10px] font-bold tabular" style={{ color: "#fff" }}>{s.items.length}</span>
@@ -226,15 +257,28 @@ function Section({ s, lang, view, currency, onOpen, onQuickAdd }: {
   const ref = useReveal<HTMLElement>();
   return (
     <section ref={ref} id={`cat-${s.id}`} data-cat={s.id} className="pt-7 scroll-mt-[64px]">
-      <div className="reveal relative h-[92px] rounded-[22px] overflow-hidden mb-3.5 flex items-end" style={{ border: "1px solid var(--line)" }}>
+      <div className="reveal relative h-[92px] rounded-[var(--radius)] overflow-hidden mb-3.5 flex items-end" style={{ border: "1px solid var(--line)" }}>
         {s.image ? <div className="absolute inset-0"><Img img={s.image} alt="" sizes="md" className="w-full h-full" /></div> : <div className="absolute inset-0" style={{ background: "radial-gradient(90% 140% at 85% 0%, var(--brand-soft), transparent 60%), var(--surface)" }} />}
         {s.image && <div className="absolute inset-0" style={{ background: `linear-gradient(to ${lang === "ar" ? "left" : "right"}, rgba(0,0,0,.85) 10%, rgba(0,0,0,.45) 60%, rgba(0,0,0,.15))` }} />}
         <div className="relative w-full px-4 pb-3 flex items-end justify-between" style={{ color: s.image ? "#fff" : "var(--text)" }}>
-          <h2 className="font-display text-[24px] leading-none">{s.title}</h2>
+          <div className="min-w-0">
+            <h2 className="font-display text-[24px] leading-none">{s.title}</h2>
+            {s.hours && <p className="text-[12px] font-semibold mt-1.5 opacity-90 flex items-center gap-1"><Icon name="clock" className="w-3.5 h-3.5" />{s.hours}</p>}
+          </div>
           <span className="text-xs font-bold px-2.5 py-1 rounded-full tabular" style={{ background: "var(--brand)", color: "var(--brand-ink)" }}>{s.items.length}</span>
         </div>
       </div>
-      {view === "grid" ? (
+      {s.closed && (
+        <p className="mb-3 px-4 py-2.5 rounded-2xl text-sm font-semibold flex items-center gap-2" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
+          <Icon name="clock" className="w-4 h-4 flex-shrink-0" />{s.hours ? t("servedAt", lang).replace("{h}", s.hours) : t("notServedNow", lang)}
+        </p>
+      )}
+      <div className={s.closed ? "opacity-60" : ""}>
+      {view === "text" ? (
+        <div className="rounded-[var(--radius)] px-4" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
+          {s.items.map((it, i) => <ItemLine key={it.id} item={it} i={i} currency={currency} lang={lang} onOpen={onOpen} onQuickAdd={onQuickAdd} />)}
+        </div>
+      ) : view === "grid" ? (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {s.items.map((it, i) => <ItemCard key={it.id} item={it} i={i} currency={currency} lang={lang} onOpen={onOpen} onQuickAdd={onQuickAdd} />)}
         </div>
@@ -243,6 +287,7 @@ function Section({ s, lang, view, currency, onOpen, onQuickAdd }: {
           {s.items.map((it, i) => <ItemRow key={it.id} item={it} i={i} currency={currency} lang={lang} onOpen={onOpen} onQuickAdd={onQuickAdd} />)}
         </div>
       )}
+      </div>
     </section>
   );
 }
@@ -295,11 +340,26 @@ function CategoryBar({ sections, lang, view, setView }: { sections: SectionData[
             ))}
           </div>
         </div>
-        <button onClick={() => setView(view === "grid" ? "list" : "grid")} aria-label={t(view === "grid" ? "listView" : "gridView", lang)}
+        {(() => { const next = VIEW_ORDER[(VIEW_ORDER.indexOf(view) + 1) % VIEW_ORDER.length]!; return (
+        <button onClick={() => setView(next)} aria-label={t(next === "grid" ? "gridView" : next === "list" ? "listView" : "textView", lang)}
           className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
-          <Icon name={view === "grid" ? "list" : "grid"} className="w-[18px] h-[18px]" />
-        </button>
+          <Icon name={next === "grid" ? "grid" : next === "list" ? "list" : "info"} className="w-[18px] h-[18px]" />
+        </button>); })()}
       </div>
+    </div>
+  );
+}
+
+/** The owner's line of news at the very top: «مغلق يوم الجمعة للصيانة», «جديد: قهوة مختصة». */
+function Announcement({ a, lang }: { a: { text: string; textEn: string | null; tone: "brand" | "warn" | "info" }; lang: Lang }) {
+  const [hidden, setHidden] = useState(() => { try { return sessionStorage.getItem("mfy:ann") === a.text; } catch { return false; } });
+  if (hidden) return null;
+  const tone = a.tone === "warn" ? { background: "#f59e0b", color: "#1a1204" } : a.tone === "info" ? { background: "var(--surface-2)", color: "var(--text)" } : { background: "var(--brand)", color: "var(--brand-ink)" };
+  return (
+    <div className="relative z-40 px-4 py-2.5 text-center text-[13px] font-bold flex items-center justify-center gap-2" style={tone}>
+      <span className="flex-1 leading-snug">{pick(lang, a.text, a.textEn)}</span>
+      <button aria-label={t("close", lang)} onClick={() => { setHidden(true); try { sessionStorage.setItem("mfy:ann", a.text); } catch { /* ignore */ } }}
+        className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "rgba(0,0,0,.12)" }}><Icon name="x" className="w-3 h-3" /></button>
     </div>
   );
 }
@@ -356,7 +416,7 @@ function Offers({ menu, lang, onItem }: { menu: PublicMenu; lang: Lang; onItem: 
           const img = o.imageUrl ?? linked?.images[0]?.md ?? linked?.images[0]?.url ?? null;
           return (
             <button key={o.id} onClick={() => o.itemId && onItem(o.itemId)} disabled={!o.itemId}
-              className="snap-start flex-shrink-0 w-[86%] max-w-[400px] text-start rounded-[24px] overflow-hidden relative animate-rise"
+              className="snap-start flex-shrink-0 w-[86%] max-w-[400px] text-start rounded-[var(--radius)] overflow-hidden relative animate-rise"
               style={{ animationDelay: `${200 + i * 80}ms`, minHeight: 168, background: "var(--surface)", border: "1px solid var(--line)" }}>
               {img ? <><img src={img} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" /><div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,.86) 12%, rgba(0,0,0,.25) 60%, rgba(0,0,0,.1))" }} /></>
                 : <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 45%, var(--bg)))" }} />}
@@ -385,7 +445,7 @@ function About({ menu, lang }: { menu: PublicMenu; lang: Lang }) {
     <footer className="mt-12 px-4 max-w-3xl mx-auto">
       <Heading>{t("about", lang)}</Heading>
       <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-[22px] p-5 md:col-span-2" style={card}>
+        <div className="rounded-[var(--radius)] p-5 md:col-span-2" style={card}>
           <div className="flex items-center gap-3.5">
             {menu.org.logoUrl ? <img src={menu.org.logoUrl} alt="" className="w-14 h-14 rounded-2xl object-cover" /> : null}
             <div className="min-w-0">
@@ -397,7 +457,7 @@ function About({ menu, lang }: { menu: PublicMenu; lang: Lang }) {
         </div>
 
         {has && (
-          <div className="rounded-[22px] p-5" style={card}>
+          <div className="rounded-[var(--radius)] p-5" style={card}>
             <p className="font-bold mb-3 flex items-center gap-2"><Icon name="clock" className="w-[18px] h-[18px] text-brand" />{t("hours", lang)}</p>
             <dl className="space-y-1.5 text-sm">
               {days.filter((d) => h[d]).map((d) => (
@@ -410,7 +470,7 @@ function About({ menu, lang }: { menu: PublicMenu; lang: Lang }) {
           </div>
         )}
 
-        <div className="rounded-[22px] p-5 space-y-4" style={card}>
+        <div className="rounded-[var(--radius)] p-5 space-y-4" style={card}>
           <div>
             <p className="font-bold mb-2 flex items-center gap-2"><Icon name="pin" className="w-[18px] h-[18px] text-brand" />{t("location", lang)}</p>
             <p className="text-sm text-muted leading-relaxed">{pick(lang, menu.branch.name, menu.branch.nameEn)}{menu.branch.address ? ` — ${menu.branch.address}` : ""}</p>

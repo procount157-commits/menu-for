@@ -17,8 +17,9 @@ export interface MenuItem {
   description: string | null; descriptionEn: string | null; price: number; compareAtPrice: number | null; durationMin: number | null;
   images: StoredImage[]; options: OptionGroup[]; tags: string[]; calories: number | null; allergens: string[];
   sort: number; isActive: boolean; branch: { available: boolean; price: number | null };
+  serves?: number | null; prepMin?: number | null; pinned?: boolean;
 }
-export interface Category { id: number; name: string; nameEn: string | null; imageUrl: string | null; sort: number; isActive: boolean }
+export interface Category { id: number; name: string; nameEn: string | null; imageUrl: string | null; sort: number; isActive: boolean; hours?: { from: string | null; to: string | null; days: number[] } | null }
 
 export const ITEMS_KEY = ["/api/menu/items"];
 export const CATS_KEY = ["/api/menu/categories"];
@@ -32,13 +33,14 @@ const ALLERGENS = ["قمح", "حليب", "بيض", "مكسرات", "فول سو�
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 export const mediaUrl = (u?: string | null) => (u && u.startsWith("/") ? `${BASE}${u}` : u ?? null);
 
-type Draft = Omit<MenuItem, "id" | "branch" | "sort" | "price" | "compareAtPrice" | "calories" | "durationMin"> & {
-  id?: number; price: string; compareAtPrice: string; calories: string; durationMin: string;
+type Draft = Omit<MenuItem, "id" | "branch" | "sort" | "price" | "compareAtPrice" | "calories" | "durationMin" | "serves" | "prepMin"> & {
+  id?: number; price: string; compareAtPrice: string; calories: string; durationMin: string; serves: string; prepMin: string;
 };
 
 const toDraft = (i: MenuItem): Draft => ({
   ...i, price: String(i.price ?? ""), compareAtPrice: i.compareAtPrice == null ? "" : String(i.compareAtPrice),
   calories: i.calories == null ? "" : String(i.calories), durationMin: i.durationMin == null ? "" : String(i.durationMin),
+  serves: i.serves == null ? "" : String(i.serves), prepMin: i.prepMin == null ? "" : String(i.prepMin), pinned: !!i.pinned,
   images: i.images ?? [], options: i.options ?? [], tags: i.tags ?? [], allergens: i.allergens ?? [],
 });
 
@@ -58,7 +60,7 @@ export default function ItemEditor({ item, categories, onClose }: { item: MenuIt
   const [branchAvail, setBranchAvail] = useState(item.branch.available);
   const [branchPrice, setBranchPrice] = useState(item.branch.price == null ? "" : String(item.branch.price));
   const [upgrade, setUpgrade] = useState<string | null>(null);
-  const [more, setMore] = useState(!isNew && (item.options.length > 0 || item.allergens.length > 0 || item.calories != null));
+  const [more, setMore] = useState(!isNew && (item.options.length > 0 || item.allergens.length > 0 || item.calories != null || item.serves != null || item.prepMin != null));
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }));
   const word = shop.vocab.item[0];
   const multiBranch = shop.branches.length > 1;
@@ -70,6 +72,7 @@ export default function ItemEditor({ item, categories, onClose }: { item: MenuIt
         price: d.price, compareAtPrice: d.compareAtPrice === "" ? null : d.compareAtPrice, categoryId: d.categoryId,
         kind: d.kind, durationMin: d.kind === "service" ? (d.durationMin || null) : null, calories: d.calories || null,
         tags: d.tags, allergens: d.allergens, images: d.images, options: d.options, isActive: d.isActive,
+        serves: d.serves || null, prepMin: d.prepMin || null, pinned: !!d.pinned,
       };
       const saved = isNew ? await post<MenuItem>("/api/menu/items", body) : await patch<MenuItem>(`/api/menu/items/${item.id}`, body);
       // The branch's own part, only when it changed.
@@ -164,6 +167,7 @@ export default function ItemEditor({ item, categories, onClose }: { item: MenuIt
 
         <div className="rounded-xl border border-card-border px-4">
           <ToggleRow title="ظاهر في المنيو" hint="إخفاؤه يشيله من كل الفروع. لو بس خلص اليوم، استخدم «متوفر» تحت." checked={d.isActive} onChange={(v) => set("isActive", v)} />
+          <ToggleRow title="ثبّته أول القسم" hint="يطلع أول صنف في قسمه — للطبق اللي تبيه ينطلب أكثر." checked={!!d.pinned} onChange={(v) => set("pinned", v)} />
           {!isNew && (
             <>
               <div className="border-t border-border" />
@@ -184,11 +188,17 @@ export default function ItemEditor({ item, categories, onClose }: { item: MenuIt
         {/* more */}
         <button type="button" className="flex items-center gap-1.5 text-sm text-primary" onClick={() => setMore(!more)}>
           {more ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          الخيارات والإضافات، السعرات، مسببات الحساسية
+          الخيارات والإضافات، يكفي لكم شخص، وقت التحضير، السعرات، مسببات الحساسية
         </button>
         {more && (
           <div className="space-y-6">
             <OptionsEditor value={d.options} onChange={(v) => set("options", v)} currency={shop.org.currency} />
+            {d.kind === "product" && (
+              <div className="grid grid-cols-2 gap-4 max-w-sm">
+                <Field label="يكفي (أشخاص)"><input type="number" min={1} max={100} className={inputCls} value={d.serves} onChange={(e) => set("serves", e.target.value)} placeholder="مثلاً 4" /></Field>
+                <Field label="التحضير (دقيقة)"><input type="number" min={1} max={600} className={inputCls} value={d.prepMin} onChange={(e) => set("prepMin", e.target.value)} placeholder="مثلاً 20" /></Field>
+              </div>
+            )}
             <div className="grid sm:grid-cols-[140px_1fr] gap-4">
               <Field label="السعرات"><input type="number" min={0} className={inputCls} value={d.calories} onChange={(e) => set("calories", e.target.value)} placeholder="kcal" /></Field>
               <div>

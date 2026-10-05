@@ -5,6 +5,7 @@ import {
   priceLine, priceCart, formatMoney, serviceInterval, etaFor, formatEta, serviceDay, localDate, zonedToUtc,
   isOpenAt, openWindow, availableSlots, fits, extractCode, queueCommand, randomCode, CODE_ALPHABET,
   isValidSlug, slugError, slugify, renderTemplate, waMeLink, type PriceableItem,
+  cleanDesign, sectionOpen, DEFAULT_DESIGN,
 } from "@workspace/menu-shared";
 import { laneFor, REPLIED_WINDOW_MS } from "../notify/outbox";
 import { withinDaytime } from "../notify/lifecycle";
@@ -142,6 +143,23 @@ const k = joinKey("secret", 1_000_000_000_000);
 check("the in-store key is valid now and for the previous window", joinKeyValid("secret", k, 1_000_000_000_000) && joinKeyValid("secret", k, 1_000_000_000_000 + 5 * 60_000));
 check("…and not after that", !joinKeyValid("secret", k, 1_000_000_000_000 + 11 * 60_000));
 check("…nor with another shop's secret", !joinKeyValid("other", k, 1_000_000_000_000));
+
+// ── The menu designer and section hours ──────────────────────────
+check("an empty design is the default", JSON.stringify(cleanDesign(undefined)) === JSON.stringify(DEFAULT_DESIGN));
+const dd = cleanDesign({ font: "almarai", view: "bogus", radius: "soft", announcement: { text: "x".repeat(300), tone: "loud" } });
+check("a design keeps good values, drops bad ones", dd.font === "almarai" && dd.view === "grid" && dd.radius === "soft");
+check("…the news line is cut to 160 and its tone defaults", dd.announcement?.text.length === 160 && dd.announcement.tone === "brand");
+check("…an untouched field keeps the current value", cleanDesign({ hero: "compact" }, { font: "kufi", announcement: { text: "a", textEn: null, tone: "info" } }).font === "kufi"
+  && cleanDesign({ hero: "compact" }, { announcement: { text: "a", textEn: null, tone: "info" } }).announcement?.text === "a");
+const bf = { from: "07:00", to: "11:30", days: [] };
+check("breakfast is served at 8:00", sectionOpen(bf, 1, 8 * 60));
+check("…not at 11:30 nor at 6:59", !sectionOpen(bf, 1, 11 * 60 + 30) && !sectionOpen(bf, 1, 6 * 60 + 59));
+const late = { from: "22:00", to: "02:00", days: [4] };
+check("a Thursday late-night section is open at 23:00 Thursday", sectionOpen(late, 4, 23 * 60));
+check("…and at 01:00 Friday (it began Thursday)", sectionOpen(late, 5, 60));
+check("…but not 01:00 Thursday (that began Wednesday)", !sectionOpen(late, 4, 60));
+check("a Friday-only section with no times: Friday yes, Saturday no", sectionOpen({ from: null, to: null, days: [5] }, 5, 600) && !sectionOpen({ from: null, to: null, days: [5] }, 6, 600));
+check("no hours means always", sectionOpen(null, 3, 0));
 
 console.log(`\n${pass}/${total} مرّ`);
 process.exit(pass === total ? 0 : 1);

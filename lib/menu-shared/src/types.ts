@@ -20,7 +20,7 @@ export interface PublicOrg {
   about: string | null;
   logoUrl: string | null;
   coverUrl: string | null;
-  theme: { template: Template; brand: string; font?: string };
+  theme: { template: Template; brand: string; font?: string; design?: Partial<import("./design").MenuDesign> };
   currency: string;
   timezone: string;
   defaultLang: "ar" | "en";
@@ -57,9 +57,12 @@ export interface PublicItem {
   calories: number | null;
   allergens: string[];
   available: boolean;
+  serves?: number | null;
+  prepMin?: number | null;
+  pinned?: boolean;
 }
 
-export interface PublicCategory { id: number; name: string; nameEn: string | null; imageUrl: string | null }
+export interface PublicCategory { id: number; name: string; nameEn: string | null; imageUrl: string | null; hours?: { from: string | null; to: string | null; days: number[] } | null }
 
 export interface PublicDeal {
   id: number;

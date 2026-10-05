@@ -10,7 +10,7 @@ import {
   offersTable, queuesTable, bookingSettingsTable,
   type Org, type Branch, type MenuItem,
 } from "@workspace/db";
-import { isOpenAt, vocab, type PublicMenu, type PublicItem, type PriceableItem } from "@workspace/menu-shared";
+import { isOpenAt, localParts, sectionOpen, vocab, type PublicMenu, type PublicItem, type PriceableItem } from "@workspace/menu-shared";
 import { liveDeals, hasCodes } from "../growth/deals";
 import { pairsFor } from "../growth/upsell";
 import { referralOn, referralPrefs } from "../growth/referrals";
@@ -54,6 +54,17 @@ export async function priceableItems(org: Org, branchId: number): Promise<Map<nu
   return new Map(items.filter((i) => i.available).map((i) => [i.id, { id: i.id, name: i.name, nameEn: i.nameEn, price: i.effectivePrice, options: i.options ?? [] }]));
 }
 
+/** The first cart line whose section is not served at this time (breakfast at night), or null. */
+export async function closedSectionLine(org: Org, itemIds: number[], at: Date): Promise<{ item: string; section: string; from: string | null; to: string | null } | null> {
+  if (!itemIds.length) return null;
+  const rows = await db.select({ item: menuItemsTable.name, section: menuCategoriesTable.name, hours: menuCategoriesTable.hours })
+    .from(menuItemsTable).innerJoin(menuCategoriesTable, eq(menuCategoriesTable.id, menuItemsTable.categoryId))
+    .where(and(eq(menuItemsTable.orgId, org.id), inArray(menuItemsTable.id, itemIds)));
+  const p = localParts(org.timezone, at);
+  const r = rows.find((x) => !sectionOpen(x.hours, p.weekday, p.hour * 60 + p.minute));
+  return r ? { item: r.item, section: r.section, from: r.hours?.from ?? null, to: r.hours?.to ?? null } : null;
+}
+
 export async function publicMenu(org: Org, branch: Branch): Promise<PublicMenu> {
   const now = new Date();
   const [cats, items, offers, queues, allBranches, bookingRow, plan] = await Promise.all([
@@ -80,7 +91,8 @@ export async function publicMenu(org: Org, branch: Branch): Promise<PublicMenu> 
     price: i.effectivePrice, compareAtPrice: num(i.compareAtPrice), durationMin: i.durationMin,
     images: i.images ?? [], options: i.options ?? [], tags: i.tags ?? [],
     calories: i.calories, allergens: i.allergens ?? [], available: i.available,
-  }));
+    serves: i.serves, prepMin: i.prepMin, pinned: i.pinned,
+  } as PublicItem)).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned)); // pinned lead their section; the rest keep the owner's order
   const bk = bookingRow[0];
   const wa = getStatus(branch.waUserId) as { connected?: boolean };
   return {
@@ -98,7 +110,7 @@ export async function publicMenu(org: Org, branch: Branch): Promise<PublicMenu> 
       open: { open: open.open, known: open.known, closesAt: open.closesAt?.toISOString(), opensAt: open.opensAt?.toISOString() },
     },
     branches: allBranches,
-    categories: cats.map((c) => ({ id: c.id, name: c.name, nameEn: c.nameEn, imageUrl: c.imageUrl })),
+    categories: cats.map((c) => ({ id: c.id, name: c.name, nameEn: c.nameEn, imageUrl: c.imageUrl, hours: c.hours ?? null })),
     items: pubItems,
     deals: await liveDeals(org, branch.id),
     pairs: plan.features.upsell ? await pairsFor(org.id, pubItems) : {},

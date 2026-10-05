@@ -7,7 +7,7 @@
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { db, ordersTable, branchesTable, orgsTable, notificationsTable, giftCardUsesTable, type Order, type Org, type Branch } from "@workspace/db";
 import { priceCart, formatMoney, waMeLink, formatClock, formatDayLabel, localDate, type CartLineInput, type PublicOrderView } from "@workspace/menu-shared";
-import { priceableItems } from "../menu/service";
+import { priceableItems, closedSectionLine } from "../menu/service";
 import { freshCode, todayFor } from "../queue/engine";
 import { token as newToken } from "../tenancy/org";
 import { publish } from "../realtime";
@@ -95,6 +95,9 @@ export async function createOrder(org: Org, branch: Branch, input: NewOrder): Pr
     scheduledFor = d;
   }
   if (type === "preorder" && !scheduledFor) throw new OrderError(400, "اختر موعد الاستلام");
+  // A section with hours (breakfast…) is ordered only while it is served — or for a time when it is.
+  const shut = await closedSectionLine(org, [...new Set(input.lines.map((l) => Number(l.itemId)).filter(Number.isFinite))], scheduledFor ?? new Date());
+  if (shut) throw new OrderError(400, `«${shut.item}» من قسم ${shut.section}${shut.from ? ` ويُقدَّم من ${shut.from} إلى ${shut.to}` : ""} — احذفه أو اطلبه بموعد لاحق`);
   if (type === "delivery" && !String(input.address ?? "").trim()) throw new OrderError(400, "اكتب عنوان التوصيل");
   const phone = normalisePhone(input.phone, org.currency);
   // The code box takes a coupon or a gift card; a gift card pays after the timed deal.

@@ -8,7 +8,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { db, orgsTable, branchesTable, staffTable, usersTable, queuesTable } from "@workspace/db";
-import { slugError, isValidSlug, vocab, VOCAB } from "@workspace/menu-shared";
+import { slugError, isValidSlug, vocab, VOCAB, TEMPLATES, cleanDesign } from "@workspace/menu-shared";
 import { requireAuth } from "../lib/auth";
 import {
   tenant, withTenant, switchBranch, tenantErrorToResponse, signedInUser, attachOwner,
@@ -146,9 +146,10 @@ router.patch("/org", requireAuth, withTenant(OWNER, async (req, res, t) => {
     patch.slug = s;
   }
   if (b.theme && typeof b.theme === "object") {
-    const tpl = ["noir", "cream", "clean", "rose"].includes(b.theme.template) ? b.theme.template : t.org.theme.template;
+    const tpl = String(b.theme.template) in TEMPLATES ? b.theme.template : t.org.theme.template;
     const brand = /^#[0-9a-f]{6}$/i.test(String(b.theme.brand)) ? b.theme.brand : t.org.theme.brand;
-    patch.theme = { template: tpl, brand, ...(b.theme.font ? { font: String(b.theme.font).slice(0, 40) } : {}) };
+    const design = "design" in b.theme ? cleanDesign(b.theme.design, t.org.theme.design as any) : t.org.theme.design;
+    patch.theme = { template: tpl, brand, ...(design ? { design } : {}) };
   }
   if (b.socials && typeof b.socials === "object") {
     const out: Record<string, string> = {};

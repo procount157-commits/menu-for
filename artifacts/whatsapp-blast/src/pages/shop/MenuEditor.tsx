@@ -11,13 +11,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Reorder, useDragControls } from "framer-motion";
 import { toast } from "sonner";
 import {
-  Copy, ExternalLink, FolderPlus, GripVertical, Image as ImageIcon, Languages, Loader2, Megaphone, MoreHorizontal, Pencil, Plus,
+  Clock, Copy, ExternalLink, FolderPlus, GripVertical, Image as ImageIcon, Languages, Loader2, Megaphone, MoreHorizontal, Pencil, Plus,
   Search, Settings2, Trash2, Upload, UtensilsCrossed, X,
 } from "lucide-react";
 import { formatMoney } from "@workspace/menu-shared";
 import { cn } from "@/lib/utils";
 import { del, get, patch, post, useShop, inputCls } from "@/lib/shop-api";
-import { Empty, Modal, PageHeader, SegTabs, Skel, Toggle, UpgradeNotice, btnGhost, btnPrimary, btnQuiet, iconBtn, isPlanError } from "@/components/shop/setup/kit";
+import { Empty, ImageDrop, Modal, PageHeader, SegTabs, Skel, Toggle, ToggleRow, UpgradeNotice, btnGhost, btnPrimary, btnQuiet, iconBtn, isPlanError } from "@/components/shop/setup/kit";
 import ItemEditor, { CATS_KEY, ITEMS_KEY, TAGS, blankItem, mediaUrl, type Category, type MenuItem } from "@/components/shop/setup/ItemEditor";
 import OffersPanel from "@/components/shop/setup/OffersPanel";
 import MenuImport from "@/components/shop/setup/MenuImport";
@@ -265,12 +265,17 @@ function CategoryRow({ c, count, active, onSelect, onDragStart, onDragEnd, onRen
 }) {
   const controls = useDragControls();
   const [menu, setMenu] = useState(false);
+  const [details, setDetails] = useState(false);
   return (
+    <>
     <Reorder.Item value={c.id} dragListener={false} dragControls={controls} onDragStart={onDragStart} onDragEnd={onDragEnd}
       className={cn("group relative flex items-center gap-1 rounded-lg text-sm select-none", active ? "bg-primary/15 text-primary" : "hover:bg-muted")}
       whileDrag={{ scale: 1.02, boxShadow: "0 8px 24px rgba(0,0,0,0.35)" }} style={{ position: "relative" }}>
       <span className="p-2 cursor-grab active:cursor-grabbing text-muted-foreground/60 touch-none" onPointerDown={(e) => controls.start(e)} aria-label="اسحب"><GripVertical className="w-4 h-4" /></span>
-      <button className="flex-1 min-w-0 text-start py-2 truncate" onClick={onSelect}>{c.name}</button>
+      <button className="flex-1 min-w-0 text-start py-2 truncate flex items-center gap-1.5" onClick={onSelect}>
+        <span className="truncate">{c.name}</span>
+        {c.hours && (c.hours.from || c.hours.days.length > 0) && <Clock className="w-3 h-3 shrink-0 text-muted-foreground" aria-label="له أوقات" />}
+      </button>
       <span className="text-xs tabular-nums text-muted-foreground">{count}</span>
       <button className={cn(iconBtn, "w-7 h-7 md:opacity-0 group-hover:opacity-100")} onClick={() => setMenu(!menu)} aria-label="خيارات"><MoreHorizontal className="w-4 h-4" /></button>
       {menu && (
@@ -278,11 +283,67 @@ function CategoryRow({ c, count, active, onSelect, onDragStart, onDragEnd, onRen
           <div className="fixed inset-0 z-10" onClick={() => setMenu(false)} />
           <div className="absolute left-0 top-9 z-20 w-36 rounded-xl border border-popover-border bg-popover shadow-xl p-1 text-foreground">
             <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted text-start" onClick={() => { setMenu(false); onRename(); }}><Pencil className="w-3.5 h-3.5" />تعديل الاسم</button>
+            <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted text-start" onClick={() => { setMenu(false); setDetails(true); }}><Clock className="w-3.5 h-3.5" />الصورة والأوقات</button>
             <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-destructive/10 text-destructive text-start" onClick={() => { setMenu(false); onDelete(); }}><Trash2 className="w-3.5 h-3.5" />حذف</button>
           </div>
         </>
       )}
     </Reorder.Item>
+    {details && <SectionDetails c={c} onClose={() => setDetails(false)} />}
+    </>
+  );
+}
+
+const WEEK = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+
+/** A section's own picture, and when it is served: breakfast until 11:30, a Friday-only section… */
+function SectionDetails({ c, onClose }: { c: Category; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [img, setImg] = useState(c.imageUrl);
+  const [timed, setTimed] = useState(!!c.hours?.from);
+  const [from, setFrom] = useState(c.hours?.from ?? "07:00");
+  const [to, setTo] = useState(c.hours?.to ?? "11:30");
+  const [days, setDays] = useState<number[]>(c.hours?.days ?? []);
+  const save = useMutation({
+    mutationFn: () => patch(`/api/menu/categories/${c.id}`, {
+      imageUrl: img ?? "",
+      hours: timed || days.length ? { from: timed ? from : null, to: timed ? to : null, days } : null,
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: CATS_KEY }); toast.success("انحفظ القسم"); onClose(); },
+    onError: (e) => toast.error((e as Error).message),
+  });
+  return (
+    <Modal open onClose={onClose} title={`قسم «${c.name}»`} sub="الصورة تطلع على بطاقة القسم. الأوقات تخلّي القسم يظهر رمادي خارجها، ولا ينطلب منه."
+      footer={<><button className={btnGhost} onClick={onClose}>إلغاء</button><button className={btnPrimary} disabled={save.isPending || (timed && (!from || !to))} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "حفظ"}</button></>}>
+      <div className="space-y-5">
+        <div>
+          <div className="text-sm text-muted-foreground mb-2">صورة القسم <span className="text-xs">(بدونها نستخدم صورة أول صنف)</span></div>
+          <ImageDrop value={mediaUrl(img)} onChange={(i) => setImg(i ? (i.md ?? i.url) : null)} className="w-full aspect-[3/1]" label="أضف صورة القسم" />
+        </div>
+        <div className="space-y-3">
+          <ToggleRow title="يُقدَّم في وقت محدد" hint="مثل الفطور أو الغداء." checked={timed} onChange={setTimed} />
+          {timed && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">من</span>
+              <input type="time" className={cn(inputCls, "w-32")} value={from} onChange={(e) => setFrom(e.target.value)} dir="ltr" />
+              <span className="text-muted-foreground">إلى</span>
+              <input type="time" className={cn(inputCls, "w-32")} value={to} onChange={(e) => setTo(e.target.value)} dir="ltr" />
+            </div>
+          )}
+          <div>
+            <div className="text-sm text-muted-foreground mb-2">أيام محددة؟ <span className="text-xs">(بدون اختيار = كل الأيام)</span></div>
+            <div className="flex flex-wrap gap-1.5">
+              {WEEK.map((d, i) => {
+                const on = days.includes(i);
+                return <button key={d} type="button" onClick={() => setDays(on ? days.filter((x) => x !== i) : [...days, i].sort())}
+                  className={cn("rounded-lg border px-2.5 py-1.5 text-xs", on ? "border-primary bg-primary/15 text-primary" : "border-card-border text-muted-foreground")}>{d}</button>;
+              })}
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">مثال: فطور من 7:00 إلى 11:30 — بعدها يتحرك القسم لآخر المنيو ويظهر «يُقدَّم 7 ص – 11:30 ص».</p>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
