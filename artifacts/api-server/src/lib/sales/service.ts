@@ -4,6 +4,7 @@
 // composed by the model, checked by the guard, and replaced by a template when
 // the guard fails it; every send, reply, click and lesson kept on the shop.
 
+import { messagingSettings, marketingSend } from "../wa-buttons";
 import { randomInt } from "node:crypto";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import {
@@ -138,7 +139,7 @@ export async function composeFor(s: SalesSettings, p: SalesProspect, mode: Mode,
   else if (wantKey && requiredUrl) offered[wantKey] = requiredUrl;
   const urlToKey = new Map(Object.entries(offered).map(([k, u]) => [u!, k]));
   const previous = await earlierOutbound(p.id);
-  const ctx = { mode, allowedUrls: Object.values(offered) as string[], requiredUrl, allowedNumbers: new Set([...facts.numbers, ...numbersIn(s.offer)]), previous, askedIfBot: !!o.incoming && askedIfBot(o.incoming) };
+  const ctx = { mode, allowedUrls: Object.values(offered) as string[], requiredUrl, allowedNumbers: new Set([...facts.numbers, ...numbersIn(s.offer)]), previous, askedIfBot: !!o.incoming && askedIfBot(o.incoming), hasStopButton: mode !== "reply" && (await messagingSettings()).stopButton };
 
   const template = (): Composed => {
     if (mode === "reply") return { ok: false, text: "", linkKeys: [], by: "template", issues: ["لا قالب للرد — يُترك لبشري"], fallback: true };
@@ -182,7 +183,12 @@ export async function deliver(s: SalesSettings, p: SalesProspect, kind: "opener"
   let status: "sent" | "dry" | "failed" = s.dryRun ? "dry" : "sent";
   let error: string | undefined;
   if (!s.dryRun) {
-    try { await sendMessage(s.waUserId!, p.phone, c.text); } catch (e: any) { status = "failed"; error = String(e?.message ?? e).slice(0, 200); }
+    try {
+      // Our first message and follow-ups carry the stop button; a reply in a conversation does not.
+      const stop = kind !== "reply" && (await messagingSettings()).stopButton ? marketingSend("text", null) : null;
+      if (stop) await sendMessage(s.waUserId!, p.phone, c.text, stop.messageType, null, stop.buttons);
+      else await sendMessage(s.waUserId!, p.phone, c.text);
+    } catch (e: any) { status = "failed"; error = String(e?.message ?? e).slice(0, 200); }
   }
   await addTouch(p, kind, { text: c.text, step, links: c.linkKeys, by: c.by, status, meta: { issues: c.issues, fallback: c.fallback, ...(error ? { error } : {}) } });
   if (status !== "failed") {

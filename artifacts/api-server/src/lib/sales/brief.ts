@@ -317,6 +317,8 @@ export interface GuardContext {
   previous: string[];
   /** The prospect asked, in this message, whether they are talking to a bot. */
   askedIfBot?: boolean;
+  /** The message goes out with a «إيقاف الرسائل» button, so no stop line in the text. */
+  hasStopButton?: boolean;
 }
 
 export interface GuardResult { ok: boolean; text: string; issues: string[]; links: string[] }
@@ -385,7 +387,7 @@ export function guardMessage(raw: string, ctx: GuardContext): GuardResult {
   const me = norm(t.replace(URL_RE, ""));
   if (me && ctx.previous.some((p) => norm(p.replace(URL_RE, "")) === me)) { ok = false; issues.push("تكرار رسالة سابقة"); }
 
-  if (ctx.mode === "opener" && !/توقف/.test(t)) t = `${t}\n${OPT_OUT_LINE}`;
+  if (ctx.mode === "opener" && !ctx.hasStopButton && !/توقف/.test(t)) t = `${t}\n${OPT_OUT_LINE}`;
   return { ok, text: t, issues, links: kept };
 }
 

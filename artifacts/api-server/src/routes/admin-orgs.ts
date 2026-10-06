@@ -1,5 +1,6 @@
 // ── /api/admin/orgs — the platform owner's view of every shop ─────
 
+import { messagingSettings, saveMessaging, withStopButton } from "../lib/wa-buttons";
 import { Router } from "express";
 import { asc, desc, eq, sql } from "drizzle-orm";
 import { db, orgsTable, branchesTable, usersTable, llmKeysTable, platformSettingsTable, PLAN_LIMITS } from "@workspace/db";
@@ -9,7 +10,7 @@ import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import { attachOwner, TenantError } from "../lib/tenancy/context";
 import { createOrg } from "../lib/tenancy/org";
-import { getStatus } from "../lib/whatsapp";
+import { getStatus, sendButtonTest } from "../lib/whatsapp";
 import { publicUrl, menuPath } from "../lib/menu/urls";
 import { logger } from "../lib/logger";
 import { churnRisk } from "../lib/growth/churn";
@@ -152,6 +153,52 @@ router.get("/metrics", async (_req, res) => {
 });
 
 /** The trial's rules. */
+// ── Messaging: real buttons, the stop button, the stop period ─────
+
+router.get("/messaging", async (_req, res) => { res.json(await messagingSettings()); });
+router.put("/messaging", async (req, res) => { res.json(await saveMessaging(req.body ?? {})); });
+
+/** Try real buttons on a phone before turning them on for everyone. */
+router.post("/messaging/test", async (req, res) => {
+  const waUserId = Number(req.body?.waUserId) || Number(req.session.userId);
+  const phone = String(req.body?.phone ?? "").replace(/\D/g, "").replace(/^00/, "");
+  if (!/^\d{8,15}$/.test(phone)) return res.status(400).json({ error: "اكتب رقم واتساب صحيحاً بالمفتاح الدولي" });
+  if (!(getStatus(waUserId) as { connected?: boolean })?.connected) return res.status(400).json({ error: "واتساب هذا الحساب غير متصل" });
+  const buttons = JSON.stringify(withStopButton([
+    { type: "reply", text: "أبي أشوف المنيو" },
+    { type: "url", text: "افتح المنيو", url: publicUrl(menuPath("bait-shami")) },
+  ]));
+  try {
+    await sendButtonTest(waUserId, phone, "تجربة أزرار منيو فور يو 👋\nإذا ظهرت لك الأزرار تحت هذه الرسالة، فعّل «الأزرار الحقيقية».", buttons);
+    res.json({ ok: true });
+  } catch (e: any) { res.status(400).json({ error: String(e?.message ?? e).slice(0, 200) }); }
+});
+
+// ── The link that shows a branch's WhatsApp QR ────────────────────
+// Sent to the shop owner so they scan from their own phone, without signing
+// in; or opened by the admin who links it for them. One link per branch
+// account; a new one cancels the old.
+
+router.get("/:id/wa-links", async (req, res) => {
+  const branches = await db.select({ id: branchesTable.id, name: branchesTable.name, waUserId: branchesTable.waUserId })
+    .from(branchesTable).where(eq(branchesTable.orgId, Number(req.params.id))).orderBy(asc(branchesTable.sort), asc(branchesTable.id));
+  const out = [];
+  for (const b of branches) {
+    let [u] = await db.select({ token: usersTable.connectToken }).from(usersTable).where(eq(usersTable.id, b.waUserId)).limit(1);
+    if (!u?.token) [u] = await db.update(usersTable).set({ connectToken: randomUUID() }).where(eq(usersTable.id, b.waUserId)).returning({ token: usersTable.connectToken });
+    const st = getStatus(b.waUserId) as { connected?: boolean; phone?: string | null };
+    out.push({ branchId: b.id, name: b.name, waUserId: b.waUserId, connected: !!st?.connected, phone: st?.phone ?? null, link: publicUrl(`/wa/${u!.token}`) });
+  }
+  // Two branches on one account share a link: show it once.
+  res.json(out.filter((x, i, a) => a.findIndex((y) => y.waUserId === x.waUserId) === i));
+});
+
+router.post("/wa-links/:waUserId/renew", async (req, res) => {
+  const [u] = await db.update(usersTable).set({ connectToken: randomUUID() }).where(eq(usersTable.id, Number(req.params.waUserId))).returning({ token: usersTable.connectToken });
+  if (!u) return res.status(404).json({ error: "غير موجود" });
+  res.json({ link: publicUrl(`/wa/${u.token}`) });
+});
+
 router.get("/settings/trial", async (_req, res) => { res.json(await trialSettings()); });
 router.put("/settings/trial", async (req, res) => {
   const next = cleanTrialSettings(req.body, await trialSettings());

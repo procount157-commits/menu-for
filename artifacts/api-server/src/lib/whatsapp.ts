@@ -6,11 +6,14 @@ import makeWASocket, {
   Browsers,
   WAMediaUpload,
   downloadMediaMessage,
+  generateWAMessageFromContent,
+  prepareWAMessageMedia,
 } from "@whiskeysockets/baileys";
+import { messagingSettings, interactiveContent, textWithButtons, buttonReplyText, NATIVE_FLOW_NODE, STOP_TEXT, type ButtonDef as WaButton } from "./wa-buttons";
 import { Boom } from "@hapi/boom";
 import { logger as appLogger } from "./logger";
-import { and, eq, sql, desc } from "drizzle-orm";
-import { db, waAuthStateTable, waSessionEventsTable, usersTable, incomingMessagesTable, contactsTable, unsubscribedPhonesTable, waContactsTable, waConversationsTable, waThreadMessagesTable, waSyncStateTable, messageLogs, campaignsTable, campaignButtonResponsesTable } from "@workspace/db";
+import { and, eq, sql, desc, inArray } from "drizzle-orm";
+import { db, waAuthStateTable, waSessionEventsTable, usersTable, incomingMessagesTable, contactsTable, contactGroupsTable, unsubscribedPhonesTable, waContactsTable, waConversationsTable, waThreadMessagesTable, waSyncStateTable, messageLogs, campaignsTable, campaignButtonResponsesTable } from "@workspace/db";
 import { useDatabaseAuthState, migrateSessionFilesToDb } from "./wa-auth-state";
 import { transcribe } from "./voice";
 import { assessSession, isRejection, isHandshakeRejection, STABLE_AFTER_MS, FLAP_WINDOW_MS, COOLDOWN_MS } from "./session-breaker";
@@ -160,6 +163,11 @@ function pillButton(icon: string, label: string): string {
 }
 
 function formatButtonsAdStyle(body: string, btns: ButtonDef[]): string {
+  return textWithButtons(body, btns.filter((b) => b.text?.trim()) as WaButton[]);
+}
+
+// The drawn pills this used to produce, kept for reference only.
+function formatButtonsPills(body: string, btns: ButtonDef[]): string {
   const valid = btns.filter((b) => b.text?.trim());
   if (valid.length === 0) return body;
 
@@ -258,7 +266,7 @@ interface WAState {
   socket: ReturnType<typeof makeWASocket> | null;
 }
 
-type ButtonDef    = { text: string; type?: "url" | "call" | "reply" | "interested" | "not_interested"; url?: string; phone?: string };
+type ButtonDef    = { text: string; type?: "url" | "call" | "reply" | "interested" | "not_interested" | "stop"; url?: string; phone?: string; id?: string };
 type CarouselCard = { title: string; description: string; imageUrl?: string; buttonText?: string; buttonUrl?: string };
 
 // ── Per-user WhatsApp instance ────────────────────────────────────
@@ -283,6 +291,8 @@ class WhatsAppInstance {
   /** Timestamp of the last time we entered "reconnecting" state */
   private reconnectingStartedAt: number | null = null;
   private manualLogout = false;
+  /** Set for one send by the admin's «try real buttons» test. */
+  forceInteractive = false;
   private reconnectTimer:  ReturnType<typeof setTimeout>  | null = null;
 
   // Pairing-code handshake — set before init(), read from init() after makeWASocket
@@ -2174,7 +2184,7 @@ class WhatsAppInstance {
         // ── Opt-out detection ──────────────────────────────────────
         // If the contact sends an opt-out keyword, remove them from all
         // contact groups and add to the unsubscribed list permanently.
-        const OPTOUT_RE = /^(0|stop|unsubscribe|توقف|وقف|أوقف|ايقاف|إيقاف|الغاء|إلغاء|لا\s*ارسال|لا\s*تراسلني|ارفع\s*رقمي|إلغاء\s*الاشتراك|الغاء\s*الاشتراك|remove\s*me)$/i;
+        const OPTOUT_RE = /^(0|stop|unsubscribe|توقف|وقف|أوقف|ايقاف|إيقاف|[إا]يقاف\s*الرسائل|الغاء|إلغاء|لا\s*ارسال|لا\s*تراسلني|ارفع\s*رقمي|إلغاء\s*الاشتراك|الغاء\s*الاشتراك|remove\s*me)$/i;
         if (OPTOUT_RE.test(text.trim())) {
           this.log.info({ phone }, "Opt-out received — removing from contacts");
           // Insert unsubscribed (ignore duplicate)
@@ -2183,15 +2193,21 @@ class WhatsAppInstance {
             .onConflictDoNothing()
             .catch(() => {});
           // Delete from all contact groups belonging to this user
+          // Only this account's lists: another shop's customer list is not ours to edit.
           db.delete(contactsTable)
             .where(
               and(
                 eq(contactsTable.phone, phone),
+                inArray(contactsTable.groupId, db.select({ id: contactGroupsTable.id }).from(contactGroupsTable).where(eq(contactGroupsTable.userId, this.userId))),
               )
             )
             .catch(() => {});
           // Confirm opt-out to the user
-          this.sendMessage(phone, "تم إلغاء اشتراكك ✅ لن تصلك رسائل منا مرة أخرى.").catch(() => {});
+          messagingSettings().then((m) => {
+            const months = Math.round(m.stopDays / 30);
+            const span = m.stopDays === 0 ? "مرة أخرى" : months >= 1 ? `لمدة ${months === 1 ? "شهر" : months === 2 ? "شهرين" : `${months} أشهر`}` : `لمدة ${m.stopDays} يوماً`;
+            return this.sendMessage(phone, `تم إيقاف رسائلنا ✅ لن تصلك منا رسائل عروض ${span}.`);
+          }).catch(() => {});
           continue;
         }
 
@@ -2584,6 +2600,21 @@ class WhatsAppInstance {
 
       } else if (messageType === "video" && mediaUrl) {
         result = await withTimeout(this.state.socket.sendMessage(jid, { video: await resolveMedia(mediaUrl), caption: uniqueText }), "video");
+
+      } else if ((messageType === "button" || messageType === "image_button") && buttons && (this.forceInteractive || (await messagingSettings()).interactive)) {
+        // Real WhatsApp buttons: a native-flow interactive message.
+        const btns: ButtonDef[] = JSON.parse(buttons);
+        const sock = this.state.socket;
+        const content: any = interactiveContent(uniqueText, btns as WaButton[], (await messagingSettings()).footer || undefined);
+        if (messageType === "image_button" && mediaUrl) {
+          const media = await prepareWAMessageMedia({ image: await resolveMedia(mediaUrl) }, { upload: sock.waUploadToServer });
+          content.interactiveMessage.header = { title: "", subtitle: "", hasMediaAttachment: true, imageMessage: media.imageMessage };
+        }
+        const full = generateWAMessageFromContent(jid, content, { userJid: sock.user!.id });
+        await withTimeout(sock.relayMessage(jid, full.message!, { messageId: full.key.id!, additionalNodes: [NATIVE_FLOW_NODE as any] }), "interactive");
+        // relayMessage does not echo the message locally; do it so the thread keeps our side.
+        (sock as any).upsertMessage?.(full, "append")?.catch?.(() => {});
+        result = full as any;
 
       } else if (messageType === "button" && buttons) {
         const btns: ButtonDef[] = JSON.parse(buttons);
@@ -2982,6 +3013,14 @@ export function startWakeDetector() {
   appLogger.info("sleep detector started");
 }
 
+/** The admin's test: a message with real buttons, whatever the setting, to a number they choose. */
+export async function sendButtonTest(userId: number, phone: string, text: string, buttons: string): Promise<string | undefined> {
+  const inst = waManager.get(userId);
+  inst.forceInteractive = true;
+  try { return await inst.sendMessage(phone, text, "button", null, buttons); }
+  finally { inst.forceInteractive = false; }
+}
+
 export async function sendMessage(
   userId: number, phone: string, message: string,
   messageType?: string, mediaUrl?: string | null,
@@ -3137,12 +3176,15 @@ export function waitForConnection(userId: number, timeoutMs = 3 * 60_000): Promi
 // ── Utilities ────────────────────────────────────────────────────
 
 function extractText(msg: any): string {
+  const pressed = buttonReplyText(msg?.message);
+  if (pressed === STOP_TEXT) return pressed;
   return (
     msg.message?.conversation ||
     msg.message?.extendedTextMessage?.text ||
     msg.message?.buttonsResponseMessage?.selectedDisplayText ||
     msg.message?.listResponseMessage?.title ||
     msg.message?.templateButtonReplyMessage?.selectedDisplayText ||
+    buttonReplyText(msg.message) ||
     ""
   ).trim();
 }

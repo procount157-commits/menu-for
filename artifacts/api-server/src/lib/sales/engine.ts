@@ -39,12 +39,12 @@ export interface TickResult { reason: string | null; followUps: number; openers:
 let running = false;
 let nextOpenerAt = 0;
 
-export async function salesTick(now = new Date(), o: { ignoreSpacing?: boolean; maxOpeners?: number } = {}): Promise<TickResult> {
+export async function salesTick(now = new Date(), o: { ignoreSpacing?: boolean; maxOpeners?: number; settings?: SalesSettings } = {}): Promise<TickResult> {
   const res: TickResult = { reason: null, followUps: 0, openers: 0 };
   if (running) return { ...res, reason: "دورة أخرى تعمل" };
   running = true;
   try {
-    const s = await salesSettings();
+    const s = o.settings ?? await salesSettings();
     const closed = closedReason(s, now);
     if (closed) return { ...res, reason: closed };
     const wa = s.waUserId!;

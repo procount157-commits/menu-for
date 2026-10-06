@@ -46,6 +46,7 @@ check("an unknown link is removed, a given one kept, markdown stripped", g.ok &&
 g = guardMessage("تجربتنا تستاهل، تبي تشوف؟", ctx({ requiredUrl: "https://m.test/s/abc/restaurant" }));
 check("a required link left out is appended", g.text.endsWith("https://m.test/s/abc/restaurant") && g.links.length === 1);
 g = guardMessage("أهلاً، معك سارة من منيو فور يو https://m.test/s/abc/restaurant كيف تستقبلون الطلبات؟", ctx({ mode: "opener" }));
+check("…but no stop line when the stop is a real button", !guardMessage("أهلاً، معك سارة من منيو فور يو، كيف تستقبلون الطلبات؟", ctx({ mode: "opener", hasStopButton: true })).text.includes("توقف"));
 check("the first message carries no link, and does carry the stop line", !g.text.includes("https://") && g.text.includes("توقف"), g.text);
 check("an invented price fails", !guardMessage("الاشتراك 49 درهم بس", ctx()).ok);
 check("…a real one passes, Arabic digits too", guardMessage("الأساسية ٩٩ درهم شهرياً", ctx()).ok && guardMessage("الاحترافية 199 درهم", ctx()).ok);
@@ -96,29 +97,30 @@ const [orig] = await db.select().from(platformSettingsTable).where(eq(platformSe
 const [u] = await db.insert(usersTable).values({ phone: `99977${Math.floor(Math.random() * 1e7)}`, passwordHash: "!", displayName: "sales test", isAdmin: true }).returning();
 const W = u!.id;
 try {
-  s = await saveSalesSettings({ active: true, dryRun: true, waUserId: W, days: [0, 1, 2, 3, 4, 5, 6], hourFrom: 0, hourTo: 24, dailyNew: 2, openerMode: "template", steps: DEFAULT_SETTINGS.steps });
+  s = await saveSalesSettings({ active: false, dryRun: true, waUserId: W, days: [0, 1, 2, 3, 4, 5, 6], hourFrom: 0, hourTo: 24, dailyNew: 2, openerMode: "template", steps: DEFAULT_SETTINGS.steps });
+  const on = { ...s, active: true };
   const facts = await productFacts();
   check("product facts come from the plan matrix and the trial settings", /التجربة المجانية: \d+ يوماً/.test(facts.text) && facts.text.includes("درهم") && facts.numbers.size > 3, facts.text.slice(0, 120));
   const mk = (phone: string, business: string, vertical = "restaurant") => ({ waUserId: W, phone, business, vertical, token: newToken(), source: "test" });
   const ps = await db.insert(salesProspectsTable).values([mk("971500000101", "مطعم أ"), mk("971500000102", "كافيه ب", "cafe"), mk("971500000103", "حلويات ج", "sweets"), mk("971500000104", "مطعم د")]).returning();
   await db.insert(unsubscribedPhonesTable).values({ userId: W, phone: "971500000101", reason: "test" });
   const now = new Date();
-  let r = await salesTick(now, { ignoreSpacing: true, maxOpeners: 5 });
+  let r = await salesTick(now, { ignoreSpacing: true, maxOpeners: 5, settings: on });
   check("a tick sends today's quota of openers (2), and no more", r.openers === 2, r);
   const after = await db.select().from(salesProspectsTable).where(eq(salesProspectsTable.waUserId, W));
   const contacted = after.filter((p) => p.stage === "contacted");
   check("…never to a number that asked to stop", after.find((p) => p.phone === "971500000101")!.stage === "new" && contacted.length === 2);
   check("…each with its first follow-up due in two days", contacted.every((p) => Math.abs(p.nextAt!.getTime() - (now.getTime() + 2 * 86_400_000)) < 5_000));
   const ot = await db.select().from(salesTouchesTable).where(and(eq(salesTouchesTable.waUserId, W), eq(salesTouchesTable.kind, "opener")));
-  check("…recorded as dry, from the template, with the stop line and no link", ot.length === 2 && ot.every((t) => t.status === "dry" && t.by === "template" && t.text!.includes("توقف") && !t.text!.includes("http")), ot.map((t) => t.text));
-  r = await salesTick(now, { ignoreSpacing: true, maxOpeners: 5 });
+  check("…recorded as dry, from the template, with no link (the stop is a button)", ot.length === 2 && ot.every((t) => t.status === "dry" && t.by === "template" && !t.text!.includes("http")), ot.map((t) => t.text));
+  r = await salesTick(now, { ignoreSpacing: true, maxOpeners: 5, settings: on });
   check("a second tick the same day opens nothing more", r.openers === 0, r);
   check("today's openers are counted in the seller's clock", (await sentToday(W, s.tz, ["opener"], now)) === 2);
   check("dry runs do not spend the number's daily allowance", (await getDailySentCount(W)) === 0);
 
   const A = contacted[0]!, B = contacted[1]!;
   await db.update(salesProspectsTable).set({ nextAt: new Date(now.getTime() - 60_000) }).where(eq(salesProspectsTable.id, A.id));
-  r = await salesTick(now, { ignoreSpacing: true, maxOpeners: 0 });
+  r = await salesTick(now, { ignoreSpacing: true, maxOpeners: 0, settings: on });
   const [a1] = await db.select().from(salesProspectsTable).where(eq(salesProspectsTable.id, A.id));
   const [fu] = await db.select().from(salesTouchesTable).where(and(eq(salesTouchesTable.prospectId, A.id), eq(salesTouchesTable.kind, "followup")));
   const demo = linkFor(s, A, A.vertical === "cafe" ? "cafe" : "restaurant")!;
@@ -154,7 +156,7 @@ try {
   check("the numbers: by stage, today against the quota, and advice", stats!.byStage.trial === 1 && stats!.byStage.stopped === 1 && stats!.today.openers === 2 && stats!.today.quota === 2 && stats!.advice.length >= 1, stats);
 
   const pv = await composeFor(s, (await db.select().from(salesProspectsTable).where(eq(salesProspectsTable.phone, "971500000104")))[0]!, "opener");
-  check("a preview of the next opener is written and guarded, not sent", pv.ok && pv.text.includes("مطعم د") && pv.text.includes(OPT_OUT_LINE.slice(0, 10)));
+  check("a preview of the next opener is written and guarded, not sent", pv.ok && pv.text.includes("مطعم د"));
 } finally {
   await db.delete(usersTable).where(eq(usersTable.id, W));
   if (orig) await db.update(platformSettingsTable).set({ value: orig.value }).where(eq(platformSettingsTable.key, "sales"));

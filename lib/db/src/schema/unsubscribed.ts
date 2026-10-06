@@ -8,6 +8,8 @@ export const unsubscribedPhonesTable = pgTable(
     userId:    integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     phone:     varchar("phone", { length: 50 }).notNull(),
     reason:    text("reason"),
+    // Until when our messages stay away; NULL = for good. Set by trigger from the platform's stop period.
+    until:     timestamp("until", { withTimezone: true }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [

@@ -1,3 +1,4 @@
+import { messagingSettings, marketingSend } from "../lib/wa-buttons";
 import { Router } from "express";
 import { campaignMessageAllowed } from "../lib/growth/quota";
 import { db, campaignsTable, contactGroupsTable, contactsTable, messageLogs, unsubscribedPhonesTable, waSessionEventsTable, campaignButtonResponsesTable } from "@workspace/db";
@@ -1461,7 +1462,9 @@ async function runCampaign(userId: number, campaign: any, contacts: any[], info:
     );
 
     try {
-      const waMessageId = await sendWithReconnect(userId, contact.phone, personalizedMessage, campaign.messageType, campaign.mediaUrl, campaign.buttons ?? null, campaign.carousel ?? null);
+      // Every campaign message carries the «إيقاف الرسائل» button (or line).
+      const withStop = (await messagingSettings()).stopButton ? marketingSend(campaign.messageType, campaign.buttons) : { messageType: campaign.messageType, buttons: campaign.buttons ?? null };
+      const waMessageId = await sendWithReconnect(userId, contact.phone, personalizedMessage, withStop.messageType, campaign.mediaUrl, withStop.buttons, campaign.carousel ?? null);
       // Wrap DB writes in retry — a transient DB blip must not lose the "sent" record
       await withDbRetry(() =>
         db.insert(messageLogs).values({ campaignId: campaign.id, phone: contact.phone, status: "sent", sentAt: new Date(), messageId: waMessageId ?? null })

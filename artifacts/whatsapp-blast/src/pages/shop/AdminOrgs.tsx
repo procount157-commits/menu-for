@@ -7,13 +7,14 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Building2, Copy, ExternalLink, Plus, Loader2, LogIn, Search, ShieldAlert, ShieldCheck, SlidersHorizontal, Store, MessageCircle, Crown, KeyRound } from "lucide-react";
+import { Building2, Copy, ExternalLink, Plus, Loader2, LogIn, Search, ShieldAlert, ShieldCheck, SlidersHorizontal, Store, MessageCircle, Crown, KeyRound, QrCode } from "lucide-react";
 import { get, patch, post, inputCls, labelCls } from "@/lib/shop-api";
 import { useAuth } from "@/context/AuthContext";
 import { Switch } from "@/components/ui/switch";
 import { Btn, Empty, Stat, errText, n, shortDate } from "@/components/shop/ops/kit";
 import { Modal } from "@/components/shop/ops/Modal";
 import { LlmKeysDialog } from "@/components/shop/LlmKeysDialog";
+import { WaLinksDialog, MessagingDialog } from "@/components/shop/AdminWaDialogs";
 import { cn } from "@/lib/utils";
 
 interface OrgRow {
@@ -56,6 +57,8 @@ function Inner() {
   const [busy, setBusy] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [keys, setKeys] = useState(false);
+  const [waFor, setWaFor] = useState<OrgRow | null>(null);
+  const [messaging, setMessaging] = useState(false);
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -92,6 +95,7 @@ function Inner() {
         <div className="flex flex-wrap gap-2">
           <a href="/admin" className="inline-flex items-center gap-2 rounded-xl px-4 min-h-11 text-sm font-semibold bg-secondary hover:bg-secondary/70">الخطط والكوبونات والطلبات</a>
           <Btn tone="plain" onClick={() => setKeys(true)}><KeyRound className="w-4 h-4" />مفاتيح الذكاء الاصطناعي</Btn>
+          <Btn tone="plain" onClick={() => setMessaging(true)}><MessageCircle className="w-4 h-4" />الرسائل والأزرار</Btn>
           <Btn tone="gold" onClick={() => setCreating(true)}><Plus className="w-4 h-4" />محل جديد</Btn>
         </div>
       </div>
@@ -199,6 +203,7 @@ function Inner() {
                       {busy === `as:${o.id}` ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}ادخل كصاحب المحل
                     </Btn>
                     <Btn className="min-h-10" onClick={() => setEdit(o)}><SlidersHorizontal className="w-4 h-4" />الخطة والميزات</Btn>
+                    <Btn className="min-h-10" onClick={() => setWaFor(o)}><QrCode className="w-4 h-4" />رابط ربط واتساب</Btn>
                     <a href={o.menuUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-xl px-3 min-h-10 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60">
                       <ExternalLink className="w-4 h-4" />المنيو
                     </a>
@@ -215,6 +220,8 @@ function Inner() {
 
       <CreateDialog open={creating} onClose={() => setCreating(false)} onCreated={refresh} />
       <LlmKeysDialog open={keys} onClose={() => setKeys(false)} />
+      <WaLinksDialog org={waFor} onClose={() => setWaFor(null)} />
+      <MessagingDialog open={messaging} onClose={() => setMessaging(false)} />
       <PlanDialog o={edit} onClose={() => setEdit(null)} onSave={async (o, body) => { if (await update(o, body, "حُفظت التغييرات")) setEdit(null); }} saving={!!edit && busy === `${edit.id}`} />
     </div>
   );

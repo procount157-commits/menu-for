@@ -19,6 +19,24 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
+--
+-- Name: unsub_set_until(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.unsub_set_until() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE days integer;
+BEGIN
+  IF NEW.until IS NULL THEN
+    SELECT coalesce((value->>'stopDays')::int, 150) INTO days FROM platform_settings WHERE key = 'messaging';
+    IF days IS NULL THEN days := 150; END IF;
+    IF days > 0 THEN NEW.until := now() + make_interval(days => days); END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -3098,7 +3116,8 @@ CREATE TABLE public.unsubscribed_phones (
     user_id integer NOT NULL,
     phone character varying(50) NOT NULL,
     reason text,
-    created_at timestamp without time zone DEFAULT now() NOT NULL
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    until timestamp with time zone
 );
 
 
@@ -5368,6 +5387,13 @@ CREATE INDEX idx_ticket_queue_status ON public.queue_tickets USING btree (queue_
 
 
 --
+-- Name: idx_unsub_until; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_unsub_until ON public.unsubscribed_phones USING btree (until) WHERE (until IS NOT NULL);
+
+
+--
 -- Name: idx_unsubscribed_user; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5477,6 +5503,13 @@ CREATE UNIQUE INDEX uq_ticket_number ON public.queue_tickets USING btree (queue_
 --
 
 CREATE UNIQUE INDEX uq_wa_template ON public.wa_templates USING btree (org_id, key);
+
+
+--
+-- Name: unsubscribed_phones trg_unsub_until; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_unsub_until BEFORE INSERT ON public.unsubscribed_phones FOR EACH ROW EXECUTE FUNCTION public.unsub_set_until();
 
 
 --

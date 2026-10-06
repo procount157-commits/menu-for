@@ -31,6 +31,7 @@
 // Every sent notification keeps its WhatsApp id, so receipts.ts can record
 // who received it and who opened it.
 
+import { messagingSettings, marketingSend } from "../wa-buttons";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db, notificationsTable, unsubscribedPhonesTable, orgsTable, type Org } from "@workspace/db";
 import { getStatus, sendMessage } from "../whatsapp";
@@ -40,7 +41,7 @@ import { menuPlan } from "../plans";
 import { getControls } from "../ops-agent";
 import { getEffectiveDailyLimit } from "../daily-limit";
 import type { TemplateKey } from "./templates";
-import { takeMessage, kindOf } from "../growth/quota";
+import { takeMessage, kindOf, MARKETING_KINDS } from "../growth/quota";
 
 export const REPLIED_WINDOW_MS = 24 * 3_600_000;
 /** Per number per day. Replies in a customer's own thread are the safe kind; still bounded. */
@@ -171,7 +172,8 @@ export async function drain(now = new Date()): Promise<number> {
     }
     const [stop] = await db.select({ id: unsubscribedPhonesTable.id }).from(unsubscribedPhonesTable)
       .where(and(eq(unsubscribedPhonesTable.userId, n.waUserId), eq(unsubscribedPhonesTable.phone, n.phone))).limit(1);
-    if (stop) { await mark(n.id, "skipped", "opted_out"); continue; }
+    // A stop is a stop to offers. The order, turn or booking they just made still answers them.
+    if (stop && MARKETING_KINDS.has(n.kind)) { await mark(n.id, "skipped", "opted_out"); continue; }
 
     const controls = await getControls(n.waUserId).catch(() => null);
     const throttle = Math.max(1, Number(controls?.throttle ?? 1));
@@ -203,7 +205,9 @@ export async function drain(now = new Date()): Promise<number> {
     }
     nextAt.set(n.waUserId, Date.now() + gapMs() * throttle);
     try {
-      const id = await sendMessage(n.waUserId, n.phone, n.text);
+      // A gift, a win-back, a birthday: marketing, so it carries the stop button.
+      const stop = MARKETING_KINDS.has(n.kind) && (await messagingSettings()).stopButton ? marketingSend("text", null) : null;
+      const id = stop ? await sendMessage(n.waUserId, n.phone, n.text, stop.messageType, null, stop.buttons) : await sendMessage(n.waUserId, n.phone, n.text);
       await mark(n.id, "sent", null, id ?? undefined);
       sent++;
     } catch (err) {

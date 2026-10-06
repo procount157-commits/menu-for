@@ -1,3 +1,4 @@
+import { sweepExpiredStops } from "./lib/wa-buttons";
 import { startSalesEngine } from "./lib/sales/engine";
 import app from "./app";
 import { logger } from "./lib/logger";
@@ -176,6 +177,7 @@ function startListening() {
     setTimeout(() => {
       void sweepQuietOutcomes().catch(() => {});
       setInterval(() => void sweepQuietOutcomes().catch(() => {}), 60 * 60_000);
+      setInterval(() => void sweepExpiredStops().catch(() => {}), 60 * 60_000);
     }, 45_000);
 
     // ── Connection Guardian ───────────────────────────────────────────
