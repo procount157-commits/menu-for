@@ -96,6 +96,13 @@ export function checkReply(reply: string, ctx: CheckContext): CheckResult {
     issues.push({ code: "reask", note: "يسأل عن الوقت وهو معروف", fix: `الوقت معروف (${k.staff}) — لا تسأل عنه.` });
   }
 
+  // A template's blank that was never filled: "أهلاً [الاسم]، معك [اسم الموظف]"
+  // or "{رابط المنيو}" must never reach a customer.
+  const blank = /\[[^\]\n]{1,30}\]|\{[^}\n]{1,30}\}|<[^>\n]{1,20}>|\bX{3,}\b|_{3,}/.exec(text);
+  if (blank) {
+    issues.push({ code: "placeholder", note: `خانة قالب لم تُملأ: ${blank[0]}`, fix: `احذف «${blank[0]}» واكتب الكلام نفسه — اسمك الحقيقي أو الرابط الفعلي، أو اترك الجملة بدونها.` });
+  }
+
   // Numbers the shop never gave it: a price, a delivery fee, a wait in minutes.
   const allowed = new Set([...claims(ctx.facts ?? ""), ...claims(ctx.customer)]);
   const invented = claims(text).filter((c) => !allowed.has(c));
@@ -119,9 +126,14 @@ export function checkReply(reply: string, ctx: CheckContext): CheckResult {
     issues.push({ code: "oversell", note: "يعرض من جديد بعد أن وافق الزبون", fix: "الزبون وافق — أكّد التفاصيل في سطر فقط، بلا عرض جديد." });
   }
 
-  const weights: Record<string, number> = { long: 15, questions: 15, list: 10, robotic: 20, reveal: 40, reask: 20, invented: 30, "same-open": 5, language: 30, oversell: 20 };
+  const weights: Record<string, number> = { placeholder: 50, long: 15, questions: 15, list: 10, robotic: 20, reveal: 40, reask: 20, invented: 30, "same-open": 5, language: 30, oversell: 20 };
   const score = Math.max(0, 100 - issues.reduce((a, i) => a + (weights[i.code] ?? 10), 0));
   return { score, issues };
+}
+
+/** Must not be sent as it is, rewritten or not: a template blank, or a word about being a machine. */
+export function blocksSend(r: CheckResult): boolean {
+  return r.issues.some((i) => i.code === "placeholder" || i.code === "reveal");
 }
 
 /** Worth a rewrite: anything but a cosmetic same-opening. */

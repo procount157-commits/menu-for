@@ -28,6 +28,7 @@ import { inboxPreamble } from "./agent-comms";
 import { thinkTime } from "./reply-timing";
 import { sendMessage, getStatus, registerInboundHook, registerOnConnectHook, registerHumanReplyHook, markRead } from "./whatsapp";
 import { updateCard, cardPreamble, isHumanHeld, takeover, lastCustomerLine, getCard } from "./lead-card";
+import { lastOutreach, outreachPreamble, savedName } from "./outreach-context";
 import { notify, esc } from "./telegram";
 import { say } from "./agent-comms";
 import { assertCanSend } from "./plans";
@@ -410,7 +411,11 @@ async function autoReplyIfAppropriate(
   // What the team knows about this lead and where the sale is — told to the
   // employee outright, so it is not inferred from the transcript and asked
   // about again.
-  const card = await cardPreamble(userId, phone).catch(() => "");
+  const card0 = await cardPreamble(userId, phone).catch(() => "");
+  // What this conversation is a reply to — the campaign or deal they received.
+  const savedAs = await savedName(userId, phone).catch(() => null);
+  const outreach = outreachPreamble(await lastOutreach(userId, phone, savedAs).catch(() => null), savedAs);
+  const card = [outreach, card0].filter(Boolean).join("\n\n");
 
   // Pass the phone so the reply sees the conversation, not just this line.
   const answer = await answerFromKnowledge(

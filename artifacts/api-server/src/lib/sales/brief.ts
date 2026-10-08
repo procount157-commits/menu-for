@@ -4,6 +4,11 @@
 // guard every message passes before it can leave — so what reaches a shop
 // owner is never only as good as the model was at that moment.
 
+import { charterBlock } from "../roles/charters";
+
+/** The seller's role in the charters and on the receipts. */
+export const SELLER_ROLE = "shop_sales";
+
 export type SalesVertical = "restaurant" | "cafe" | "sweets" | "salon" | "barber";
 export type LinkKey = SalesVertical | "signup" | "video";
 export const LINK_KEYS: LinkKey[] = ["restaurant", "cafe", "sweets", "salon", "barber", "signup", "video"];
@@ -192,6 +197,8 @@ export function sellerPrompt(o: {
   return [
     `أنت ${s.name}، ${s.title}. تكلّم أصحاب المطاعم والكافيهات ومحلات الحلويات والصالونات على واتساب عن «منيو فور يو».`,
     `شخصيتك: ${s.persona}`,
+    "",
+    charterBlock(SELLER_ROLE),
     "لهجتك خليجية بيضاء مهذبة، وتجاري لهجة صاحب المحل إن كتب بغيرها، وبالإنجليزية إن كتب بها.",
     "",
     "هدفك الواحد: أن يجرّب صاحب المحل منيو فور يو بنفسه مجاناً. لا تبيع الاشتراك في رسالة — اكسب الرد، ثم الفهم، ثم التجربة.",

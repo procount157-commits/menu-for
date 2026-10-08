@@ -29,6 +29,8 @@ export const businessProfileTable = pgTable("business_profile", {
   tone:        varchar("tone", { length: 30 }).default("friendly"),
   // Things the bot must never do, in the owner's own words.
   guardrails:  text("guardrails"),
+  /** The follow-up that writes each message for the person: off | dry | live. */
+  smartFollowup: varchar("smart_followup", { length: 8 }).notNull().default("dry"),
   autoReply:   boolean("auto_reply").notNull().default(false),
   updatedAt:   timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

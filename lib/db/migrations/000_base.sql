@@ -598,7 +598,8 @@ CREATE TABLE public.business_profile (
     tone character varying(30) DEFAULT 'friendly'::character varying,
     guardrails text,
     auto_reply boolean DEFAULT false NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    smart_followup character varying(8) DEFAULT 'dry'::character varying NOT NULL
 );
 
 

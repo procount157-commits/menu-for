@@ -11,7 +11,7 @@ import {
   cleanSalesSettings, guessVertical, parseProspects, guardMessage, numbersIn, askedIfBot, ruleFacts, mergeFacts, adviceFrom, sellerPrompt,
   templateOpener, prospectCard, taskFor, DEFAULT_SETTINGS, OPT_OUT_LINE,
 } from "../sales/brief";
-import { nextFollowAt, productFacts, saveSalesSettings, invalidateSalesSettings, handleSalesInbound, recordClick, markSalesSignup, sentToday, newToken, linkFor, salesSettings, composeFor } from "../sales/service";
+import { nextFollowAt, productFacts, saveSalesSettings, invalidateSalesSettings, handleSalesInbound, recordClick, markSalesSignup, sentToday, newToken, linkFor, salesSettings, composeFor, demoKey } from "../sales/service";
 import { salesTick, openerGapMinutes, closedReason } from "../sales/engine";
 import { salesStats } from "../sales/stats";
 import { getDailySentCount } from "../daily-limit";
@@ -123,7 +123,8 @@ try {
   r = await salesTick(now, { ignoreSpacing: true, maxOpeners: 0, settings: on });
   const [a1] = await db.select().from(salesProspectsTable).where(eq(salesProspectsTable.id, A.id));
   const [fu] = await db.select().from(salesTouchesTable).where(and(eq(salesTouchesTable.prospectId, A.id), eq(salesTouchesTable.kind, "followup")));
-  const demo = linkFor(s, A, A.vertical === "cafe" ? "cafe" : "restaurant")!;
+  // Whichever prospect the tick opened first — the sweets shop gets the sweets demo.
+  const demo = linkFor(s, A, demoKey(s, A.vertical))!;
   check("a due follow-up goes out, step 1 of 5, with the demo link for its kind", r.followUps === 1 && a1!.step === 1 && fu?.text?.includes(demo) === true && demo.includes(`/s/${A.token}/`), { r, demo, text: fu?.text });
   check("…the link is remembered as sent", a1!.linksSent.length === 1);
   check("…and the next is due on day 5", Math.abs(a1!.nextAt!.getTime() - (a1!.firstSentAt!.getTime() + 5 * 86_400_000)) < 5_000 || a1!.nextAt!.getTime() >= now.getTime() + 86_400_000);

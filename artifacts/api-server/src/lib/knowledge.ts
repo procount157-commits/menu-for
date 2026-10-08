@@ -14,7 +14,7 @@ import {
 import { normalizeArabic, type Intent } from "./intent";
 import { complete, resolveProvider } from "./llm";
 import { logger } from "./logger";
-import { checkReply, needsRewrite, rewritePrompt } from "./reply-check";
+import { checkReply, needsRewrite, rewritePrompt, blocksSend } from "./reply-check";
 
 // Words too common to tell entries apart; matching on them makes everything
 // look equally relevant.
@@ -174,12 +174,28 @@ const TONES: Record<string, string> = {
 // both and resolved it the only way it could: a question at the end of
 // everything, which is the single clearest sign a human did not write it.
 export const SALES_JOB = [
-  "أنت مضيّف المحل، لا محرك بحث. لكل رسالة هدف واحد يقرّب الزبون من طلبه أو زيارته:",
-  "- جاوب سؤاله من المعلومات أدناه — السعر والساعات والفروع كما هي مكتوبة حرفياً.",
-  "- افهم ما ينقصك قبل أن تقترح: طلب ولا دور ولا حجز، كم شخص، أي وقت، أي منطقة — سؤالاً واحداً في كل رسالة.",
-  "- رابط واحد يناسبه في وقته: المنيو للطلب، الدور لمن هو جاي الحين، الحجز لموعد أو طاولة أو طلب مسبق.",
-  "- الاعتراض («غالي»، «فيه خصم؟») ليس رفضاً: ردّ واحد وبديل موجود في المنيو، بلا تخفيض ولا عرض مخترع.",
-  "- حين يؤكد توقف عن العرض وأكّد التفاصيل في سطر. الشكوى والطلب الخاص لشخص من المحل.",
+  "دليل المضيّف — حدّد الموقف الذي أمامك ثم اعمل حركته، رسالة واحدة لهدف واحد يقرّب الزبون من طلبه أو زيارته:",
+  "",
+  "① ردّ على رسالة أو عرض أرسلناه (والرسالة مذكورة أعلاه):",
+  "   اربط كلامه بما أرسلناه — العرض أو الصنف أو الرابط — في جملة، ثم أعطه الخطوة: رابط الطلب أو الحجز المناسب، أو سؤالاً واحداً ينقصك.",
+  "② «مهتم» أو ضغط زر الاهتمام أو «أبي»:",
+  "   لا تستجوبه. أكّد العرض في نصف سطر كما هو مكتوب، وأرسل الرابط الذي يكمل به (المنيو للطلب، الحجز، الدور).",
+  "③ يسأل عن السعر أو صنف:",
+  "   السعر كما هو في المنيو حرفياً. إن لم يكن مكتوباً فلا تخمّن: قل إنك بتتأكد من المحل أو أرسل رابط المنيو.",
+  "④ يبي يطلب أو يحجز أو ياخذ دوره:",
+  "   رابط واحد يناسبه في وقته — المنيو للطلب، الدور لمن هو جاي الحين، الحجز لموعد أو طاولة أو طلب مسبق — وسؤال واحد فقط إن نقصك شي (كم شخص، أي وقت، أي منطقة).",
+  "⑤ تحية فقط أو «؟» أو رسالة غامضة:",
+  "   رحّب بسطر، وإن كنا أرسلنا له شيئاً فذكّره في نصف سطر، ثم سؤال سهل يجيب عنه بكلمة: طلب ولا حجز؟",
+  "⑥ يسأل عن شي مو في المنيو (صنف، خدمة، مكوّن، حساسية، توصيل لمنطقة غير مذكورة):",
+  "   لا تخترع ولا تطمئن. قل إنك بتتأكد من المحل، واقترح الأقرب الموجود فعلاً إن وُجد.",
+  "⑦ طلب خاص (مناسبة، كمية كبيرة، تعديل خارج المنيو، سعر خاص):",
+  "   اجمع ما ينقص فقط (التاريخ، العدد، الاسم)، وقل إن شخصاً من المحل يتواصل معه.",
+  "⑧ «غالي» أو «فيه خصم؟»:",
+  "   ليس رفضاً: ردّ واحد وبديل موجود في المنيو، بلا تخفيض ولا عرض مخترع.",
+  "",
+  "قواعد في كل موقف:",
+  "- رسالة واتساب: سطر إلى ثلاثة، بلا قوائم ولا عناوين، وسؤال واحد على الأكثر.",
+  "- حين يؤكد توقف عن العرض وأكّد التفاصيل في سطر. الشكوى لخدمة الزبائن أو لشخص من المحل.",
   "- لا تنهِ المحادثة عند أول رد، ولا تلاحق من قال لا.",
 ];
 
@@ -452,6 +468,12 @@ export async function answerFromKnowledge(
           const q2 = checkReply(candidate, ctx);
           if (q2.score > q.score) { reply = candidate; q = q2; rewritten = true; }
         }
+      }
+      // A blank from a template or a word about being a machine never goes
+      // to a customer, even after the rewrite failed to remove it.
+      if (blocksSend(q)) {
+        logger.warn({ userId, phone, issues: q.issues.map((i) => i.code) }, "reply held back — it still had a template blank or a self-reveal");
+        return { reply: null, provider: out.provider, kbIds, reason: `أُوقف الرد: ${q.issues.find((i) => i.code === "placeholder" || i.code === "reveal")!.note}`.slice(0, 60) };
       }
       return {
         reply, provider: out.provider, kbIds,

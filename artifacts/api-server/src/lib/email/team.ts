@@ -20,6 +20,7 @@ import { db, botEmployeesTable, agentTasksTable, businessProfileTable, emailAgen
 import { memoryPreamble } from "../agent-memory";
 import { skillsFor, skillsPreamble } from "../agent-skills";
 import { logger } from "../logger";
+import { charterBlock } from "../roles/charters";
 
 export const EMAIL_TEAM = ["email", "email_strategist", "email_followup", "email_replies", "email_guard", "email_creator"] as const;
 export type EmailRole = typeof EMAIL_TEAM[number];
@@ -174,6 +175,7 @@ export async function teamVoice(userId: number, role: EmailRole): Promise<string
   return [
     `اسمك ${me?.name ?? def.name}، ${me?.title ?? def.title} في فريق التسويق بالبريد لدى منيو فور يو.`,
     me?.persona ?? def.persona,
+    `\n${charterBlock(role)}`,
     profile?.guardrails ? `ما لا يُقال أبداً بأمر صاحب العمل: ${profile.guardrails}` : "",
     "",
     EMAIL_DOCTRINE,

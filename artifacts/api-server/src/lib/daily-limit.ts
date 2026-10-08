@@ -140,7 +140,11 @@ export async function getDailySentCount(userId: number): Promise<number> {
   const [sales] = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM sales_touches
     WHERE wa_user_id = ${userId} AND kind IN ('opener','followup') AND status = 'sent' AND at >= ${cutoff}`).then((r) => r.rows).catch(() => [{ n: 0 }]);
 
-  return Number(campaigns?.total ?? 0) + Number(followUps?.total ?? 0) + Number(sales?.n ?? 0);
+  // The follow-ups خالد writes and sends — the same number, the same ceiling.
+  const [smart] = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM followup_deliberations
+    WHERE user_id = ${userId} AND executed AND step >= 100 AND created_at >= ${cutoff}`).then((r) => r.rows).catch(() => [{ n: 0 }]);
+
+  return Number(campaigns?.total ?? 0) + Number(followUps?.total ?? 0) + Number(sales?.n ?? 0) + Number(smart?.n ?? 0);
 }
 
 /** Room left today, never negative. */
