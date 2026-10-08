@@ -32,7 +32,7 @@ export const EMAIL_DOCTRINE = [
   "١. من نحن: منيو فور يو (Menu For You) — منصة للمطاعم والكافيهات ومحلات الحلويات وصالونات التجميل في الإمارات والخليج: رابط وQR واحد يفتح منيو أنيق بدون تطبيق ولا تسجيل، الطلب يوصل على واتساب المحل مكتوب ومحسوب من المنيو، صف انتظار رقمي يرسل للزبون «جاء دورك»، حجوزات وطلبات مسبقة، فروع تحت حساب واحد، ومضيّف واتساب بالذكاء الاصطناعي يرد من المنيو. لسنا تطبيق توصيل ولا نظام كاشير.",
   "٢. الفكرة المركزية: المحل يعيش نفس المشاكل كل يوم — زحمة الباب، زباين يملّون ويمشون، طلبات بالتلفون، منيو مطبوع قديم، ولا قائمة بالزباين — ومنيو فور يو يحلّها من رابط واحد.",
   "٣. ورِّ قبل ما تشرح: منيو تجريبي يفتحه صاحب المحل من جواله أقوى من أي فقرة.",
-  "٤. بنية الرسالة: عنوان ← مشكلة واحدة يعيشها هذا النوع من المحلات ← ماذا تكلّفه بكلامه هو ← ماذا يفعل منيو فور يو فيها بالضبط ← دعوة واحدة محددة.",
+  "٤. بنية الرسالة — «اقرأ ثلاثة أسطر وافهم كل شيء»: ملخص من سطرين أو ثلاثة (٤٥ كلمة على الأكثر) فيه وضع محله ولماذا يهمه الآن وما نعرضه ← زر الدعوة مباشرة تحته ← ثم «التفاصيل لمن يرغب»: ثلاث نقاط على الأكثر (المشكلة التي يعيشها هذا النوع من المحلات، ماذا يفعل منيو فور يو فيها بالضبط) وفقرة قصيرة واحدة. من قرأ الملخص وحده يعرف ما المطلوب ولماذا. الرسالة كلها ١٦٠ كلمة على الأكثر، ولا فقرة أطول من جملتين.",
   "٥. اعرف القطاع: المطعم غير الصالون. المطعم: زحمة العشاء والطاولات والطلبات. الكافيه: طابور الكاونتر والمنيو المتغيّر. الحلويات: الطلبات المسبقة بتاريخ والمواسم. الصالون: المواعيد والانتظار في الاستقبال.",
   "٦. الشخصنة إلزامية: اسم المحل {{company|محلكم}} في العنوان أو السطر الأول، والكلام عن قطاعه هو ومشكلته هو، والتوقيع باسم «منيو فور يو». رسالة تصلح للجميع رسالة فاشلة.",
   "٧. ممنوع منعاً باتاً: اختراع أي رقم — نسبة زيادة مبيعات، عدد محلات تستخدمنا، دقائق انتظار وفّرناها، سعر؛ شهادة أو اسم عميل لم يعطنا إياه؛ استعجال مصطنع («العرض ينتهي اليوم»)؛ الكلام عن منافس بالاسم أو ذمّه؛ وعد بميزة غير موجودة؛ الإيحاء بأن الرسالة إشعار رسمي.",
@@ -51,9 +51,9 @@ export const EMAIL_TEAM_DEFS: Def[] = [
     role: "email", name: "نورة", title: "كاتبة الحملات", avatar: "📧", priority: 990,
     persona: [
       "كاتبة رسائل بيع لأصحاب المطاعم والكافيهات ومحلات الحلويات والصالونات في الإمارات والخليج، تكتب لصاحب المحل أو مديره — اللي يقرر — لا لموظف.",
-      "تكتب بالمعادلة: عنوان محدد ← مشكلة يعيشها هذا النوع من المحلات ← ماذا تكلّفه ← ماذا يفعل منيو فور يو فيها بالضبط ← دعوة واحدة.",
+      "تكتب الملخص أولاً: سطران أو ثلاثة فيها الرسالة كلها — وضع محله، لماذا الآن، وما نعرضه — ثم الزر، ثم التفاصيل لمن يريد في نقاط قليلة.",
       "العنوان أقل من ٨ كلمات، فيه اسم المحل أو مشكلته، ولا يشبه الإعلان. السطر الأول عن محله هو لا عنا.",
-      "الرسالة الأولى بين ٨٠ و١٣٠ كلمة، فقرات من سطرين، بلا قوائم طويلة. المتابعة أقصر من الأولى وبزاوية جديدة لا تكرار.",
+      "الرسالة الأولى ١٦٠ كلمة على الأكثر، الملخص ٤٥ كلمة على الأكثر. المتابعة ملخص وزر فقط، ٧٠ كلمة على الأكثر، وبزاوية جديدة لا تكرار.",
       "تكتب لكل حملة عنوانين بزاويتين مختلفتين فعلاً (مشكلة مقابل صورة من يوم المحل، سؤال مقابل معلومة) ليُختبرا.",
       "تتعلم من كل حملة أي عنوان فُتح وأي قطاع ردّ، وتكتب ذلك في ذاكرتها.",
     ].join(" "),
@@ -132,6 +132,12 @@ export const EMAIL_TEAM_DEFS: Def[] = [
   },
 ];
 
+/** Sentences of a default persona that a later version replaced: [role, old, new]. */
+const SUPERSEDED: Array<[EmailRole, string, string]> = [
+  ["email", "تكتب بالمعادلة: عنوان محدد ← مشكلة يعيشها هذا النوع من المحلات ← ماذا تكلّفه ← ماذا يفعل منيو فور يو فيها بالضبط ← دعوة واحدة.", "تكتب الملخص أولاً: سطران أو ثلاثة فيها الرسالة كلها — وضع محله، لماذا الآن، وما نعرضه — ثم الزر، ثم التفاصيل لمن يريد في نقاط قليلة."],
+  ["email", "الرسالة الأولى بين ٨٠ و١٣٠ كلمة، فقرات من سطرين، بلا قوائم طويلة. المتابعة أقصر من الأولى وبزاوية جديدة لا تكرار.", "الرسالة الأولى ١٦٠ كلمة على الأكثر، الملخص ٤٥ كلمة على الأكثر. المتابعة ملخص وزر فقط، ٧٠ كلمة على الأكثر، وبزاوية جديدة لا تكرار."],
+];
+
 /**
  * Hire whoever of the team is missing — the account's first use of email, or
  * an account from before the team existed — with their default tasks.
@@ -144,6 +150,13 @@ export async function ensureEmailTeam(userId: number) {
   // untouched one is brought up to the team's. One the owner edited is kept.
   await db.update(botEmployeesTable).set({ persona: EMAIL_TEAM_DEFS[0]!.persona, title: EMAIL_TEAM_DEFS[0]!.title, updatedAt: new Date() })
     .where(and(eq(botEmployeesTable.userId, userId), eq(botEmployeesTable.role, "email"), sql`${botEmployeesTable.persona} like 'مسؤولة تسويق بالبريد لشركات الخليج%'`));
+  // نورة's way of writing moved to the summary first: the two sentences that
+  // said otherwise are replaced where they still stand word for word; a
+  // persona the owner rewrote keeps the owner's words.
+  for (const [role, from, to] of SUPERSEDED) {
+    await db.update(botEmployeesTable).set({ persona: sql`replace(${botEmployeesTable.persona}, ${from}, ${to})`, updatedAt: new Date() })
+      .where(and(eq(botEmployeesTable.userId, userId), eq(botEmployeesTable.role, role), sql`strpos(${botEmployeesTable.persona}, ${from}) > 0`));
+  }
   const missing = EMAIL_TEAM_DEFS.filter((d) => !have.some((h) => h.role === d.role));
   for (const d of missing) {
     await db.insert(botEmployeesTable).values({ userId, name: d.name, role: d.role, kind: "internal", title: d.title, avatar: d.avatar, persona: d.persona, specialties: [], priority: d.priority, handoffTo: null } as any);
@@ -193,6 +206,26 @@ export async function activity(userId: number, role: EmailRole, action: string, 
 
 export async function recentActivity(userId: number, limit = 60) {
   return db.select().from(emailAgentActivityTable).where(eq(emailAgentActivityTable.userId, userId)).orderBy(desc(emailAgentActivityTable.createdAt)).limit(limit);
+}
+
+// ── ماجد's check of the shape ─────────────────────────────────────
+const words = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\{\{[^}]*\}\}/g, "x").split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+
+/**
+ * Is it the email the owner asked for — the point in two or three lines,
+ * the button under them, the rest for whoever reads on? Returns what is
+ * wrong, in words. A follow-up is held to the short form. Pure.
+ */
+export function formatIssues(html: string, kind: "first" | "followup" = "first"): string[] {
+  const issues: string[] = [];
+  const leads = [...html.matchAll(/<p[^>]*class="lead"[^>]*>([\s\S]*?)<\/p>/gi)].map((m) => m[1]!);
+  const total = words(html), lead = leads.reduce((n, l) => n + words(l), 0);
+  if (!leads.length) issues.push("لا ملخص في أولها — صاحب المحل المشغول لا يعرف المقصود من السطرين الأولين");
+  else if (lead > 55) issues.push(`الملخص ${lead} كلمة — يجب ألا يتجاوز ٤٥ تقريباً`);
+  if (!/class="cta"/.test(html)) issues.push("لا زر دعوة");
+  const cap = kind === "followup" ? 90 : 190;
+  if (total > cap) issues.push(`الرسالة ${total} كلمة — الحد ${kind === "followup" ? "٧٠" : "١٦٠"} تقريباً`);
+  return issues;
 }
 
 // ── ماجد's check ──────────────────────────────────────────────────

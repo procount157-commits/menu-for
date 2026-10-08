@@ -45,6 +45,8 @@ export const emailSettingsTable = pgTable("email_settings", {
   autoReplyDelayMin: integer("auto_reply_delay_min").notNull().default(12),
   /** Ramp a new sender from 50 a day whatever the daily cap says. */
   warmup:       boolean("warmup").notNull().default(true),
+  /** ماجد takes the riskiest addresses out of the lists: a personal mailbox at a domain where another one bounced. */
+  skipRisky:    boolean("skip_risky").notNull().default(true),
   updatedAt:    timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -64,6 +66,7 @@ export const emailContactsTable = pgTable("email_contacts", {
   status:        varchar("status", { length: 20 }).notNull().default("active"),
   tags:          jsonb("tags").notNull().default([]),
   mxOk:          boolean("mx_ok"),
+  mxCheckedAt:   timestamp("mx_checked_at", { withTimezone: true }),
   lastSentAt:    timestamp("last_sent_at", { withTimezone: true }),
   lastOpenedAt:  timestamp("last_opened_at", { withTimezone: true }),
   lastRepliedAt: timestamp("last_replied_at", { withTimezone: true }),
@@ -328,6 +331,8 @@ export const emailAutopilotTable = pgTable("email_autopilot", {
   mode:             varchar("mode", { length: 10 }).notNull().default("approve"),
   listIds:          jsonb("list_ids").$type<number[]>().notNull().default([]),
   folderIds:        jsonb("folder_ids").$type<number[]>().notNull().default([]),
+  /** The sectors worked — empty for every sector the product fits. */
+  sectors:          jsonb("sectors").$type<string[]>().notNull().default([]),
   waveSize:         integer("wave_size").notNull().default(150),
   followAfterHours: integer("follow_after_hours").notNull().default(48),
   maxTouches:       integer("max_touches").notNull().default(3),

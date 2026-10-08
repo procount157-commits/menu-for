@@ -179,6 +179,15 @@ export function toHtml(text: string): string {
       // "[زر] Book a call" — the call to action as a button; its link is filled in by whoever sends.
       const button = /^\[(?:زر|button)\]\s*(.+)$/i.exec(l);
       if (button) { flushText(); flushList(); out.push(`<p class="cta"><a href="#cta">${button[1]!.trim()}</a></p>`); continue; }
+      // A line that is nothing but [شوف منيو تجريبي] is a button written without its mark —
+      // it would otherwise go out as bracketed text.
+      const bare = /^\[([^\]\[]{3,40})\]$/.exec(l);
+      if (bare && !/^(ملخص|تفاصيل|summary|details)$/i.test(bare[1]!.trim())) { flushText(); flushList(); out.push(`<p class="cta"><a href="#cta">${bare[1]!.trim()}</a></p>`); continue; }
+      // "[ملخص] …" — the whole point in two or three lines, for the owner who reads only that.
+      const lead = /^\[(?:ملخص|summary)\]\s*(.*)$/i.exec(l);
+      if (lead) { flushText(); flushList(); if (lead[1]!.trim()) out.push(`<p class="lead">${lead[1]!.trim()}</p>`); continue; }
+      // "[تفاصيل]" — the line between the summary and the detail.
+      if (/^\[(?:تفاصيل|details)\]\s*$/i.test(l)) { flushText(); flushList(); out.push(`<hr class="more">`); continue; }
       if (/^[-•]\s+/.test(l)) { flushText(); items.push(l.replace(/^[-•]\s+/, "")); }
       else { flushList(); text.push(l); }
     }
@@ -238,16 +247,29 @@ export async function writeCampaign(userId: number, input: { filter: SegmentFilt
       "[عنوان] <العنوان الأول>",
       "[عنوان] <عنوان ثانٍ بزاوية مختلفة تماماً — سنختبرهما على شريحة>",
       "[الرسالة]",
-      "<نص الرسالة: فقرات قصيرة مفصولة بسطر فارغ، يبدأ بـ «{{first_name|…}}،» أو تحية باسم المحل، وينتهي بطلب واحد، ثم سطر الزر، ثم التوقيع>",
-      "[زر] <نص زر الدعوة: ٢ إلى ٥ كلمات بلغة الرسالة، مثل «See a demo menu» أو «شوف منيو تجريبي»> — سطر مستقل قبل التوقيع في الرسالة وفي كل متابعة",
+      "<تحية باسم المحل: «هلا {{company|محلكم}}،» أو «Hello {{first_name|there}},»>",
+      "",
+      "[ملخص] <الرسالة كلها في سطرين أو ثلاثة، ٤٥ كلمة على الأكثر: وضع محله (اذكر {{company|محلكم}})، ولماذا يهمه الآن، والشيء الواحد الذي نعرضه. من يقرأ هذا السطر وحده يعرف ما نريد ولماذا يستحق وقته.>",
+      "",
+      "[زر] <نص زر الدعوة: ٢ إلى ٥ كلمات بلغة الرسالة، مثل «شوف منيو تجريبي» أو «See a demo menu»>",
+      "",
+      "[تفاصيل]",
+      "- <نقطة ١: المشكلة التي يعيشها هذا النوع من المحلات — من المعرفة فقط>",
+      "- <نقطة ٢: ماذا يفعل منيو فور يو فيها بالضبط>",
+      "- <نقطة ٣ (اختيارية): ماذا يكسب هو منها>",
+      "",
+      "<فقرة قصيرة واحدة، جملتان على الأكثر: مثال من يوم محله — فقط إن كان في المعرفة>",
+      "",
+      "<التوقيع: «منيو فور يو»>",
       "[/الرسالة]",
+      "قواعد البنية: الملخص أولاً وكامل وحده؛ الزر تحته مباشرة؛ كل ما عداه تحت [تفاصيل]؛ الرسالة كلها ١٦٠ كلمة على الأكثر؛ ولا فقرة أطول من جملتين.",
       "[متابعة بعد=72 جمهور=دافئ]",
-      "عنوان: <عنوان لمن فتح ولم يرد>",
-      "<نص قصير بزاوية جديدة>",
+      "عنوان: <لمن فتح ولم يرد — مشكلة أخرى من يوم محله وسؤال واحد سهل>",
+      "<[ملخص] سطر أو سطران بالزاوية الجديدة، ثم [زر] — ٧٠ كلمة على الأكثر، بلا قسم [تفاصيل]>",
       "[/متابعة]",
       "[متابعة بعد=96 جمهور=بارد]",
       "عنوان: <عنوان مختلف وأقصر لمن لم يفتح>",
-      "<نص أقصر من الأول>",
+      "<[ملخص] جوهر الرسالة الأولى مختصراً، ثم [زر] — ٧٠ كلمة على الأكثر>",
       "[/متابعة]",
       "[السبب] <سطر: لماذا هذه الزاوية لهذا الجمهور>",
       "",

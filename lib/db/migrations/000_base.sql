@@ -1075,7 +1075,8 @@ CREATE TABLE public.email_autopilot (
     quiet_days integer DEFAULT 4 NOT NULL,
     language character varying(5) DEFAULT 'ar'::character varying NOT NULL,
     last_run_at timestamp with time zone,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    sectors jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 
@@ -1155,7 +1156,8 @@ CREATE TABLE public.email_contacts (
     last_sent_at timestamp with time zone,
     last_opened_at timestamp with time zone,
     last_replied_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    mx_checked_at timestamp with time zone
 );
 
 
@@ -1623,7 +1625,8 @@ CREATE TABLE public.email_settings (
     auto_reply boolean DEFAULT false NOT NULL,
     auto_reply_delay_min integer DEFAULT 12 NOT NULL,
     warmup boolean DEFAULT true NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    skip_risky boolean DEFAULT true NOT NULL
 );
 
 

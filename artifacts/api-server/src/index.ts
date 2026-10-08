@@ -28,6 +28,7 @@ import { startInboundPolling } from "./lib/email/inbound";
 import { startMissionWorker } from "./lib/email/missions";
 import { startAutopilotWorker } from "./lib/email/autopilot";
 import { startSmartFollowUps } from "./lib/smart-followup";
+import { startCaretaker } from "./lib/email/caretaker";
 import { ensureEmailAgent } from "./lib/email/agent";
 import { db as dbx, botEmployeesTable as botEmp } from "@workspace/db";
 import { runAutoMaintenance } from "./lib/diagnosis-engine";
@@ -158,6 +159,7 @@ function startListening() {
     startInboundPolling();
     startMissionWorker();
     startSmartFollowUps();
+    startCaretaker();
     startAutopilotWorker();
     // نورة joins every team that exists, so she appears beside the others.
     setTimeout(async () => {
