@@ -1325,7 +1325,9 @@ CREATE TABLE public.email_lists (
     folder_id integer,
     parent_list_id integer,
     stage character varying(20),
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    analysis jsonb,
+    analyzed_at timestamp with time zone
 );
 
 
