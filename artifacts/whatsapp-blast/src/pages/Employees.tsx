@@ -7,6 +7,7 @@ import {
 import { cn } from "@/lib/utils";
 import { AgentPanel, Chips, api, input, specialtyLabel } from "@/components/AgentPanel";
 import { Routines } from "@/components/Routines";
+import { GraphPanel } from "@/components/GraphPanel";
 
 const card = "bg-card border border-card-border rounded-xl";
 const LEVEL = {
@@ -147,6 +148,8 @@ export default function Employees() {
           </button>
         )}
       </div>
+
+      <GraphPanel names={Object.fromEntries(team.map((e: any) => [e.role, e.name]))} />
 
       {/* Shared state */}
       <div className={cn(card, "p-4 grid grid-cols-2 md:grid-cols-4 gap-4")}>

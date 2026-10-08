@@ -46,6 +46,7 @@ import { assertCanSend } from "./plans";
 import { agentReplyAllowed } from "./growth/quota";
 import { sendMessage, getStatus } from "./whatsapp";
 import { logger } from "./logger";
+import { receipt } from "./graph/receipts";
 
 const H = 3_600_000;
 /** Hours after our last message, per rung. A warm customer is followed sooner. */
@@ -198,6 +199,8 @@ async function compose(userId: number, phone: string, turns: Turn[], rung: numbe
 }
 
 async function record(userId: number, phone: string, rung: number, verdict: "send" | "hold" | "drop", reason: string, draft: string | null, executed: boolean, opsView: string) {
+  receipt({ userId, node: FOLLOWUP_ROLE, graph: "whatsapp", action: executed ? "followup.sent" : verdict === "send" ? "followup.draft" : "followup.decline",
+    status: executed || verdict === "send" ? "ok" : "blocked", subject: phone, evidence: { rung: rung + 1, ops: opsView }, why: reason.slice(0, 600) });
   await db.insert(followupDeliberationsTable).values({
     userId, phone, step: STEP_BASE + rung, verdict, reason: reason.slice(0, 1000),
     managerView: "خالد يكتب ويقرر", opsView, draft, executed,

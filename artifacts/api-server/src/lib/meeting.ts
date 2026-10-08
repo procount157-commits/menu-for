@@ -23,6 +23,7 @@ import {
   type Meeting,
 } from "@workspace/db";
 import { complete } from "./llm";
+import { asAgent } from "./agent-context";
 import { remember } from "./agent-memory";
 import { skillsFor, skillsPreamble } from "./agent-skills";
 import { notify, esc } from "./telegram";
@@ -190,7 +191,7 @@ async function speak(opts: {
     ...customer.filter((s) => /التفاوض|احتواء|خريطة/.test(s.name)),
   ]);
 
-  const out = await complete([
+  const out = await asAgent(opts.userId, opts.role, () => complete([
     { role: "system", content: [
       `أنت ${e.name}${e.title ? `، ${e.title}` : ""}.`,
       e.persona ?? "",
@@ -209,7 +210,7 @@ async function speak(opts: {
       `— أرقام اليوم —\n${opts.agenda}`,
       opts.heard.length ? `\n— ما قيل في الاجتماع حتى الآن —\n${transcript(opts.heard)}` : "",
     ].filter(Boolean).join("\n") },
-  ]);
+  ]));
   return out?.text?.trim() ?? null;
 }
 

@@ -12,7 +12,9 @@ import {
   type AgentMessage,
 } from "@workspace/db";
 import { complete } from "./llm";
+import { asAgent } from "./agent-context";
 import { logger } from "./logger";
+import { receipt } from "./graph/receipts";
 
 export type MessageKind = "handoff" | "directive" | "alert" | "report" | "question" | "answer";
 
@@ -22,6 +24,7 @@ export async function say(row: {
 }): Promise<void> {
   const body = row.body.trim().slice(0, 2_000);
   if (!body) return;
+  receipt({ userId: row.userId, node: row.fromRole, action: `edge.${row.kind ?? "report"}`, subject: row.phone ?? null, edge: row.toRole ?? "all", why: body.slice(0, 300) });
   await db.insert(agentMessagesTable).values({
     userId: row.userId, fromRole: row.fromRole, toRole: row.toRole ?? null,
     kind: row.kind ?? "report", body, phone: row.phone ?? null,
@@ -95,7 +98,7 @@ export async function briefColleague(
   const transcript = history.reverse()
     .map((h) => `${h.fromMe ? from : "العميل"}: ${(h.text ?? "").slice(0, 200)}`).join("\n");
 
-  const out = await complete([
+  const out = await asAgent(userId, fromRole, () => complete([
     { role: "system", content: [
       `أنت ${from}. تسلّم محادثة عميل لزميلك ${to} لأن ${reason}.`,
       "اكتب له ملاحظة داخلية قصيرة جداً — سطران على الأكثر — تخبره بما يحتاجه فقط:",
@@ -103,7 +106,7 @@ export async function briefColleague(
       "لا تكتب رسالة للعميل، ولا تلخّص المحادثة كاملةً، ولا تحيّي زميلك.",
     ].join("\n") },
     { role: "user", content: transcript },
-  ], 15_000);
+  ], 15_000));
 
   await say({
     userId, fromRole, toRole, kind: "handoff", phone,

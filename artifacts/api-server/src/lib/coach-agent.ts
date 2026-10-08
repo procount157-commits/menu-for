@@ -24,6 +24,7 @@ import {
   managerReviewsTable,
 } from "@workspace/db";
 import { complete } from "./llm";
+import { asAgent } from "./agent-context";
 import { remember } from "./agent-memory";
 import { say } from "./agent-comms";
 import { skillsFor, skillsPreamble } from "./agent-skills";
@@ -114,7 +115,7 @@ async function coachOne(userId: number, p: Performance, manager: typeof botEmplo
   // measured outcome becomes a rule someone can follow tomorrow.
   const trade = skillsPreamble(await skillsFor(userId, COACH_ROLE, "internal").catch(() => []));
 
-  const out = await complete([
+  const out = await asAgent(userId, COACH_ROLE, () => complete([
     { role: "system", content: [
       manager ? `أنت ${manager.name}${manager.title ? `، ${manager.title}` : ""}.` : "أنت رئيسة فريق الضيافة.",
       manager?.persona ?? "",
@@ -140,7 +141,7 @@ async function coachOne(userId: number, p: Performance, manager: typeof botEmplo
       p.bestReplies.length ? `\n— ردود نجحت —\n${p.bestReplies.join("\n\n")}` : "",
       p.worstReplies.length ? `\n— ردود فشلت —\n${p.worstReplies.join("\n\n")}` : "",
     ].filter(Boolean).join("\n") },
-  ]);
+  ]));
 
   if (!out?.text) return null;
 

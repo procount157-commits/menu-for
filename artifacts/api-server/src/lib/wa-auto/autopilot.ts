@@ -21,6 +21,7 @@ import {
 } from "@workspace/db";
 import { formatMoney, localParts, normaliseDigits } from "@workspace/menu-shared";
 import { complete } from "../llm";
+import { asAgent } from "../agent-context";
 import { publicUrl, menuPath } from "../menu/urls";
 import { audience, toList, isSegment, SEGMENTS, type Segment } from "./audience";
 import { startCampaignSafely } from "./start";
@@ -150,7 +151,7 @@ export async function writeMessage(cfg: WaAutopilot, f: Facts): Promise<{ messag
     f.offers.length ? `العروض الحالية:\n${f.offers.map((o) => `- ${o.title}${o.body ? `: ${o.body}` : ""}`).join("\n")}` : "لا توجد عروض مسجّلة هذا الأسبوع.",
     `من المنيو:\n${f.items.map((i) => `- ${i.name} — ${i.price}${i.tag ? ` (${i.tag})` : ""}`).join("\n")}`,
   ].filter(Boolean).join("\n");
-  const r = await complete([{ role: "user", content: prompt }], 30_000).catch(() => null);
+  const r = await asAgent(cfg.waUserId, "campaign", () => complete([{ role: "user", content: prompt }], 30_000)).catch(() => null);
   if (r?.text) {
     const text = r.text.replace(/^["«]|["»]$/g, "").replace(/^```[a-z]*\n?|```$/g, "").trim();
     const verdict = guardMessage(text, f);

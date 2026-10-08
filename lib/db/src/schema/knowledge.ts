@@ -32,6 +32,8 @@ export const businessProfileTable = pgTable("business_profile", {
   /** The follow-up that writes each message for the person: off | dry | live. */
   smartFollowup: varchar("smart_followup", { length: 8 }).notNull().default("dry"),
   autoReply:   boolean("auto_reply").notNull().default(false),
+  /** The whole team's off switch: no employee thinks or writes while it is on. */
+  teamPaused:  boolean("team_paused").notNull().default(false),
   updatedAt:   timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

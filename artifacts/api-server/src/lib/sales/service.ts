@@ -22,9 +22,11 @@ import { isHumanHeld } from "../lead-card";
 import { notify } from "../telegram";
 import { sendMessage } from "../whatsapp";
 import { logger } from "../logger";
+import { receipt } from "../graph/receipts";
+import { asAgent } from "../agent-context";
 import {
   DEFAULT_SETTINGS, LINK_KEYS, VERTICAL_AR, cleanSalesSettings, guardMessage, numbersIn, prospectCard, sellerPrompt, taskFor,
-  templateFollowUp, templateOpener, askedIfBot, OPENER_ANGLES, latinOnly, ruleFacts, mergeFacts, type LinkKey, type Mode, type SalesSettings, type SalesStep, type SalesVertical,
+  templateFollowUp, templateOpener, askedIfBot, SELLER_ROLE, OPENER_ANGLES, latinOnly, ruleFacts, mergeFacts, type LinkKey, type Mode, type SalesSettings, type SalesStep, type SalesVertical,
 } from "./brief";
 
 /** Tests run without a model: templates only, rule facts only. */
@@ -161,7 +163,7 @@ export async function composeFor(s: SalesSettings, p: SalesProspect, mode: Mode,
   const issuesAll: string[] = [];
   let messages: LlmMessage[] = [{ role: "system", content: system }, ...turns];
   for (let attempt = 0; attempt < 2; attempt++) {
-    const out = await complete(messages, 25_000).catch(() => null);
+    const out = await asSeller(s, () => complete(messages, 25_000)).catch(() => null);
     if (!out?.text?.trim()) { issuesAll.push("تعذّر النموذج"); break; }
     const g = guardMessage(out.text, ctx);
     if (g.ok) return { ok: true, text: g.text, linkKeys: g.links.map((u) => urlToKey.get(u) ?? u), by: "ai", issues: [...issuesAll, ...g.issues], fallback: false };
@@ -172,10 +174,23 @@ export async function composeFor(s: SalesSettings, p: SalesProspect, mode: Mode,
   return { ...t, issues: [...issuesAll, ...t.issues], fallback: true };
 }
 
+/** سارة's thinking, on her receipts and under the account's off switch — when she has a number. */
+const asSeller = <T>(s: SalesSettings, fn: () => Promise<T>) => (s.waUserId ? asAgent(s.waUserId, SELLER_ROLE, fn) : fn());
+
 // ── Touches and delivery ──────────────────────────────────────────
 
 export async function addTouch(p: Pick<SalesProspect, "id" | "waUserId">, kind: TouchKind, o: { text?: string | null; step?: number | null; links?: string[]; by?: string; status?: string; meta?: Record<string, unknown> } = {}) {
   await db.insert(salesTouchesTable).values({ prospectId: p.id, waUserId: p.waUserId, kind, step: o.step ?? null, text: o.text ?? null, links: o.links ?? [], by: o.by ?? "system", status: o.status ?? "sent", meta: o.meta ?? null });
+  // سارة's own acts — what she wrote and what she moved — on the receipts.
+  if (kind === "opener" || kind === "followup" || kind === "reply" || kind === "stage") {
+    const st = o.status ?? "sent";
+    receipt({
+      userId: p.waUserId, node: SELLER_ROLE, graph: "platform", action: `sales.${kind}`,
+      status: st === "failed" ? "failed" : st === "dry" ? "deferred" : "ok",
+      inputRef: `prospect:${p.id}`, evidence: { step: o.step ?? null, by: o.by ?? "system", status: st, links: o.links ?? [] },
+      why: (o.text ?? "").slice(0, 300) || null,
+    });
+  }
 }
 
 /** Send (or, in a dry run, only record) one composed message. */
@@ -186,8 +201,9 @@ export async function deliver(s: SalesSettings, p: SalesProspect, kind: "opener"
     try {
       // Our first message and follow-ups carry the stop button; a reply in a conversation does not.
       const stop = kind !== "reply" && (await messagingSettings()).stopButton ? marketingSend("text", null) : null;
-      if (stop) await sendMessage(s.waUserId!, p.phone, c.text, stop.messageType, null, stop.buttons);
-      else await sendMessage(s.waUserId!, p.phone, c.text);
+      // As سارة, so the send's receipt is hers.
+      if (stop) await asAgent(s.waUserId!, SELLER_ROLE, () => sendMessage(s.waUserId!, p.phone, c.text, stop.messageType, null, stop.buttons));
+      else await asAgent(s.waUserId!, SELLER_ROLE, () => sendMessage(s.waUserId!, p.phone, c.text));
     } catch (e: any) { status = "failed"; error = String(e?.message ?? e).slice(0, 200); }
   }
   await addTouch(p, kind, { text: c.text, step, links: c.linkKeys, by: c.by, status, meta: { issues: c.issues, fallback: c.fallback, ...(error ? { error } : {}) } });
@@ -330,7 +346,7 @@ export async function learnFacts(s: SalesSettings, p: SalesProspect, text: strin
   let summary = p.summary, interest = p.interest, vertical = p.vertical, business = p.business;
   let found = rules;
   const history = s.waUserId ? await threadOf(s.waUserId, p.phone, 10) : [];
-  const out = await complete([
+  const out = await asSeller(s, () => complete([
     { role: "system", content: [
       "أنت مساعد فريق مبيعات منيو فور يو. اقرأ المحادثة مع صاحب المحل واستخرج ما يفيد البيع لاحقاً.",
       "أعد JSON فقط بهذا الشكل بلا أي نص آخر:",
@@ -341,7 +357,7 @@ export async function learnFacts(s: SalesSettings, p: SalesProspect, text: strin
       p.summary ? `الخلاصة السابقة: ${p.summary}` : "",
     ].filter(Boolean).join("\n") },
     { role: "user", content: history.map((h) => `${h.role === "user" ? "صاحب المحل" : "نحن"}: ${h.content}`).join("\n").slice(-4000) || `صاحب المحل: ${text}` },
-  ], 20_000).catch(() => null);
+  ], 20_000)).catch(() => null);
   if (out?.text) {
     try {
       const j = JSON.parse(out.text.slice(out.text.indexOf("{"), out.text.lastIndexOf("}") + 1));

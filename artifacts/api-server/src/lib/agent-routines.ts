@@ -16,6 +16,7 @@ import {
   type AgentRoutine,
 } from "@workspace/db";
 import { complete } from "./llm";
+import { asAgent } from "./agent-context";
 import { remember, memoryPreamble } from "./agent-memory";
 import { logger } from "./logger";
 
@@ -125,10 +126,10 @@ export async function runRoutine(r: AgentRoutine): Promise<{ output?: string; er
     "قاعدة: <القاعدة في سطر واحد>",
   ].filter(Boolean).join("\n");
 
-  const out = await complete([
+  const out = await asAgent(r.userId, r.role, () => complete([
     { role: "system", content: system },
     { role: "user", content: `${r.instruction}\n\n— الوضع الحالي —\n${facts}` },
-  ]);
+  ]));
 
   if (!out?.text) {
     return { error: "تعذّر الوصول إلى النموذج" };

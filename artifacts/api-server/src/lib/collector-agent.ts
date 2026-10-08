@@ -18,6 +18,7 @@ import {
   type ContactSegment,
 } from "@workspace/db";
 import { complete } from "./llm";
+import { asAgent } from "./agent-context";
 import { notify, esc, linkedUsers } from "./telegram";
 import { say } from "./agent-comms";
 import { logger } from "./logger";
@@ -234,7 +235,7 @@ export async function buildReport(userId: number): Promise<string> {
     .where(and(eq(botEmployeesTable.userId, userId), eq(botEmployeesTable.role, COLLECTOR_ROLE))).limit(1);
 
   const trade = skillsPreamble(await skillsFor(userId, COLLECTOR_ROLE, "internal").catch(() => []));
-  const note = await complete([
+  const note = await asAgent(userId, COLLECTOR_ROLE, () => complete([
     { role: "system", content: [
       emp ? `أنت ${emp.name}${emp.title ? `، ${emp.title}` : ""}.` : "أنت محلل بيانات.",
       emp?.persona ?? "",
@@ -243,7 +244,7 @@ export async function buildReport(userId: number): Promise<string> {
       "لا تكرر الأرقام كما هي — اشرح دلالتها. لا تستخدم HTML ولا رموزاً.",
     ].filter(Boolean).join("\n") },
     { role: "user", content: lines.join("\n").replace(/<[^>]+>/g, "") },
-  ], 15_000).catch(() => null);
+  ], 15_000)).catch(() => null);
 
   if (note?.text) lines.push("", `💬 ${esc(note.text.trim())}`);
   return lines.join("\n");

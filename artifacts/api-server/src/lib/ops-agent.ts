@@ -29,6 +29,7 @@ import { assessAccountHealth, assessBlockSignals, strangerShare24h } from "./del
 import { getDailySentCount, getEffectiveDailyLimit, numberAgeDays, engagement7d } from "./daily-limit";
 import { scoreRisk, RISK_LEVEL_AR, type RiskSignals } from "./risk";
 import { complete } from "./llm";
+import { asAgent } from "./agent-context";
 import { logger } from "./logger";
 import { say } from "./agent-comms";
 import { skillsFor, skillsPreamble } from "./agent-skills";
@@ -355,7 +356,7 @@ async function narrate(userId: number, d: Decision, done: string[]): Promise<str
   if (d.level === "ok") return plain;
 
   const trade = skillsPreamble(await skillsFor(userId, OPS_ROLE, "internal").catch(() => []));
-  const out = await complete([
+  const out = await asAgent(userId, OPS_ROLE, () => complete([
     { role: "system", content: [
       emp ? `أنت ${emp.name}${emp.title ? `، ${emp.title}` : ""}.` : "أنت مسؤول تشغيل.",
       emp?.persona ?? "",
@@ -370,7 +371,7 @@ async function narrate(userId: number, d: Decision, done: string[]): Promise<str
       "أي رقم تذكره يجب أن يكون منقولاً حرفياً مما أُعطي لك. لا تقرّبه ولا تعيد صياغته. وإن لم تكن متأكداً فلا تذكر رقماً أصلاً.",
     ].filter(Boolean).join("\n") },
     { role: "user", content: plain },
-  ]);
+  ]));
   return out?.text?.trim() || plain;
 }
 

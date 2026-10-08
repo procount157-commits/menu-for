@@ -13,6 +13,8 @@ import { messagingSettings, interactiveContent, textWithButtons, buttonReplyText
 import { Boom } from "@hapi/boom";
 import { logger as appLogger } from "./logger";
 import { and, eq, sql, desc, inArray } from "drizzle-orm";
+import { receipt } from "./graph/receipts";
+import { currentAgent } from "./agent-context";
 import { db, waAuthStateTable, waSessionEventsTable, usersTable, incomingMessagesTable, contactsTable, contactGroupsTable, unsubscribedPhonesTable, waContactsTable, waConversationsTable, waThreadMessagesTable, waSyncStateTable, messageLogs, campaignsTable, campaignButtonResponsesTable } from "@workspace/db";
 import { useDatabaseAuthState, migrateSessionFilesToDb } from "./wa-auth-state";
 import { transcribe } from "./voice";
@@ -2211,6 +2213,7 @@ class WhatsAppInstance {
         const OPTOUT_RE = /^(0|stop|unsubscribe|توقف|وقف|أوقف|ايقاف|إيقاف|[إا]يقاف\s*الرسائل|الغاء|إلغاء|لا\s*ارسال|لا\s*تراسلني|ارفع\s*رقمي|إلغاء\s*الاشتراك|الغاء\s*الاشتراك|remove\s*me)$/i;
         if (OPTOUT_RE.test(text.trim())) {
           this.log.info({ phone }, "Opt-out received — removing from contacts");
+          receipt({ userId: this.userId, node: "gate", graph: "whatsapp", action: "optout.stop", subject: phone, why: `طلب إيقاف الرسائل: «${text.trim().slice(0, 40)}»`, metric: { counter: "stops", delta: 1 } });
           // Insert unsubscribed (ignore duplicate)
           db.insert(unsubscribedPhonesTable)
             .values({ userId: this.userId, phone, reason: text.trim() })
@@ -2676,6 +2679,8 @@ class WhatsAppInstance {
       sentMsgId = result?.key?.id ?? undefined;
       this.rememberSent(sentMsgId);
       this.recordOutbound(phone, sentMsgId, uniqueText, messageType, buttons);
+      receipt({ userId: this.userId, node: currentAgent()?.role ?? (messageType === "voice" ? "sales" : "sender"),
+        action: "send.whatsapp", subject: phone, outputRef: sentMsgId ?? null, evidence: { type: messageType, chars: uniqueText.length } });
 
       // ── Diagnostic log: what did Baileys return? ─────────────────────────
       this.log.info(

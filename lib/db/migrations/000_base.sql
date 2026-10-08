@@ -20,6 +20,60 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: receipts_append_only(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.receipts_append_only() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' AND current_setting('receipts.allow_delete', true) = 'on' THEN RETURN OLD; END IF;
+  RAISE EXCEPTION 'receipts are append-only';
+END $$;
+
+
+--
+-- Name: receipts_chain(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.receipts_chain() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE prev CHAR(64);
+BEGIN
+  PERFORM pg_advisory_xact_lock(911000 + NEW.user_id);
+  SELECT hash INTO prev FROM receipts WHERE user_id = NEW.user_id ORDER BY id DESC LIMIT 1;
+  NEW.prev_hash := prev;
+  NEW.hash := encode(sha256(convert_to(concat_ws('|',
+    coalesce(prev, ''), NEW.user_id, extract(epoch FROM NEW.at)::numeric(20,6), NEW.graph, NEW.node, NEW.action, NEW.status,
+    NEW.subject, NEW.input_ref, NEW.output_ref, NEW.evidence::text, NEW.metric::text,
+    NEW.model, NEW.tokens_in, NEW.tokens_out, NEW.edge, NEW.why), 'UTF8')), 'hex');
+  RETURN NEW;
+END $$;
+
+
+--
+-- Name: receipts_first_broken(integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.receipts_first_broken(uid integer) RETURNS bigint
+    LANGUAGE plpgsql
+    AS $$
+DECLARE r RECORD; prev CHAR(64) := NULL; want CHAR(64);
+BEGIN
+  FOR r IN SELECT * FROM receipts WHERE user_id = uid ORDER BY id LOOP
+    want := encode(sha256(convert_to(concat_ws('|',
+      coalesce(prev, ''), r.user_id, extract(epoch FROM r.at)::numeric(20,6), r.graph, r.node, r.action, r.status,
+      r.subject, r.input_ref, r.output_ref, r.evidence::text, r.metric::text,
+      r.model, r.tokens_in, r.tokens_out, r.edge, r.why), 'UTF8')), 'hex');
+    IF r.prev_hash IS DISTINCT FROM prev OR r.hash IS DISTINCT FROM want THEN RETURN r.id; END IF;
+    prev := r.hash;
+  END LOOP;
+  RETURN NULL;
+END $$;
+
+
+--
 -- Name: unsub_set_until(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -599,7 +653,8 @@ CREATE TABLE public.business_profile (
     guardrails text,
     auto_reply boolean DEFAULT false NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    smart_followup character varying(8) DEFAULT 'dry'::character varying NOT NULL
+    smart_followup character varying(8) DEFAULT 'dry'::character varying NOT NULL,
+    team_paused boolean DEFAULT false NOT NULL
 );
 
 
@@ -1806,6 +1861,46 @@ ALTER SEQUENCE public.gift_cards_id_seq OWNED BY public.gift_cards.id;
 
 
 --
+-- Name: goals; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.goals (
+    id integer NOT NULL,
+    user_id integer NOT NULL,
+    title character varying(200) NOT NULL,
+    metric character varying(40) NOT NULL,
+    target integer NOT NULL,
+    starts_at timestamp with time zone DEFAULT now() NOT NULL,
+    deadline timestamp with time zone NOT NULL,
+    counter_metrics jsonb DEFAULT '[]'::jsonb NOT NULL,
+    anchor character varying(40),
+    parent_id integer,
+    status character varying(12) DEFAULT 'active'::character varying NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: goals_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.goals_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: goals_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.goals_id_seq OWNED BY public.goals.id;
+
+
+--
 -- Name: incoming_messages; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2820,6 +2915,57 @@ ALTER SEQUENCE public.queues_id_seq OWNED BY public.queues.id;
 
 
 --
+-- Name: receipts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.receipts (
+    id bigint NOT NULL,
+    user_id integer NOT NULL,
+    at timestamp with time zone DEFAULT now() NOT NULL,
+    graph character varying(24),
+    node character varying(40) NOT NULL,
+    node_version character varying(24),
+    goal_id integer,
+    run_id character varying(64),
+    action character varying(40) NOT NULL,
+    status character varying(12) NOT NULL,
+    subject character varying(160),
+    input_ref character varying(160),
+    output_ref character varying(160),
+    evidence jsonb,
+    metric jsonb,
+    model character varying(80),
+    tokens_in integer,
+    tokens_out integer,
+    duration_ms integer,
+    edge character varying(60),
+    why text,
+    inferred boolean DEFAULT false NOT NULL,
+    prev_hash character(64),
+    hash character(64)
+);
+
+
+--
+-- Name: receipts_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.receipts_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: receipts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.receipts_id_seq OWNED BY public.receipts.id;
+
+
+--
 -- Name: sales_prospects; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3707,6 +3853,13 @@ ALTER TABLE ONLY public.gift_cards ALTER COLUMN id SET DEFAULT nextval('public.g
 
 
 --
+-- Name: goals id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goals ALTER COLUMN id SET DEFAULT nextval('public.goals_id_seq'::regclass);
+
+
+--
 -- Name: incoming_messages id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3851,6 +4004,13 @@ ALTER TABLE ONLY public.queue_tickets ALTER COLUMN id SET DEFAULT nextval('publi
 --
 
 ALTER TABLE ONLY public.queues ALTER COLUMN id SET DEFAULT nextval('public.queues_id_seq'::regclass);
+
+
+--
+-- Name: receipts id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.receipts ALTER COLUMN id SET DEFAULT nextval('public.receipts_id_seq'::regclass);
 
 
 --
@@ -4386,6 +4546,14 @@ ALTER TABLE ONLY public.gift_cards
 
 
 --
+-- Name: goals goals_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goals
+    ADD CONSTRAINT goals_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: incoming_messages incoming_messages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4655,6 +4823,14 @@ ALTER TABLE ONLY public.queue_tickets
 
 ALTER TABLE ONLY public.queues
     ADD CONSTRAINT queues_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: receipts receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.receipts
+    ADD CONSTRAINT receipts_pkey PRIMARY KEY (id);
 
 
 --
@@ -5101,6 +5277,13 @@ CREATE INDEX idx_gift_card_uses ON public.gift_card_uses USING btree (gift_card_
 
 
 --
+-- Name: idx_goals_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_goals_user ON public.goals USING btree (user_id, status);
+
+
+--
 -- Name: idx_handoffs_user; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5280,6 +5463,27 @@ CREATE INDEX idx_queue_branch ON public.queues USING btree (branch_id);
 --
 
 CREATE INDEX idx_queue_events ON public.queue_events USING btree (queue_id, at);
+
+
+--
+-- Name: idx_receipts_goal; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_receipts_goal ON public.receipts USING btree (user_id, goal_id) WHERE (goal_id IS NOT NULL);
+
+
+--
+-- Name: idx_receipts_node; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_receipts_node ON public.receipts USING btree (user_id, node, at DESC);
+
+
+--
+-- Name: idx_receipts_user_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_receipts_user_at ON public.receipts USING btree (user_id, at DESC);
 
 
 --
@@ -5504,6 +5708,20 @@ CREATE UNIQUE INDEX uq_ticket_number ON public.queue_tickets USING btree (queue_
 --
 
 CREATE UNIQUE INDEX uq_wa_template ON public.wa_templates USING btree (org_id, key);
+
+
+--
+-- Name: receipts receipts_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER receipts_append_only BEFORE DELETE OR UPDATE ON public.receipts FOR EACH ROW EXECUTE FUNCTION public.receipts_append_only();
+
+
+--
+-- Name: receipts receipts_chain; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER receipts_chain BEFORE INSERT ON public.receipts FOR EACH ROW EXECUTE FUNCTION public.receipts_chain();
 
 
 --
@@ -6087,6 +6305,22 @@ ALTER TABLE ONLY public.gift_card_uses
 
 ALTER TABLE ONLY public.gift_cards
     ADD CONSTRAINT gift_cards_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: goals goals_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goals
+    ADD CONSTRAINT goals_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.goals(id) ON DELETE SET NULL;
+
+
+--
+-- Name: goals goals_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goals
+    ADD CONSTRAINT goals_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --

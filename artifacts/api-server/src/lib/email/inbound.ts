@@ -20,6 +20,7 @@ import { retrieve } from "../knowledge";
 import { passages } from "./knowledge-docs";
 import { activity, temperature, TEMP_AR } from "./team";
 import { completeEmail as complete } from "../llm";
+import { asAgent } from "../agent-context";
 import { skillsFor, skillsPreamble } from "../agent-skills";
 import { memoryPreamble } from "../agent-memory";
 import { say } from "../agent-comms";
@@ -189,7 +190,7 @@ export async function draftReply(userId: number, inboundId: number): Promise<{ s
     passages(userId, `${inb.subject ?? ""} ${inb.text ?? ""}`.slice(0, 500), { sectors: contact?.sector ? [contact.sector] : [], limit: 3 }).catch(() => []),
   ]);
 
-  const out = await complete([
+  const out = await asAgent(userId, "email_replies", () => complete([
     { role: "system", content: [
       noraVoice || (sales ? `اسمك ${sales.name}${sales.title ? `، ${sales.title}` : ""}.` : "أنت مندوب مبيعات."),
       noraVoice ? "" : sales?.persona ?? "",
@@ -219,7 +220,7 @@ export async function draftReply(userId: number, inboundId: number): Promise<{ s
       `عنوان رده: ${inb.subject ?? ""}`,
       `رده:\n${inb.text ?? ""}`,
     ].filter(Boolean).join("\n") },
-  ], 45_000);
+  ], 45_000));
   if (!out?.text) return null;
 
   const summary = /الخلاصة\s*[:：]\s*(.+)/.exec(out.text)?.[1]?.trim() ?? "";

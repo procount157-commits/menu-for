@@ -15,6 +15,7 @@
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db, agentMemoryTable, botEmployeesTable, businessProfileTable, DEFAULT_EMPLOYEES, type SegmentFilter } from "@workspace/db";
 import { completeEmail as complete } from "../llm";
+import { asAgent } from "../agent-context";
 import { retrieve } from "../knowledge";
 import { skillsFor, skillsPreamble } from "../agent-skills";
 import { seedSkills } from "../skills";
@@ -123,7 +124,7 @@ export async function teach(userId: number, text: string, topic: string | null =
   await ensureEmailAgent(userId);
   const src = text.trim().slice(0, 12_000);
   if (!src) return [];
-  const out = await complete([
+  const out = await asAgent(userId, EMAIL_ROLE, () => complete([
     { role: "system", content: [
       "أنت تحفظين معرفة علّمك إياها صاحب العمل لتستخدميها في كتابة البريد التسويقي.",
       "استخرجي من النص الحقائق المفيدة للبيع: ما نقدّمه، لمن، ما يزعج كل نوع من المحلات، الأسعار والباقات والميزات كما وردت حرفياً، أسلوبنا، ما لا يُقال.",
@@ -133,7 +134,7 @@ export async function teach(userId: number, text: string, topic: string | null =
       topic ? `النص كله عن قطاع: ${topic} — إلا ما كان عاماً بوضوح.` : "",
     ].filter(Boolean).join("\n") },
     { role: "user", content: src },
-  ], 60_000);
+  ], 60_000));
 
   const items: Array<{ content: string; topic: string | null }> = [];
   if (out?.text) {
@@ -225,7 +226,7 @@ export async function writeCampaign(userId: number, input: { filter: SegmentFilt
   const sample = sampleRows.map((r) => [r.company ?? r.name, r.city].filter(Boolean).join(" — ")).filter(Boolean);
   const audience = { description: describe(input.filter), count: n, sample };
 
-  const out = await complete([
+  const out = await asAgent(userId, (input.role ?? EMAIL_ROLE), () => complete([
     { role: "system", content: [
       head,
       "",
@@ -263,7 +264,7 @@ export async function writeCampaign(userId: number, input: { filter: SegmentFilt
       sample.length ? `أمثلة منهم: ${sample.slice(0, 8).join("؛ ")}` : "",
       input.notes ? `ملاحظات صاحب العمل: ${input.notes}` : "",
     ].filter(Boolean).join("\n") },
-  ], 90_000);
+  ], 90_000));
   if (!out?.text) return null;
   const draft = parseDraft(out.text);
   if (!draft) { logger.warn({ userId, sample: out.text.slice(0, 300) }, "مسودة نورة لم تُقرأ"); return null; }
@@ -289,14 +290,14 @@ export async function replyVoice(userId: number, sector: string | null): Promise
 /** A few lines on what a finished mission taught her, written into memory. */
 export async function learnFrom(userId: number, sectors: string[], report: unknown): Promise<string[]> {
   const { head } = await voice(userId);
-  const out = await complete([
+  const out = await asAgent(userId, EMAIL_ROLE, () => complete([
     { role: "system", content: [head, "",
       "أمامك نتائج حملة بريد انتهت. استخرجي ما يجب أن تتذكريه للحملة القادمة لنفس الجمهور.",
       "من ١ إلى ٤ أسطر، كل سطر بهذا الشكل: الدرس: <سلوك محدد يُكرَّر أو يُتجنَّب، مع الرقم الذي يدعمه>",
       "إن كانت العيّنة صغيرة (أقل من ٣٠ فتحاً أو ٥ ردود) فقولي ذلك في سطر واحد ولا تستنتجي أكثر.",
     ].join("\n") },
     { role: "user", content: JSON.stringify(report).slice(0, 6000) },
-  ], 45_000);
+  ], 45_000));
   const lessons = (out?.text ?? "").split("\n").map((l) => /الدرس\s*[:：]\s*(.+)/.exec(l)?.[1]?.trim()).filter((x): x is string => !!x).slice(0, 4);
   for (const l of lessons) await rememberLesson(userId, "instruction", l, sectors.length === 1 ? sectors[0]! : null);
   return lessons;

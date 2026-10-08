@@ -29,6 +29,7 @@ import { thinkTime } from "./reply-timing";
 import { sendMessage, getStatus, registerInboundHook, registerOnConnectHook, registerHumanReplyHook, markRead } from "./whatsapp";
 import { updateCard, cardPreamble, isHumanHeld, takeover, lastCustomerLine, getCard } from "./lead-card";
 import { lastOutreach, outreachPreamble, savedName } from "./outreach-context";
+import { asAgent } from "./agent-context";
 import { notify, esc } from "./telegram";
 import { say } from "./agent-comms";
 import { assertCanSend } from "./plans";
@@ -418,13 +419,16 @@ async function autoReplyIfAppropriate(
   const card = [outreach, card0].filter(Boolean).join("\n\n");
 
   // Pass the phone so the reply sees the conversation, not just this line.
-  const answer = await answerFromKnowledge(
+  // As the routed employee — the host unless someone else took the thread —
+  // so the model call is theirs on the receipts and stops when they are off.
+  const leadCard = await getCard(userId, phone).catch(() => null);
+  const answer = await asAgent(userId, routing?.agent.role ?? "sales", () => answerFromKnowledge(
     userId, text, phone, voice,
     routing ? agentJob(routing) : undefined,
     finalCheck,
     card || undefined,
-    { card: await getCard(userId, phone).catch(() => null) },
-  );
+    { card: leadCard },
+  ));
   if (!answer.reply) {
     if (answer.retryable && attempt < REPLY_RETRIES) {
       const delay = REPLY_RETRY_MS * attempt;
