@@ -8,7 +8,7 @@ import { UpgradeDialog } from "./shop/Upgrade";
 import {
   LayoutDashboard, QrCode, Users, Megaphone, Bot,
   Wifi, WifiOff, Loader2, LogOut, Shield, User, TrendingUp, Download, BarChart3,
-  MessageCircle, MessagesSquare, MessageSquare, BookOpen, RefreshCw, Sparkles, Settings2, Activity, Clock, Brain, Users2, Radar, LayoutGrid, Globe, Mail, Target,
+  MessageCircle, MessagesSquare, MessageSquare, BookOpen, RefreshCw, Sparkles, Settings2, Activity, Clock, Brain, Users2, Radar, LayoutGrid, Network, Globe, Mail, Target,
   Store, ListOrdered, ShoppingBag, CalendarDays, UtensilsCrossed, Contact, ChevronDown, ExternalLink, Building2, Undo2, Zap, Tag, Gift } from "lucide-react";
 import { useShopQuery, useSwitchBranch, post } from "@/lib/shop-api";
 import { cn } from "@/lib/utils";
@@ -52,6 +52,7 @@ const NAV: Array<{ title: string; items: NavItem[] }> = [
   ] },
   { title: "الفريق الذكي", items: [
     { href: "/employees",     label: "فريق البوتات",       icon: Bot },
+    { href: "/graph",         label: "الجراف الحي",        icon: Network, badge: "جديد" },
     { href: "/board",         label: "لوحة الفريق",        icon: LayoutGrid },
     { href: "/meetings",      label: "اجتماعات الفريق",    icon: Users2 },
     { href: "/ops",           label: "غرفة العمليات",      icon: Radar },

@@ -19,6 +19,7 @@ import Assistant from "@/pages/Assistant";
 import Employees from "@/pages/Employees";
 import AgentOps from "@/pages/AgentOps";
 import Board from "@/pages/Board";
+import GraphLive from "@/pages/GraphLive";
 import BrowserDesk from "@/pages/BrowserDesk";
 import Meetings from "@/pages/Meetings";
 import AdminPage from "@/pages/AdminPage";
@@ -282,6 +283,7 @@ function AuthenticatedRoutes() {
           <Route path="/knowledge"      component={Knowledge} />
           <Route path="/assistant"      component={Assistant} />
           <Route path="/board"          component={Board} />
+          <Route path="/graph"          component={GraphLive} />
           <Route path="/browser"        component={BrowserDesk} />
           <Route path="/meetings"       component={Meetings} />
           <Route path="/ops"            component={AgentOps} />

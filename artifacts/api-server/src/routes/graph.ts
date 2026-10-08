@@ -2,6 +2,7 @@
 // GET   /api/graph            goals and their pace, what each employee did
 //                             (today and 14 days), the ledger's integrity,
 //                             the contracts, and whether the team is on.
+// GET   /api/graph/live       the living map: desks, employees, lines, latest receipts.
 // GET   /api/graph/receipts   the ledger itself, newest first, filterable.
 // PATCH /api/graph/team       { paused } — the whole team's off switch.
 // POST  /api/graph/goals      the owner sets a goal; employees cannot.
@@ -18,6 +19,7 @@ import { backfillReceipts, whoDidWhat } from "../lib/graph/backfill";
 import { firstBroken } from "../lib/graph/receipts";
 import { setTeamPaused } from "../lib/graph/switch";
 import { GRAPHS, contractProblems } from "../lib/graph/contracts";
+import { liveGraph, doing } from "../lib/graph/live";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -51,6 +53,9 @@ router.get("/", async (req, res) => {
   });
 });
 
+// The living map: desks, employees, the lines between them, and the latest receipts.
+router.get("/live", async (req, res) => res.json(await liveGraph(req.session.userId!)));
+
 router.get("/receipts", async (req, res) => {
   const userId = req.session.userId!;
   const node = typeof req.query["node"] === "string" ? req.query["node"] : null;
@@ -59,7 +64,7 @@ router.get("/receipts", async (req, res) => {
   const r = await db.execute(sql`SELECT id, at, graph, node, action, status, subject, model, tokens_in, tokens_out, edge, why, inferred
     FROM receipts WHERE user_id = ${userId} ${node ? sql`AND node = ${node}` : sql``} ${status ? sql`AND status = ${status}` : sql``}
     ORDER BY id DESC LIMIT ${limit}`);
-  res.json(r.rows);
+  res.json(r.rows.map((x: any) => ({ ...x, label: doing(x.action, x.status) })));
 });
 
 router.patch("/team", async (req, res) => {
