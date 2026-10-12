@@ -41,15 +41,19 @@ ENV PORT=8080
 ENV MEDIA_DIR=/data/uploads
 
 # The API is bundled to a single file, so only its externals need to be present.
-COPY --from=build /app/artifacts/api-server/dist        ./dist
+# The API runs from its own folder, next to its node_modules: pnpm does not
+# hoist a workspace package's own dependencies (protobufjs, baileys…) to the
+# root, so from /app/dist Node could not find them.
+COPY --from=build /app/artifacts/api-server/dist        ./artifacts/api-server/dist
 COPY --from=build /app/node_modules                     ./node_modules
 COPY --from=build /app/artifacts/api-server/node_modules ./artifacts/api-server/node_modules
 COPY --from=build /app/lib/db/migrations                ./migrations
 COPY --from=build /app/scripts/ops                      ./ops
-# The server serves both front ends itself, from these paths relative to ./dist
-# (app.ts → ../../whatsapp-blast/dist/public, lib/menu/web.ts → ../../menu-web/dist).
-COPY --from=build /app/artifacts/whatsapp-blast/dist    /whatsapp-blast/dist
-COPY --from=build /app/artifacts/menu-web/dist          /menu-web/dist
+# The server serves both front ends itself, from paths relative to its dist
+# (app.ts → ../../whatsapp-blast/dist/public, lib/menu/web.ts → ../../menu-web/dist),
+# which from artifacts/api-server/dist is exactly the repository layout.
+COPY --from=build /app/artifacts/whatsapp-blast/dist    ./artifacts/whatsapp-blast/dist
+COPY --from=build /app/artifacts/menu-web/dist          ./artifacts/menu-web/dist
 
 RUN mkdir -p /data/uploads
 VOLUME ["/data"]
@@ -58,4 +62,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
   CMD curl -fsS http://127.0.0.1:8080/api/healthz || exit 1
 
-CMD ["node", "--enable-source-maps", "./dist/index.mjs"]
+CMD ["node", "--enable-source-maps", "./artifacts/api-server/dist/index.mjs"]
