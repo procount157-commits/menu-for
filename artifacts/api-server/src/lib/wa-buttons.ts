@@ -147,3 +147,42 @@ export function buttonReplyText(m: any): string {
   if (id === STOP_ID) return STOP_TEXT;
   return String(br?.selectedDisplayText ?? "").trim();
 }
+
+// ── A real carousel: ads side by side ─────────────────────────────
+// The text in a bubble, and under it two to ten cards that slide sideways,
+// each with its image, a few lines and its buttons. WhatsApp draws it only if
+// every card has an image and the same buttons, so each card carries its link
+// (or a reply) and the stop button last.
+
+export interface CarouselCardDef { title: string; description?: string; imageUrl?: string; buttonText?: string; buttonUrl?: string }
+export const CAROUSEL_MAX_CARDS = 10;
+
+/** The card's words: title bold, then description, cut at WhatsApp's 160. Pure. */
+export function cardBody(c: CarouselCardDef): string {
+  const t = `*${c.title.trim()}*${c.description?.trim() ? `\n${c.description.trim()}` : ""}`;
+  return t.length > 160 ? `${t.slice(0, 157).trimEnd()}…` : t;
+}
+
+/** Each card's buttons — the same kinds on every card, stop last. Pure. */
+export function carouselButtons(cards: CarouselCardDef[], stop = true): ButtonDef[][] {
+  const anyLink = cards.some((c) => c.buttonText?.trim() && c.buttonUrl?.trim());
+  return cards.map((c) => {
+    const out: ButtonDef[] = [];
+    if (anyLink) {
+      const text = c.buttonText?.trim() || "التفاصيل";
+      const url = c.buttonUrl?.trim() ? (/^https?:\/\//i.test(c.buttonUrl.trim()) ? c.buttonUrl.trim() : `https://${c.buttonUrl.trim()}`) : "";
+      out.push(url ? { text, type: "url", url } : { text, type: "reply" });
+    }
+    if (stop || !out.length) out.push({ type: "stop", text: STOP_TEXT, id: STOP_ID });
+    return out;
+  });
+}
+
+/** Two to ten cards, each with a title and an image. Pure. */
+export function carouselReady(cards: CarouselCardDef[]): { ok: boolean; why?: string } {
+  const live = cards.filter((c) => c.title?.trim());
+  if (live.length < 2) return { ok: false, why: "الكاروسيل يحتاج بطاقتين على الأقل" };
+  if (live.length > CAROUSEL_MAX_CARDS) return { ok: false, why: `الحد ${CAROUSEL_MAX_CARDS} بطاقات` };
+  if (live.some((c) => !c.imageUrl?.trim())) return { ok: false, why: "كل بطاقة تحتاج صورة" };
+  return { ok: true };
+}

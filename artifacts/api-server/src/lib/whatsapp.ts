@@ -9,7 +9,7 @@ import makeWASocket, {
   generateWAMessageFromContent,
   prepareWAMessageMedia,
 } from "@whiskeysockets/baileys";
-import { messagingSettings, interactiveContent, textWithButtons, buttonReplyText, NATIVE_FLOW_NODE, STOP_TEXT, type ButtonDef as WaButton } from "./wa-buttons";
+import { messagingSettings, interactiveContent, textWithButtons, buttonReplyText, NATIVE_FLOW_NODE, STOP_TEXT, type ButtonDef as WaButton, nativeButtons, cardBody, carouselButtons, carouselReady } from "./wa-buttons";
 import { Boom } from "@hapi/boom";
 import { logger as appLogger } from "./logger";
 import { and, eq, sql, desc, inArray } from "drizzle-orm";
@@ -2655,21 +2655,46 @@ class WhatsAppInstance {
 
       } else if (messageType === "carousel" && carousel) {
         const cards: CarouselCard[] = JSON.parse(carousel);
-        for (const card of cards) {
-          let cardText = `*${card.title}*`;
-          if (card.description) cardText += `\n${card.description}`;
-          if (card.buttonText && card.buttonUrl) {
-            cardText += `\n\n━━━━━━━━━━━━━━━━━━━━\n🔗 *${card.buttonText}*\n👉 ${card.buttonUrl}\n━━━━━━━━━━━━━━━━━━━━`;
+        const live = cards.filter((c) => c.title?.trim());
+        const settings = await messagingSettings();
+        try {
+          // One message, as the big senders send it: the text bubble, and the
+          // cards beside each other under it.
+          const ready = carouselReady(live);
+          if (!ready.ok) throw new Error(ready.why);
+          const sock = this.state.socket;
+          const btns = carouselButtons(live, settings.stopButton);
+          const built: any[] = [];
+          for (let i = 0; i < live.length; i++) {
+            const media = await prepareWAMessageMedia({ image: await resolveMedia(live[i]!.imageUrl!) }, { upload: sock.waUploadToServer });
+            built.push({ header: { title: "", subtitle: "", hasMediaAttachment: true, imageMessage: media.imageMessage },
+              body: { text: cardBody(live[i]!) }, nativeFlowMessage: { buttons: nativeButtons(btns[i]!), messageParamsJson: "" } });
           }
-          const cardMsg = cardText;
-          if (card.imageUrl) {
-            await this.simulateHumanPresence(jid, cardMsg);
-            result = await withTimeout(this.state.socket.sendMessage(jid, { image: await resolveMedia(card.imageUrl), caption: cardMsg }), "carousel-image");
-          } else {
-            await this.simulateHumanPresence(jid, cardMsg);
-            result = await withTimeout(this.state.socket.sendMessage(jid, { text: cardMsg }), "carousel-text");
+          await this.simulateHumanPresence(jid, uniqueText);
+          const full = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: {
+              messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: { body: { text: uniqueText || " " }, carouselMessage: { cards: built, messageVersion: 1 } },
+            } },
+          } as any, { userJid: sock.user!.id });
+          await withTimeout(sock.relayMessage(jid, full.message!, { messageId: full.key.id!, additionalNodes: [NATIVE_FLOW_NODE as any] }), "carousel");
+          (sock as any).upsertMessage?.(full, "append")?.catch?.(() => {});
+          result = full as any;
+        } catch (err: any) {
+          // Refused, or a card without an image: the text, then each card in turn.
+          this.log.warn({ phone, err: String(err?.message ?? err).slice(0, 160) }, "real carousel refused — sending the cards one by one");
+          if (uniqueText.trim()) result = await withTimeout(this.state.socket.sendMessage(jid, { text: uniqueText }), "carousel-intro");
+          for (const card of cards) {
+            let cardText = `*${card.title}*`;
+            if (card.description) cardText += `\n${card.description}`;
+            if (card.buttonText && card.buttonUrl) cardText += `\n\n🔗 *${card.buttonText}*\n👉 ${card.buttonUrl}`;
+            await this.simulateHumanPresence(jid, cardText);
+            result = card.imageUrl
+              ? await withTimeout(this.state.socket.sendMessage(jid, { image: await resolveMedia(card.imageUrl), caption: cardText }), "carousel-image")
+              : await withTimeout(this.state.socket.sendMessage(jid, { text: cardText }), "carousel-text");
+            await sleep(500 + Math.random() * 600);
           }
-          await sleep(500 + Math.random() * 600);
+          if (settings.stopButton) result = await withTimeout(this.state.socket.sendMessage(jid, { text: `_لإيقاف رسائلنا أرسل: ${STOP_TEXT}_` }), "carousel-stop");
         }
       } else {
         result = await withTimeout(this.state.socket.sendMessage(jid, { text: uniqueText }), "fallback");
