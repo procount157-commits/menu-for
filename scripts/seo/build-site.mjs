@@ -127,7 +127,9 @@ function layout({ url, title, description, body, jsonld = [], hreflang = false, 
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="${esc(fullTitle)}">
     <meta name="twitter:description" content="${esc(description)}">
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="icon" href="/favicon.ico?v=3" sizes="any">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">

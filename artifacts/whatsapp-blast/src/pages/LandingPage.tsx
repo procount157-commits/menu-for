@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion, useInView, useMotionValue, useSpring, AnimatePresence } from "framer-motion";
 import { Link } from "wouter";
 import { useAuth } from "@/context/AuthContext";
 import {
   MessageCircle, Users, BarChart3, Bot, Zap, ChevronDown, Star,
-  CheckCircle2, ArrowLeft, Shield, TrendingUp, Clock, Target,
+  CheckCircle2, ArrowLeft, ArrowRight, Shield, TrendingUp, Clock, Target,
   Smartphone, Globe, Award, Play, LayoutDashboard, Languages, UtensilsCrossed, QrCode,
 } from "lucide-react";
 
@@ -16,6 +16,10 @@ const CONTENT = {
   ar: {
     dir: "rtl" as const,
     fontClass: "font-cairo",
+    seo: {
+      title: "منيو فور يو — المنيو الرقمي والصف الرقمي وواتساب للمطاعم",
+      description: "منيو فور يو: منيو رقمي أنيق بحركات، طلب على واتساب، صف انتظار رقمي بدون تطبيق، وحجوزات — للمطاعم ومحلات الحلويات وصالونات التجميل.",
+    },
     nav: {
       contact: "تواصل معنا",
       login: "دخول",
@@ -147,6 +151,10 @@ const CONTENT = {
   en: {
     dir: "ltr" as const,
     fontClass: "font-inter",
+    seo: {
+      title: "Menu For You — Digital Menu, WhatsApp Ordering & Digital Queue",
+      description: "Menu For You: a beautiful animated digital menu, ordering on WhatsApp, a digital queue with no app to install, and bookings — for restaurants, cafés, sweets shops and beauty salons.",
+    },
     nav: {
       contact: "Contact",
       login: "Sign in",
@@ -157,7 +165,7 @@ const CONTENT = {
     badge: "Digital menu & digital queue on WhatsApp",
     headline: "A beautiful menu and a digital queue that talks to guests on WhatsApp",
     sub: "One link or a QR on the door: the menu, ordering, the queue and bookings — no app, no sign-up.",
-    subEn: "منيو رقمي · صف رقمي · واتساب",
+    subEn: "",
     ctaStart: "Create your menu now",
     ctaDemo: "See a demo menu",
     ctaContact: "Contact us",
@@ -338,7 +346,7 @@ function FaqItem({ q, a }: { q: string; a: string }) {
   return (
     <div className="border-b border-white/10 last:border-0">
       <button onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between py-5 text-right gap-4 group">
+        className="w-full flex items-center justify-between py-5 text-start gap-4 group">
         <span className="font-semibold text-white group-hover:text-green-400 transition-colors">{q}</span>
         <ChevronDown className={`w-5 h-5 text-green-400 flex-shrink-0 transition-transform duration-300 ${open ? "rotate-180" : ""}`} />
       </button>
@@ -371,6 +379,16 @@ interface DynamicPlan {
   badge_en: string | null;
   is_featured: boolean;
 }
+
+// The home page speaks English unless the visitor picked Arabic with the toggle.
+// Its own key, written only on that click: the old shared "mfy-lang" was saved
+// on every visit, so it holds "ar" for nearly everyone and says nothing about a choice.
+const LANG_KEY = "mfy-landing-lang";
+function savedLang(): "ar" | "en" {
+  try { return localStorage.getItem(LANG_KEY) === "ar" ? "ar" : "en"; } catch { return "en"; }
+}
+/** The tab title of the (Arabic) app outside the home page — as index.html's boot script sets it. */
+const APP_TITLE = "منيو فور يو";
 
 /** Demo shops shown on the home page; the ones that exist on this install appear. */
 const DEMO_SLUGS = ["bait-shami", "alreem-sweets", "lamsa-salon", "alfaris-barber"];
@@ -409,7 +427,7 @@ function SubscribeModal({ planName, salesWaNum, onClose, lang }: {
     setLoading(false);
     const msg = isAr
       ? `مرحباً، أريد الاشتراك في *${planName}*\n\nالاسم: ${name}\nالجوال: ${phone}\nنوع المحل: ${biz}\nالفروع: ${size}`
-      : `Hello, I want to subscribe to *${planName}*\n\nName: ${name}\nPhone: ${phone}\nBusiness: ${biz}`;
+      : `Hello, I'd like to subscribe to *${planName}*\n\nName: ${name}\nPhone: ${phone}\nType of shop: ${biz}\nBranches: ${size}`;
     setTimeout(() => {
       window.open(`https://wa.me/${salesWaNum}?text=${encodeURIComponent(msg)}`, "_blank");
       onClose();
@@ -421,7 +439,7 @@ function SubscribeModal({ planName, salesWaNum, onClose, lang }: {
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
         className="relative bg-[#0c1a10] border border-green-500/30 rounded-2xl p-6 w-full max-w-md shadow-2xl shadow-green-900/40 z-10">
-        <button onClick={onClose} className="absolute top-4 left-4 text-white/40 hover:text-white text-xl leading-none">✕</button>
+        <button onClick={onClose} aria-label={isAr ? "إغلاق" : "Close"} className="absolute top-4 end-4 text-white/40 hover:text-white text-xl leading-none">✕</button>
         {sent ? (
           <div className="text-center py-6">
             <div className="w-14 h-14 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -481,14 +499,14 @@ function PriceCard({ label, price, period, badge, features, cta, highlight, dela
         : "bg-white/5 border border-white/10"}`}
     >
       {badge && (
-        <div className="absolute -top-4 right-6 bg-green-500 text-black text-xs font-bold px-4 py-1.5 rounded-full">
+        <div className="absolute -top-4 start-6 bg-green-500 text-black text-xs font-bold px-4 py-1.5 rounded-full">
           {badge}
         </div>
       )}
       <p className="text-sm text-white/60 mb-2">{label}</p>
       <div className="mb-1">
         <span className="text-4xl font-black text-white">{price}</span>
-        <span className="text-white/40 text-sm mr-2">{period}</span>
+        <span className="text-white/40 text-sm ms-2">{period}</span>
       </div>
       <div className="h-px bg-white/10 my-6" />
       <ul className="space-y-3 flex-1 mb-8">
@@ -520,9 +538,7 @@ export default function LandingPage() {
       return !!(r || localStorage.getItem("mfy:shopref"));
     } catch { return false; }
   });
-  const [lang, setLang] = useState<"ar" | "en">(() =>
-    (localStorage.getItem("mfy-lang") as "ar" | "en") || "ar"
-  );
+  const [lang, setLang] = useState<"ar" | "en">(savedLang);
   const [videoOpen,   setVideoOpen]   = useState(false);
   const [yearly,      setYearly]      = useState(false);
   const [waNum,       setWaNum]       = useState("971588951186");
@@ -532,10 +548,23 @@ export default function LandingPage() {
 
   const c = CONTENT[lang];
 
-  // Save lang preference
-  useEffect(() => {
-    localStorage.setItem("mfy-lang", lang);
-  }, [lang]);
+  // The whole document follows the page's language while it is open: <html
+  // lang/dir> (direction, scrollbar side, screen readers), the tab title and
+  // the description. Leaving the home page hands the document back to the
+  // Arabic dashboard as index.html's boot script would have set it.
+  useLayoutEffect(() => {
+    const html = document.documentElement;
+    html.lang = lang;
+    html.dir = c.dir;
+    document.title = c.seo.title;
+    document.querySelector('meta[name="description"]')?.setAttribute("content", c.seo.description);
+  }, [lang, c]);
+  useLayoutEffect(() => () => {
+    const html = document.documentElement;
+    html.lang = "ar";
+    html.dir = "rtl";
+    document.title = APP_TITLE;
+  }, []);
 
   // Load settings + dynamic plans
   useEffect(() => {
@@ -560,8 +589,8 @@ export default function LandingPage() {
     Promise.all(DEMO_SLUGS.map((slug) => fetch(`/api/public/m/${slug}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)))
       .then((list) => setDemos(list.filter(Boolean).map((m: any) => ({
         slug: m.org.slug,
-        name: lang === "en" && m.org.nameEn ? m.org.nameEn : m.org.name,
-        tagline: (lang === "en" && m.org.taglineEn ? m.org.taglineEn : m.org.tagline) ?? "",
+        name: lang === "en" ? (m.org.nameEn || m.org.name) : m.org.name,
+        tagline: (lang === "en" ? m.org.taglineEn : m.org.tagline) ?? "",
         kind: (KIND[m.org.vertical] ?? KIND.restaurant!)[lang === "ar" ? 0 : 1]!,
         cover: m.org.coverUrl, logo: m.org.logoUrl,
       }))));
@@ -570,7 +599,12 @@ export default function LandingPage() {
   const openSubscribe = (planName: string) => setSubscribeModal({ open: true, planName });
   const closeSubscribe = () => setSubscribeModal({ open: false, planName: "" });
 
-  const toggleLang = () => setLang((l) => (l === "ar" ? "en" : "ar"));
+  // Only an explicit choice is remembered; a first visit is always English.
+  const toggleLang = () => {
+    const next = lang === "ar" ? "en" : "ar";
+    setLang(next);
+    try { localStorage.setItem(LANG_KEY, next); } catch { /* private mode: the choice lasts this visit */ }
+  };
 
   return (
     <div
@@ -594,10 +628,12 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
             {/* Language Toggle */}
-            <button onClick={toggleLang}
+            <button onClick={toggleLang} aria-label={lang === "ar" ? "Switch to English" : "التبديل إلى العربية"}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white/60 hover:text-white border border-white/15 hover:border-white/30 rounded-lg transition-all">
               <Languages className="w-3.5 h-3.5" />
-              {lang === "ar" ? "EN" : "ع"}
+              {lang === "ar"
+                ? <span lang="en" dir="ltr" style={{ fontFamily: "'Inter', sans-serif" }}>English</span>
+                : <span lang="ar" dir="rtl" style={{ fontFamily: "'Cairo', sans-serif" }}>العربية</span>}
             </button>
             <a href="#demos" className="hidden md:block text-sm text-white/70 hover:text-white transition-colors">{c.nav.demo}</a>
             <a href="#pricing" className="hidden md:block text-sm text-white/70 hover:text-white transition-colors">{c.footer.pricing}</a>
@@ -663,11 +699,13 @@ export default function LandingPage() {
             transition={{ duration: 0.7, delay: 0.2 }}
             className="text-xl text-white/50 mb-3 font-medium">{c.sub}</motion.p>
 
-          <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.25 }}
-            className="text-base text-white/30 mb-10" dir={lang === "ar" ? "ltr" : "rtl"}>
-            {c.subEn}
-          </motion.p>
+          {c.subEn ? (
+            <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.25 }}
+              className="text-base text-white/30 mb-10" dir="ltr" lang="en">
+              {c.subEn}
+            </motion.p>
+          ) : <div className="mb-7" />}
 
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.35 }}
@@ -733,7 +771,7 @@ export default function LandingPage() {
                   <div className="relative h-44 overflow-hidden">
                     {d.cover && <img src={d.cover} alt="" loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />}
                     <div className="absolute inset-0 bg-gradient-to-t from-[#050f0a] via-transparent to-transparent" />
-                    <span className="absolute top-3 right-3 text-xs font-bold px-2.5 py-1 rounded-full bg-green-500 text-black">{d.kind}</span>
+                    <span className="absolute top-3 start-3 text-xs font-bold px-2.5 py-1 rounded-full bg-green-500 text-black">{d.kind}</span>
                   </div>
                   <div className="p-5 flex items-center gap-3">
                     {d.logo && <img src={d.logo} alt="" className="w-12 h-12 rounded-xl object-cover -mt-10 relative border-2 border-[#050f0a]" />}
@@ -876,8 +914,8 @@ export default function LandingPage() {
                     label={lang === "ar" ? plan.name : (plan.name_en || plan.name)}
                     price={plan.contact_sales ? (lang === "ar" ? "تواصل معنا" : "Contact us") : Number(yearly && plan.price_yearly ? plan.price_yearly : plan.price).toLocaleString("en-US")}
                     period={plan.contact_sales ? "" : yearly && plan.price_yearly ? (lang === "ar" ? "درهم / سنة" : "AED / year") : (lang === "ar" ? "درهم / شهر" : "AED / month")}
-                    badge={lang === "ar" ? (plan.badge || undefined) : (plan.badge_en || plan.badge || undefined)}
-                    features={lang === "ar" ? plan.features : (plan.features_en || plan.features)}
+                    badge={(lang === "ar" ? plan.badge : plan.badge_en) || undefined}
+                    features={lang === "ar" ? plan.features : (plan.features_en?.length ? plan.features_en : plan.features)}
                     cta={lang === "ar" ? "اشترك الآن" : "Subscribe Now"}
                     highlight={plan.is_featured}
                     delay={i * 0.1}
@@ -938,16 +976,16 @@ export default function LandingPage() {
               <h2 className="text-2xl sm:text-3xl font-black text-white mb-4">{c.cta.title}</h2>
               <p className="text-white/55 mb-8 leading-relaxed">{c.cta.body}</p>
               <div className="flex flex-wrap items-center justify-center gap-4">
-                <a href={`https://wa.me/${waNum}?text=${lang === "ar" ? "أريد الاشتراك في منيو فور يو" : "I want to subscribe to Menu For You"}`}
+                <a href={`https://wa.me/${waNum}?text=${encodeURIComponent(lang === "ar" ? "أريد الاشتراك في منيو فور يو" : "Hello, I'd like to subscribe to Menu For You")}`}
                   target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2.5 px-7 py-4 bg-green-500 hover:bg-green-400 text-black font-black rounded-xl text-base transition-all shadow-2xl shadow-green-500/30 hover:scale-105">
                   <MessageCircle className="w-5 h-5 fill-black" />
                   {c.cta.btnStart}
                 </a>
-                <a href={`https://wa.me/${waNum}?text=${lang === "ar" ? "أريد حجز عرض مباشر" : "I want to book a live demo"}`}
+                <a href={`https://wa.me/${waNum}?text=${encodeURIComponent(lang === "ar" ? "أريد حجز عرض مباشر" : "Hello, I'd like to book a live demo of Menu For You")}`}
                   target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2.5 px-7 py-4 bg-white/10 hover:bg-white/18 border border-white/20 text-white font-bold rounded-xl text-base transition-all">
-                  <ArrowLeft className="w-5 h-5" />
+                  {lang === "ar" ? <ArrowLeft className="w-5 h-5" /> : <ArrowRight className="w-5 h-5" />}
                   {c.cta.btnDemo}
                 </a>
               </div>
@@ -1002,7 +1040,7 @@ export default function LandingPage() {
               <Smartphone className="w-12 h-12 text-green-400 mx-auto mb-4" />
               <h3 className="text-xl font-bold text-white mb-2">{c.modal.title}</h3>
               <p className="text-white/50 text-sm mb-6">{c.modal.body}</p>
-              <a href={`https://wa.me/${waNum}?text=${lang === "ar" ? "أريد مشاهدة العرض التوضيحي" : "I want to see the demo"}`}
+              <a href={`https://wa.me/${waNum}?text=${encodeURIComponent(lang === "ar" ? "أريد مشاهدة العرض التوضيحي" : "Hello, I'd like to see a demo of Menu For You")}`}
                 target="_blank" rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2 px-6 py-3 bg-green-500 hover:bg-green-400 text-black font-bold rounded-xl text-sm transition-colors">
                 <MessageCircle className="w-4 h-4 fill-black" />

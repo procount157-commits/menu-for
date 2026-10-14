@@ -1,18 +1,39 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en" dir="ltr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-    <title>منيو فور يو — المنيو الرقمي والصف الرقمي وواتساب للمطاعم</title>
-    <meta name="description" content="منيو فور يو: منيو رقمي أنيق بحركات، طلب على واتساب، صف انتظار رقمي بدون تطبيق، وحجوزات — للمطاعم ومحلات الحلويات وصالونات التجميل." />
+    <title>Menu For You — Digital Menu, WhatsApp Ordering &amp; Digital Queue</title>
+    <meta name="description" content="Menu For You: a beautiful animated digital menu, ordering on WhatsApp, a digital queue with no app to install, and bookings — for restaurants, cafés, sweets shops and beauty salons." />
     <meta name="robots" content="index, follow" />
-    <meta property="og:title" content="منيو فور يو — المنيو والصف الرقمي" />
-    <meta property="og:description" content="منيو رقمي، طلب على واتساب، وصف انتظار رقمي يرسل للزبون «جاء دورك»." />
+    <meta property="og:title" content="Menu For You — Digital Menu &amp; Digital Queue" />
+    <meta property="og:description" content="A digital menu, ordering on WhatsApp, and a digital queue that tells guests &quot;it's your turn&quot;." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="منيو فور يو" />
-    <meta name="twitter:description" content="المنيو الرقمي والصف الرقمي للمطاعم" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="twitter:title" content="Menu For You" />
+    <meta name="twitter:description" content="The digital menu and digital queue for restaurants" />
+    <!-- Tab icon: a real multi-size .ico (Safari ignores SVG tab icons, and every
+         browser asks for /favicon.ico regardless), the SVG for the rest, and the
+         home-screen PNG. The ?v= busts the browsers' stubborn icon cache. -->
+    <link rel="icon" href="/favicon.ico?v=3" sizes="any" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3" />
+    <!-- The home page (/) is English unless the visitor chose Arabic there; the
+         dashboard and every other screen are Arabic. Set before first paint so
+         nothing flips direction; LandingPage keeps it in step afterwards. -->
+    <script>
+      (function () {
+        var lang = "ar";
+        if (location.pathname === "/") {
+          lang = "en";
+          try { if (localStorage.getItem("mfy-landing-lang") === "ar") lang = "ar"; } catch (e) {}
+        } else {
+          document.title = "منيو فور يو";
+        }
+        document.documentElement.lang = lang;
+        document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />

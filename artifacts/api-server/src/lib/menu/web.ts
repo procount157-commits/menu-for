@@ -42,7 +42,18 @@ const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g,
 const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c").replace(/[\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16)}`);
 const abs = (u: string | null | undefined) => (!u ? null : /^https?:/.test(u) ? u : `${publicBase()}${u}`);
 
-interface Meta { title: string; description?: string | null; image?: string | null; icon?: string | null; theme?: string; lang?: string; noindex?: boolean }
+interface Meta { title: string; description?: string | null; image?: string | null; theme?: string; lang?: string; noindex?: boolean }
+
+// The browser tab always shows the Menu For You mark, on every public page —
+// the shop's own logo/cover appears only in the link preview (og:image).
+// Same origin as the dashboard, so these are its public files. Any icon links
+// already in the built template are dropped first so there is exactly one set.
+const ICON_LINKS = [
+  `<link rel="icon" href="/favicon.ico?v=3" sizes="any" />`,
+  `<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />`,
+  `<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3" />`,
+].join("\n    ");
+const ICON_TAG = /<link rel="(?:icon|apple-touch-icon)"[^>]*>\s*/g;
 
 function render(res: Response, meta: Meta, boot: unknown, status = 200) {
   const html = template();
@@ -57,10 +68,10 @@ function render(res: Response, meta: Meta, boot: unknown, status = 200) {
     meta.image ? `<meta property="og:image" content="${esc(abs(meta.image))}" />` : "",
     `<meta property="og:url" content="${esc(url)}" />`,
     `<meta name="twitter:card" content="${meta.image ? "summary_large_image" : "summary"}" />`,
-    meta.icon ? `<link rel="icon" href="${esc(meta.icon)}" /><link rel="apple-touch-icon" href="${esc(meta.icon)}" />` : "",
+    ICON_LINKS,
     meta.noindex ? `<meta name="robots" content="noindex" />` : `<link rel="canonical" href="${esc(url)}" />`,
   ].filter(Boolean).join("\n    ");
-  let out = html.replace(/<title>[^<]*<\/title>/, "").replace("<!--mfy:head-->", head)
+  let out = html.replace(/<title>[^<]*<\/title>/, "").replace(ICON_TAG, "").replace("<!--mfy:head-->", head)
     .replace("<!--mfy:boot-->", `<script>window.__MFY__=${json(boot)}</script>`);
   if (meta.lang === "en") out = out.replace('<html lang="ar" dir="rtl">', '<html lang="en" dir="ltr">');
   res.status(status).setHeader("Cache-Control", "no-cache");
@@ -72,7 +83,7 @@ function shopMeta(org: { name: string; nameEn: string | null; tagline: string | 
   return {
     title: `${org.name}${extra ? ` — ${extra}` : ""}`,
     description: org.tagline ?? org.about ?? "المنيو، الطلب على واتساب، والصف الرقمي",
-    image: org.coverUrl ?? org.logoUrl, icon: org.logoUrl, lang: org.defaultLang,
+    image: org.coverUrl ?? org.logoUrl, lang: org.defaultLang,
   };
 }
 
@@ -110,12 +121,12 @@ export function mountMenuWeb(app: Express) {
   app.get("/g/:token", wrap(async (req, res) => {
     const v = await giftView(String(req.params.token));
     if (!v) return render(res, { title: "منيو فور يو", noindex: true }, null, 404);
-    render(res, { title: `بطاقة هدية — ${v.org.name}`, description: `بطاقة هدية بقيمة ${v.amount}`, image: v.org.coverUrl ?? v.org.logoUrl, icon: v.org.logoUrl, lang: v.org.defaultLang, noindex: true }, { kind: "gift", path: req.path, data: v });
+    render(res, { title: `بطاقة هدية — ${v.org.name}`, description: `بطاقة هدية بقيمة ${v.amount}`, image: v.org.coverUrl ?? v.org.logoUrl, lang: v.org.defaultLang, noindex: true }, { kind: "gift", path: req.path, data: v });
   }));
   app.get("/d/:token", wrap(async (req, res) => {
     const v = await displayView(String(req.params.token));
     if (!v) return render(res, { title: "منيو فور يو", noindex: true }, null, 404);
-    render(res, { title: `${v.org.name} — الشاشة`, icon: v.org.logoUrl, noindex: true }, { kind: "display", path: req.path, data: v });
+    render(res, { title: `${v.org.name} — الشاشة`, noindex: true }, { kind: "display", path: req.path, data: v });
   }));
 
   // A shop's menu. Anything that is not a shop goes on to the dashboard.
