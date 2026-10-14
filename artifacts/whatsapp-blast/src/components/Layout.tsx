@@ -51,7 +51,7 @@ const NAV: Array<{ title: string; items: NavItem[] }> = [
     { href: "/email",         label: "التسويق بالبريد",    icon: Mail, owner: true },
   ] },
   { title: "الفريق الذكي", items: [
-    { href: "/employees",     label: "فريق البوتات",       icon: Bot },
+    { href: "/employees",     label: "فريق البوتات",       icon: Bot },    { href: "/room",          label: "غرفة الفريق",        icon: MessagesSquare, badge: "جديد" },
     { href: "/graph",         label: "الجراف الحي",        icon: Network, badge: "جديد" },
     { href: "/board",         label: "لوحة الفريق",        icon: LayoutGrid },
     { href: "/meetings",      label: "اجتماعات الفريق",    icon: Users2 },

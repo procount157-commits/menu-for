@@ -44,6 +44,7 @@ export const WHATSAPP_GRAPH: GraphContract = {
   goal: "orders_completed",
   oneBreath: "رسالة زبون ← تُفرز آلياً (دور، طلب، رد آلي، إيقاف) ← هال يكتب ← الفحص يحكم ← فهد يسمح ← تُرسل؛ ومن سكت يكتب له خالد على نفس الطريق.",
   nodes: [
+    { id: "chief", kind: "agent", responsibility: "تُدير المكتب: تقيّم كل موظف من أرقامه، تعطي كلاً مهمةً واحدة، تراجع هل تحرّكت درجته، وتكتب التقرير اليومي", reads: ["receipts", "results", "evaluations"], writes: ["evaluations", "directives", "brief"], tools: ["evaluateDesk", "waResults"], sideEffect: "none", authorisedBy: "none", reviews: ["sales", "followup"] },
     { id: "router", kind: "code", responsibility: "يفرز الرسالة: رمز دور أو طلب، نية، رد آلي، إيقاف، بشري يتولاها", reads: ["incoming", "thread", "lead_card"], writes: ["lead_card.intent"], tools: [], sideEffect: "none", authorisedBy: "none" },
     { id: "sales", kind: "agent", responsibility: "المضيّف: رد واحد من المنيو يقرّب الزبون من طلب أو دور أو حجز", reads: ["thread", "outreach", "lead_card", "menu_knowledge"], writes: ["draft"], tools: ["knowledge.retrieve"], sideEffect: "none", authorisedBy: "none" },
     { id: "support", kind: "agent", responsibility: "يستلم الشكوى: اعتراف واعتذار وخطوة، بلا وعد بتعويض", reads: ["thread", "lead_card", "order"], writes: ["draft"], tools: ["knowledge.retrieve"], sideEffect: "none", authorisedBy: "none" },
@@ -53,6 +54,8 @@ export const WHATSAPP_GRAPH: GraphContract = {
     { id: "sender", kind: "code", responsibility: "يرسل ما سُمح به مرة واحدة فقط", reads: ["send_permit", "draft"], writes: ["thread"], tools: ["whatsapp.send"], sideEffect: "idempotent", authorisedBy: "code" },
   ],
   edges: [
+    { from: "chief", to: "sales", when: "حملةٌ حُكم عليها بإعادة الكتابة أو الإيقاف، أو درجته تحتاج مهمة", carries: "الحكم برقمه، والمهمة", onFail: "تُعاد في الدورة القادمة" },
+    { from: "chief", to: "followup", when: "سقطت متابعاتٌ أكثر مما كُتب، أو درجته تحتاج مهمة", carries: "أكثر أسباب السقوط، والمهمة", onFail: "تُعاد في الدورة القادمة" },
     { from: "router", to: "sales", when: "شخص لا رد آلي، بلا رمز دور أو طلب، بلا إيقاف، ولا بشري يتولاها", carries: "الرسالة + بطاقة الزبون + ما أرسلناه له", onFail: "لا رد، بإيصال السبب" },
     { from: "router", to: "support", when: "شكوى", carries: "الرسالة + الطلب أو الحجز إن وُجد", onFail: "تحويل لشخص من المحل" },
     { from: "sales", to: "reviewer", when: "مسودة جاهزة", carries: "المسودة + سياقها", onFail: "إعادة بعد قليل، مرتين ثم لا رد" },

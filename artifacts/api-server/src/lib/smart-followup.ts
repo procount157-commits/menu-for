@@ -27,6 +27,7 @@
 // owner to read, and nothing is sent until they switch it to live.
 
 import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { FOLLOWUP_CRAFT, FOLLOWUP_CHECK, followupIssues } from "./followup-doctrine";
 import {
   db, waThreadMessagesTable, botEmployeesTable, businessProfileTable, followupDeliberationsTable,
   unsubscribedPhonesTable, leadSourcesTable,
@@ -152,7 +153,10 @@ async function compose(userId: number, phone: string, turns: Turn[], rung: numbe
     "",
     charterBlock(FOLLOWUP_ROLE),
     "",
-    RUNG_ANGLE[rung]!,
+    // لماذا سكت قبل ماذا أكتب — صنعة المتابعة، منقولةٌ من Flow Hub.
+    FOLLOWUP_CRAFT,
+    "",
+    `═══ زاوية هذه الدرجة ═══\n${RUNG_ANGLE[rung]!}`,
     "اكتب الرسالة نفسها فقط، بلغة الزبون ولهجته، سطر إلى ثلاثة، بلا قوائم ولا عناوين.",
     "لا سعر ولا صنف ولا عرض ولا خصم ولا موعد غير مكتوب في معلومات المحل أدناه. لا تذكر أنك برنامج.",
     "إن لم يكن عندك شيء جديد يستحق رسالة — أو كان آخر ما قاله يعني أنه لا يريد — فاكتب بالضبط: «لا ترسل: <السبب في سطر>».",
@@ -163,7 +167,7 @@ async function compose(userId: number, phone: string, turns: Turn[], rung: numbe
     earlier.length ? `═══ ما قلناه له في المتابعات السابقة — لا تكرره ولا تعِد صياغته ═══\n${earlier.map((e, i) => `${i + 1}. ${e}`).join("\n")}` : "",
     facts ? `═══ من معلومات المحل عن موضوعه ═══\n${facts}` : "",
     "",
-    "قبل أن تكتب: □ هل فيها شيء جديد لم يُقل في المحادثة ولا في المتابعات السابقة؟ □ هل تصلح لهذا الزبون وحده؟",
+    `قبل أن تكتب: ${FOLLOWUP_CHECK.join(" ")} □ هل تصلح لهذا الزبون وحده؟`,
   ].filter((x) => x !== "").join("\n");
   const transcript = turns.map((t) => `${t.fromMe ? "المحل" : "الزبون"}: ${t.text.slice(0, 500)}`).join("\n");
   const out = await complete([
@@ -193,6 +197,9 @@ async function compose(userId: number, phone: string, turns: Turn[], rung: numbe
     if (candidate) { const q2 = checkReply(candidate, ctx); if (q2.score > q.score) { text = candidate; q = q2; } }
   }
   if (blocksSend(q)) return { send: false, text, reason: `أُوقفت: ${q.issues.find((i) => i.code === "placeholder" || i.code === "reveal")?.note ?? "فحص الكتابة"}` };
+  // عقيدة المتابعة تُفرَض بالكود: «أتابع معك» و«للتذكير» تُسقط الرسالة.
+  const fi = followupIssues(text, { last: rung >= MAX_RUNGS - 1, previous });
+  if (fi.length) return { send: false, text, reason: `أُوقفت: ${fi[0]}` };
   const copy = earlier.find((e) => overlap(e, text) > 0.6);
   if (copy) return { send: false, text, reason: "تكاد تكون نسخة من متابعة سابقة" };
   return { send: true, text, reason: q.issues.length ? `جاهزة مع ملاحظات: ${q.issues.map((i) => i.note).join("، ")}`.slice(0, 300) : "جاهزة" };

@@ -1,4 +1,5 @@
 import { sweepExpiredStops } from "./lib/wa-buttons";
+import { startWaManagerLoop } from "./lib/wa-manager";
 import { startSalesEngine } from "./lib/sales/engine";
 import app from "./app";
 import { logger } from "./lib/logger";
@@ -159,6 +160,8 @@ function startListening() {
     startInboundPolling();
     startMissionWorker();
     startSmartFollowUps();
+    // المديرة: تقيّم الفريق كل ست ساعات وتعطي كلاً مهمته — منقولةٌ من Flow Hub.
+    startWaManagerLoop();
     startCaretaker();
     startAutopilotWorker();
     // نورة joins every team that exists, so she appears beside the others.

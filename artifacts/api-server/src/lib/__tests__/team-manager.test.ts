@@ -1,0 +1,24 @@
+// المديرة وتقييمها وعقيدة المتابعة — منقولةٌ من Flow Hub، دوالّ صِرفة.
+export {};
+const E = await import("../team/evaluate");
+const F = await import("../followup-doctrine");
+const { judgeWa } = await import("../wa-manager");
+const { GRAPHS, contractProblems, WHATSAPP_GRAPH } = await import("../graph/contracts");
+let pass = 0, total = 0;
+const check = (n: string, c: boolean, d = "") => { total++; if (c) pass++; console.log(`${c ? "✅" : "❌"} ${n.padEnd(56)} ${d}`); };
+const f = (o: Partial<any>) => ({ done: 0, failed: 0, held: 0, llmCalls: 0, llmFailed: 0, decided: 0, approved: 0, edited: 0, rejected: 0, said: 0, heard: 0, lastAt: null, days: 7, ...o });
+check("تقييم · بلا عمل لا درجة", E.scoreOf(f({})).score === null);
+check("تقييم · الحجز ليس تعثّراً", E.scoreOf(f({ done: 10, held: 90, said: 2 })).score === E.scoreOf(f({ done: 10, said: 2 })).score);
+check("تقييم · الصامت ينزل", E.scoreOf(f({ done: 80 })).score! < E.scoreOf(f({ done: 80, said: 3 })).score!);
+check("تقييم · ثلث العمل يتعثّر: ضعيف", E.scoreOf(f({ done: 20, failed: 30, said: 1 })).grade === "weak");
+check("ملاحظة · الصامت يُعطى مهمة التبليغ", /في صمت/.test(E.findingOf(f({ done: 54 }), "ok", "شمّة").task ?? ""));
+check("واتساب · ٣٪ إيقاف توقف الحملة", judgeWa({ reached: 200, replied: 80, positive: 20, stops: 7 }).verdict === "hold");
+check("واتساب · عيّنة صغيرة تُراقَب", judgeWa({ reached: 20, replied: 4, positive: 2, stops: 0 }).verdict === "watch");
+check("متابعة · «أتابع معك» تُسقط", F.followupIssues("أتابع معك بخصوص الموعد").length > 0);
+check("متابعة · «للتذكير» تُسقط", F.followupIssues("للتذكير فقط").length > 0);
+check("متابعة · سؤالان يُسقطان", F.followupIssues("هل يناسبك الخميس؟ أم الجمعة؟").length > 0);
+check("متابعة · رسالةٌ جديدة قصيرة تمرّ", F.followupIssues("عندنا موعد شاغر صباح الخميس. أحجزه لك؟").length === 0);
+for (const g of GRAPHS) check(`قراف ${g.id} · العقد سليم`, contractProblems(g).length === 0, contractProblems(g).join(" | "));
+check("قراف الواتساب · له مديرة تراجع", WHATSAPP_GRAPH.nodes.some((n) => n.id === "chief" && (n.reviews?.length ?? 0) > 0));
+console.log(`\n${pass}/${total} ${pass === total ? "✅" : "❌ فشل"}`);
+if (pass !== total) process.exit(1);
