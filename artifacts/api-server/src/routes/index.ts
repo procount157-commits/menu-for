@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import waFirewallRouter from "./wa-firewall";
 import publicRouter from "./public";
 import authRouter from "./auth";
 import adminRouter from "./admin";
@@ -67,6 +68,7 @@ router.use("/admin/orgs", adminOrgsRouter);
 router.use("/sales", salesRouter);
 router.use("/admin", adminRouter);
 router.use("/whatsapp", whatsappRouter);
+router.use("/wa-firewall", waFirewallRouter);
 router.use("/contacts", contactsRouter);
 router.use("/campaigns", campaignsRouter);
 router.use("/dashboard", dashboardRouter);

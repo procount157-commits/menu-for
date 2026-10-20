@@ -46,6 +46,7 @@ import { getDailyRemaining } from "./daily-limit";
 import { assertCanSend } from "./plans";
 import { agentReplyAllowed } from "./growth/quota";
 import { sendMessage, getStatus } from "./whatsapp";
+import { isFirewallError } from "./wa-firewall";
 import { logger } from "./logger";
 import { receipt } from "./graph/receipts";
 
@@ -281,13 +282,15 @@ export async function runSmartFollowUps(userId: number, now = Date.now()) {
     // A shop's plan: the AI's replies this month (counted when it sends).
     if (!(await agentReplyAllowed(userId))) { logger.info({ userId }, "smart follow-ups stopped — the plan's AI replies are used up this month"); break; }
     try {
-      await asAgent(userId, FOLLOWUP_ROLE, () => sendMessage(userId, phone, d.text!));
+      await asAgent(userId, FOLLOWUP_ROLE, () => sendMessage(userId, phone, d.text!, undefined, undefined, undefined, undefined, { kind: "followup" }));
       await record(userId, phone, due.rung, "send", d.reason, d.text, true, ops.view);
       result.sent++; left--;
       logger.info({ userId, phone, rung: due.rung + 1 }, "smart follow-up sent");
       await new Promise((r) => setTimeout(r, 20_000 + Math.random() * 25_000));
     } catch (err: any) {
       logger.warn({ userId, phone, err: String(err?.message ?? err).slice(0, 160) }, "smart follow-up send failed — will try next round");
+      // The firewall's no is for the number, not this person: the round ends here.
+      if (isFirewallError(err)) break;
     }
   }
   if (result.drafted) logger.info({ userId, ...result }, "smart follow-up round done");

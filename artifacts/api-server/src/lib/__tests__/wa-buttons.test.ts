@@ -47,8 +47,8 @@ check("an old-style button reply with the stop id too", buttonReplyText({ button
 check("a plain message is not a press", buttonReplyText({ conversation: "هلا" }) === "");
 
 // ── Settings ─────────────────────────────────────────────────────
-check("the stop lasts 150 days by default, with the button on and real buttons off", DEFAULT_MESSAGING.stopDays === 150 && DEFAULT_MESSAGING.stopButton && !DEFAULT_MESSAGING.interactive);
-check("the stop period is bounded; 0 means for good", cleanMessaging({ stopDays: -5 }, DEFAULT_MESSAGING).stopDays === 0 && cleanMessaging({ stopDays: 99999 }, DEFAULT_MESSAGING).stopDays === 3650);
+check("a stop is for good by default, with the button on and real buttons off", DEFAULT_MESSAGING.stopDays === 0 && DEFAULT_MESSAGING.stopButton && !DEFAULT_MESSAGING.interactive);
+check("no period can be saved: «no» is final", cleanMessaging({ stopDays: 150 }, DEFAULT_MESSAGING).stopDays === 0 && cleanMessaging({ stopDays: 99999 }, DEFAULT_MESSAGING).stopDays === 0);
 
 // ── The trigger and the sweep ────────────────────────────────────
 const [orig] = await db.select().from(platformSettingsTable).where(eq(platformSettingsTable.key, "messaging"));
@@ -56,17 +56,12 @@ const [u] = await db.insert(usersTable).values({ phone: `99966${Math.floor(Math.
 try {
   await saveMessaging({ stopDays: 150 });
   await db.insert(unsubscribedPhonesTable).values({ userId: u!.id, phone: "971500000201", reason: "test" });
-  let [r] = await db.select().from(unsubscribedPhonesTable).where(eq(unsubscribedPhonesTable.phone, "971500000201"));
-  const days = (r!.until!.getTime() - Date.now()) / 86_400_000;
-  check("a stop lasts the platform's period (150 days)", days > 149.9 && days < 150.1, days);
-  await saveMessaging({ stopDays: 0 });
-  await db.insert(unsubscribedPhonesTable).values({ userId: u!.id, phone: "971500000202", reason: "test" });
-  [r] = await db.select().from(unsubscribedPhonesTable).where(eq(unsubscribedPhonesTable.phone, "971500000202"));
-  check("with 0 days a stop is for good", r!.until === null);
+  const [r] = await db.select().from(unsubscribedPhonesTable).where(eq(unsubscribedPhonesTable.phone, "971500000201"));
+  check("a stop is for good, even after an attempt to save a period", r!.until === null);
   await db.insert(unsubscribedPhonesTable).values({ userId: u!.id, phone: "971500000203", reason: "test", until: new Date(Date.now() - 60_000) });
   await sweepExpiredStops();
   const left = await db.select().from(unsubscribedPhonesTable).where(eq(unsubscribedPhonesTable.userId, u!.id));
-  check("when the period is over the number is free again; the others stay", left.length === 2 && !left.some((x) => x.phone === "971500000203"), left.map((x) => x.phone));
+  check("the sweep lifts nothing: an old dated row is made permanent", left.length === 2 && left.every((x) => x.until === null), left.map((x) => x.phone));
 } finally {
   await db.delete(usersTable).where(eq(usersTable.id, u!.id));
   if (orig) await db.update(platformSettingsTable).set({ value: orig.value }).where(eq(platformSettingsTable.key, "messaging"));

@@ -27,6 +27,7 @@ import { skillsFor, skillsPreamble, finalCheckPreamble } from "./agent-skills";
 import { inboxPreamble } from "./agent-comms";
 import { thinkTime } from "./reply-timing";
 import { sendMessage, getStatus, registerInboundHook, registerOnConnectHook, registerHumanReplyHook, markRead } from "./whatsapp";
+import { isFirewallError } from "./wa-firewall";
 import { updateCard, cardPreamble, isHumanHeld, takeover, lastCustomerLine, getCard } from "./lead-card";
 import { lastOutreach, outreachPreamble, savedName } from "./outreach-context";
 import { asAgent } from "./agent-context";
@@ -486,7 +487,7 @@ async function autoReplyIfAppropriate(
     if (key) await markRead(userId, key).catch(() => {});
     await new Promise((r) => setTimeout(r, wait.ms - noticeMs));
 
-    await sendMessage(userId, phone, answer.reply);
+    await sendMessage(userId, phone, answer.reply, undefined, undefined, undefined, undefined, { kind: "reply" });
     await logAutoReply({ userId, phone, incoming: text, reply: answer.reply, provider: answer.provider, kbIds: answer.kbIds, intent, agentRole: routing?.agent.role, quality: answer.quality });
     logger.info({ userId, phone, provider: answer.provider, kb: answer.kbIds }, "auto-reply sent");
   } catch (err: any) {
@@ -703,7 +704,7 @@ export async function runDueFollowUps(now = new Date()): Promise<{ sent: number;
     }
 
     try {
-      await sendMessage(job.userId, job.phone, step.message);
+      await sendMessage(job.userId, job.phone, step.message, undefined, undefined, undefined, undefined, { kind: "followup" });
       await db.update(followUpJobsTable)
         .set({ status: "sent", sentAt: new Date() })
         .where(eq(followUpJobsTable.id, job.id));
@@ -712,6 +713,14 @@ export async function runDueFollowUps(now = new Date()): Promise<{ sent: number;
       remainingByUser.set(job.userId, left - 1);
       logger.info({ userId: job.userId, phone: job.phone, step: job.stepIndex, sequenceId: seq.id }, "follow-up sent");
     } catch (err: any) {
+      // The firewall's no is about the number today, not this person: the step
+      // waits two hours and the rest of this account's steps wait with it.
+      if (isFirewallError(err)) {
+        await db.update(followUpJobsTable).set({ dueAt: new Date(Date.now() + 2 * 3_600_000), error: String(err?.message ?? err).slice(0, 200) }).where(eq(followUpJobsTable.id, job.id)).catch(() => {});
+        remainingByUser.set(job.userId, 0);
+        result.skipped++;
+        continue;
+      }
       await db.update(followUpJobsTable)
         .set({ status: "failed", error: String(err?.message ?? err).slice(0, 500) })
         .where(eq(followUpJobsTable.id, job.id));

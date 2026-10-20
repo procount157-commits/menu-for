@@ -35,6 +35,7 @@ import { messagingSettings, marketingSend } from "../wa-buttons";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db, notificationsTable, unsubscribedPhonesTable, orgsTable, type Org } from "@workspace/db";
 import { getStatus, sendMessage } from "../whatsapp";
+import { isFirewallError, isFirewallRefusal } from "../wa-firewall";
 import { logger } from "../logger";
 import { lastInboundAt } from "../customers";
 import { menuPlan } from "../plans";
@@ -206,12 +207,28 @@ export async function drain(now = new Date()): Promise<number> {
     nextAt.set(n.waUserId, Date.now() + gapMs() * throttle);
     try {
       // A gift, a win-back, a birthday: marketing, so it carries the stop button.
-      const stop = MARKETING_KINDS.has(n.kind) && (await messagingSettings()).stopButton ? marketingSend("text", null) : null;
-      const id = stop ? await sendMessage(n.waUserId, n.phone, n.text, stop.messageType, null, stop.buttons) : await sendMessage(n.waUserId, n.phone, n.text);
+      const marketing = MARKETING_KINDS.has(n.kind);
+      const stop = marketing && (await messagingSettings()).stopButton ? marketingSend("text", null) : null;
+      // The firewall (lib/wa-firewall.ts): a turn, an order, a booking — the
+      // customer started it — is transactional, warm, never frozen. A gift or
+      // a win-back is an offer we start: cold unless they wrote within three
+      // days, so it waits for the number's budget and a «no» refuses it.
+      const fw = { kind: marketing ? "followup" as const : "transactional" as const };
+      const id = stop ? await sendMessage(n.waUserId, n.phone, n.text, stop.messageType, null, stop.buttons, null, fw) : await sendMessage(n.waUserId, n.phone, n.text, undefined, undefined, undefined, undefined, fw);
       await mark(n.id, "sent", null, id ?? undefined);
       sent++;
     } catch (err) {
       const msg = String((err as Error)?.message ?? err).slice(0, 300);
+      // The person said no: never sent, not a failure.
+      if (isFirewallRefusal(err)) { await mark(n.id, "skipped", "opted_out"); continue; }
+      // The number's no for now, still queued: an offer (frozen, out of hours,
+      // today's budget spent) waits two hours; a turn or an order only hit the
+      // warm pace (RULES.warmPerHour) and tries again in a minute.
+      if (isFirewallError(err)) {
+        const later = MARKETING_KINDS.has(n.kind) ? 2 * 3_600_000 : 60_000;
+        await db.update(notificationsTable).set({ scheduledAt: new Date(Date.now() + later), reason: msg.slice(0, 200) }).where(eq(notificationsTable.id, n.id)).catch(() => {});
+        continue;
+      }
       logger.warn({ id: n.id, kind: n.kind, err: msg }, "notification send failed");
       await mark(n.id, "failed", msg);
     }

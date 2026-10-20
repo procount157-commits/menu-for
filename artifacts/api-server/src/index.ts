@@ -8,6 +8,8 @@ import { resumeRunningCampaigns } from "./routes/campaigns";
 import { startFollowUpEngine } from "./lib/follow-up-engine";
 import { startMenuInbound } from "./lib/notify/inbound";
 import { startNotifyWorker } from "./lib/notify/outbox";
+import { startWaFirewall } from "./lib/wa-firewall";
+import { startVetting } from "./lib/wa-vetting";
 import { startReceipts } from "./lib/notify/receipts";
 import { startQueueSweeper } from "./lib/queue/engine";
 import { startBookingReminders } from "./lib/booking/service";
@@ -142,6 +144,10 @@ function startListening() {
     startFollowUpEngine();
     startSalesEngine();
     startNotifyWorker();
+    // الحاجز التلقائي من الحظر: السلّم، أسلاك التعثّر، وكلمة واتساب عن الحساب.
+    startWaFirewall();
+    // سيف، فاحص الأرقام: ما على «ليس الآن» يُنظر فيه مرة في اليوم.
+    startVetting();
     startReceipts();
     startQueueSweeper();
     startBookingReminders();

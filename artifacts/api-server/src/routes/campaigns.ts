@@ -13,6 +13,8 @@ import { objectExists, objectNameFromUrl } from "../lib/storage";
 import * as XLSX from "xlsx";
 import { eq, desc, count, sql, and, gte, inArray, lt, max, asc } from "drizzle-orm";
 import { sendMessage, getStatus, waitForConnection, registerOnConnectHook, initWhatsApp } from "../lib/whatsapp";
+import { isFirewallError, isFirewallRefusal } from "../lib/wa-firewall";
+import * as vetting from "../lib/wa-vetting";
 import { requireAuth } from "../lib/auth";
 import { logger } from "../lib/logger";
 import { classifyFailure, NON_RETRYABLE_PATTERN } from "../lib/failure-classifier";
@@ -159,15 +161,23 @@ async function sendWithReconnect(
   mediaUrl?: string | null,
   buttons?: string | null,
   carousel?: string | null,
+  info?: { running: boolean; lastProgressAt: number },
 ): Promise<string | undefined> {
   const MAX_ATTEMPTS = 3;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // The firewall may hold a cold message for its turn (minutes, at a low
+    // rung): the loop is alive while it waits, so the watchdog is told so.
+    const beat = info ? setInterval(() => { if (info.running) info.lastProgressAt = Date.now(); }, 30_000) : null;
     try {
-      const msgId = await sendMessage(userId, phone, message, messageType, mediaUrl, buttons, carousel);
+      // The live info, not a copy: a stop or pause ends the firewall's wait at once.
+      const msgId = await sendMessage(userId, phone, message, messageType, mediaUrl, buttons, carousel, { kind: "campaign", running: info ?? true });
       return msgId; // ✓ sent — return Baileys message ID for delivery tracking
     } catch (err: any) {
       const msg = String(err?.message ?? err ?? "");
+
+      // The firewall's no is never retried here: the campaign loop decides.
+      if (isFirewallError(err) || isFirewallRefusal(err)) throw err;
 
       // Media / config error — no retry, skip this contact immediately
       if (MEDIA_ERR.test(msg)) throw err;
@@ -190,6 +200,8 @@ async function sendWithReconnect(
       }
 
       throw err; // unknown error — rethrow
+    } finally {
+      if (beat) clearInterval(beat);
     }
   }
   return undefined;
@@ -327,6 +339,20 @@ setTimeout(() => runWatchdog().catch(() => {}), 10_000);
 
 // Then run every 45 seconds (was 90s) for tighter detection
 setInterval(() => runWatchdog().catch(() => {}), 45_000);
+
+/** The campaigns sending right now, for the firewall to pause. */
+export async function runningCampaignIds(userId: number): Promise<number[]> {
+  const rows = await db.select({ id: campaignsTable.id }).from(campaignsTable).where(and(eq(campaignsTable.userId, userId), eq(campaignsTable.status, "running")));
+  return rows.map((r) => r.id);
+}
+
+/** Stop a campaign's send loop now and set it aside — for the firewall's freeze. */
+export async function stopCampaign(userId: number, campaignId: number, status = "paused"): Promise<void> {
+  const key = campaignKey(userId, campaignId);
+  const info = activeCampaigns.get(key);
+  if (info) { info.running = false; activeCampaigns.delete(key); }
+  await db.update(campaignsTable).set({ status }).where(and(eq(campaignsTable.id, campaignId), eq(campaignsTable.userId, userId)));
+}
 
 // ── Startup recovery ──────────────────────────────────────────────
 // Called once at server start — resumes any campaign that was left in
@@ -912,8 +938,9 @@ router.post("/:id/send-remaining", async (req, res) => {
 
   // Load all contacts from the group
   if (!campaign.contactGroupId) return res.status(400).json({ error: "لا توجد قائمة أرقام مرتبطة" });
+  // Whole rows: سيف's verdict (and the list) travel with each contact.
   const allContacts = await db
-    .select({ phone: contactsTable.phone, name: contactsTable.name })
+    .select()
     .from(contactsTable)
     .where(and(eq(contactsTable.groupId, campaign.contactGroupId), eq(contactsTable.status, "active")));
 
@@ -1307,7 +1334,21 @@ router.get("/:id/quality", async (req, res) => {
 
 const LONG_BREAK_EVERY = 40;
 
-async function runCampaign(userId: number, campaign: any, contacts: any[], info: CampaignInfo, key: string) {
+async function runCampaign(userId: number, campaign: any, contactsIn: any[], info: CampaignInfo, key: string) {
+  // Only the numbers سيف, the number vetter, has marked ready (lib/wa-vetting.ts):
+  // whoever is unvetted or on hold is looked at now, before the first message.
+  const contacts = await vetting.ensureVetted(userId, contactsIn, info).catch((err) => {
+    logger.warn({ campaignId: campaign.id, err: String(err?.message ?? err) }, "فحص الأرقام قبل الحملة تعذّر — تُرسَل الجاهزة فقط");
+    return contactsIn.filter((c: any) => c.verdict === "ready");
+  });
+  if (contacts.length < contactsIn.length) logger.info({ campaignId: campaign.id, listed: contactsIn.length, ready: contacts.length }, "سيف: يُرسَل إلى الجاهزين فقط");
+  if (!contacts.length && info.running) {
+    logger.warn({ campaignId: campaign.id }, "لا رقم جاهز في القائمة — الحملة تتوقف");
+    info.running = false;
+    activeCampaigns.delete(key);
+    await withDbRetry(() => db.update(campaignsTable).set({ status: "paused", autoPauseReason: "لا رقم جاهز للإرسال في القائمة — راجع فحص الأرقام (سيف) في صفحة القائمة" }).where(eq(campaignsTable.id, campaign.id))).catch(() => {});
+    return;
+  }
   let sentThisRun = 0; // counts messages sent in THIS run (respects messageLimit)
   // A young number writing mostly to strangers is what a spammer looks like
   // from the outside. For its first two weeks, once more than 60% of the
@@ -1465,7 +1506,7 @@ async function runCampaign(userId: number, campaign: any, contacts: any[], info:
     try {
       // Every campaign message carries the «إيقاف الرسائل» button (or line).
       const withStop = (await messagingSettings()).stopButton ? marketingSend(campaign.messageType, campaign.buttons) : { messageType: campaign.messageType, buttons: campaign.buttons ?? null };
-      const waMessageId = await sendWithReconnect(userId, contact.phone, personalizedMessage, withStop.messageType, campaign.mediaUrl, withStop.buttons, campaign.carousel ?? null);
+      const waMessageId = await sendWithReconnect(userId, contact.phone, personalizedMessage, withStop.messageType, campaign.mediaUrl, withStop.buttons, campaign.carousel ?? null, info);
       // Wrap DB writes in retry — a transient DB blip must not lose the "sent" record
       await withDbRetry(() =>
         db.insert(messageLogs).values({ campaignId: campaign.id, phone: contact.phone, status: "sent", sentAt: new Date(), messageId: waMessageId ?? null })
@@ -1626,6 +1667,26 @@ async function runCampaign(userId: number, campaign: any, contacts: any[], info:
       );
     } catch (err: any) {
       const errMsg = String(err?.message ?? err ?? "");
+
+      // ── The firewall said no ─────────────────────────────────────
+      // Not this contact's failure and not a retry: the campaign pauses where
+      // it is and the firewall resumes it when the freeze lifts (or the owner does).
+      if (isFirewallError(err)) {
+        // Stopped from outside (the owner, a freeze, the watchdog): whoever stopped it set its status.
+        if (!info.running) break;
+        logger.warn({ campaignId: campaign.id, why: errMsg }, "الحاجز أوقف الحملة");
+        await withDbRetry(() => db.update(campaignsTable).set({ status: "paused", autoPauseReason: errMsg.replace(/^FIREWALL:\s*/, "").slice(0, 490) }).where(eq(campaignsTable.id, campaign.id))).catch(() => {});
+        info.running = false;
+        activeCampaigns.delete(key);
+        break;
+      }
+      // The person's no (blacklisted, not on WhatsApp): this contact is skipped, the campaign goes on.
+      if (isFirewallRefusal(err)) {
+        logger.info({ campaignId: campaign.id, phone: contact.phone, why: errMsg }, "الحاجز رفض الشخص");
+        await withDbRetry(() => db.insert(messageLogs).values({ campaignId: campaign.id, phone: contact.phone, status: "failed", error: errMsg.slice(0, 200) })).catch(() => {});
+        await withDbRetry(() => db.update(campaignsTable).set({ failedCount: sql`${campaignsTable.failedCount} + 1` }).where(eq(campaignsTable.id, campaign.id))).catch(() => {});
+        continue;
+      }
 
       // ── WA disconnected after all retry attempts ──────────────────
       // INLINE recovery: wait for WA to reconnect here, then retry.

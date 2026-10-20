@@ -21,6 +21,7 @@ import { detectAutoresponder } from "../autoresponder";
 import { isHumanHeld } from "../lead-card";
 import { notify } from "../telegram";
 import { sendMessage } from "../whatsapp";
+import { isFirewallError, isFirewallRefusal } from "../wa-firewall";
 import { logger } from "../logger";
 import { receipt } from "../graph/receipts";
 import { asAgent } from "../agent-context";
@@ -193,18 +194,34 @@ export async function addTouch(p: Pick<SalesProspect, "id" | "waUserId">, kind: 
   }
 }
 
-/** Send (or, in a dry run, only record) one composed message. */
-export async function deliver(s: SalesSettings, p: SalesProspect, kind: "opener" | "followup" | "reply", c: Composed, step: number | null, now = new Date()): Promise<"sent" | "dry" | "failed"> {
+/**
+ * Send (or, in a dry run, only record) one composed message. "held" is the
+ * firewall's no for the number today (frozen, out of hours, the cold budget
+ * spent): nothing was sent, nothing failed, and the engine stops for today.
+ */
+export async function deliver(s: SalesSettings, p: SalesProspect, kind: "opener" | "followup" | "reply", c: Composed, step: number | null, now = new Date()): Promise<"sent" | "dry" | "failed" | "held"> {
   let status: "sent" | "dry" | "failed" = s.dryRun ? "dry" : "sent";
   let error: string | undefined;
   if (!s.dryRun) {
     try {
       // Our first message and follow-ups carry the stop button; a reply in a conversation does not.
       const stop = kind !== "reply" && (await messagingSettings()).stopButton ? marketingSend("text", null) : null;
+      // The firewall (lib/wa-firewall.ts): سارة writing first is a campaign
+      // message — cold, budgeted, refused to anyone who said no; her answer to
+      // a prospect who wrote is a reply.
+      const fw = { kind: kind === "reply" ? "reply" as const : "campaign" as const };
       // As سارة, so the send's receipt is hers.
-      if (stop) await asAgent(s.waUserId!, SELLER_ROLE, () => sendMessage(s.waUserId!, p.phone, c.text, stop.messageType, null, stop.buttons));
-      else await asAgent(s.waUserId!, SELLER_ROLE, () => sendMessage(s.waUserId!, p.phone, c.text));
-    } catch (e: any) { status = "failed"; error = String(e?.message ?? e).slice(0, 200); }
+      if (stop) await asAgent(s.waUserId!, SELLER_ROLE, () => sendMessage(s.waUserId!, p.phone, c.text, stop.messageType, null, stop.buttons, null, fw));
+      else await asAgent(s.waUserId!, SELLER_ROLE, () => sendMessage(s.waUserId!, p.phone, c.text, undefined, undefined, undefined, undefined, fw));
+    } catch (e: any) {
+      if (isFirewallError(e)) {
+        logger.info({ prospectId: p.id, kind, why: String(e?.message ?? e).slice(0, 160) }, "sales: الحاجز أوقف الإرسال لليوم");
+        return "held";
+      }
+      status = "failed"; error = String(e?.message ?? e).slice(0, 200);
+      // «No» is final: whoever asked us to stop is closed here too.
+      if (isFirewallRefusal(e)) await setStage(p, "stopped", "طلب الإيقاف");
+    }
   }
   await addTouch(p, kind, { text: c.text, step, links: c.linkKeys, by: c.by, status, meta: { issues: c.issues, fallback: c.fallback, ...(error ? { error } : {}) } });
   if (status !== "failed") {
@@ -241,7 +258,7 @@ export function nextFollowAt(s: SalesSettings, firstSentAt: Date, stepIndex: num
 export async function sendOpener(s: SalesSettings, p: SalesProspect, now = new Date()) {
   const c = await composeFor(s, p, "opener");
   const status = await deliver(s, p, "opener", c, null, now);
-  if (status === "failed") return status;
+  if (status === "failed" || status === "held") return status;
   await db.update(salesProspectsTable).set({ stage: "contacted", step: 0, firstSentAt: now, nextAt: nextFollowAt(s, now, 0, now), updatedAt: now }).where(eq(salesProspectsTable.id, p.id));
   return status;
 }
@@ -254,6 +271,7 @@ export async function sendFollowUp(s: SalesSettings, p: SalesProspect, now = new
   }
   const c = await composeFor(s, p, "followup", { stepIndex: p.step });
   const status = await deliver(s, p, "followup", c, p.step, now);
+  if (status === "held") return status;
   if (status === "failed") { await db.update(salesProspectsTable).set({ nextAt: new Date(now.getTime() + 6 * 3_600_000) }).where(eq(salesProspectsTable.id, p.id)); return status; }
   const step = p.step + 1;
   await db.update(salesProspectsTable).set({ step, nextAt: nextFollowAt(s, p.firstSentAt ?? now, step, now, p.lastReplyAt), updatedAt: now }).where(eq(salesProspectsTable.id, p.id));

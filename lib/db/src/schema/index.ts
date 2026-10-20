@@ -27,3 +27,5 @@ export * from "./subscriptions";
 export * from "./growth";
 export * from "./sales";
 export * from "./graph";
+export * from "./wa_firewall";
+export * from "./contact_vetting";

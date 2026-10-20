@@ -8,6 +8,7 @@
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { db, contactGroupsTable, contactsTable } from "@workspace/db";
 import { checkNumbers, getStatus } from "./whatsapp";
+import { vetInBackground, vetPending } from "./wa-vetting";
 import { canonical, inOtherLists } from "./dedupe";
 import { logger } from "./logger";
 
@@ -122,12 +123,18 @@ export async function validateGroup(userId: number, groupId: number): Promise<Va
  * open. Returns whether it started: only when the number is linked.
  */
 export function validateInBackground(userId: number, groupIds: number[]): boolean {
-  if (!groupIds.length || !getStatus(userId)?.connected) return false;
-  void (async () => {
-    for (const id of groupIds) {
-      await validateGroup(userId, id).catch((err) =>
-        logger.warn({ userId, groupId: id, err: String(err?.message ?? err) }, "background validation failed"));
-    }
-  })();
-  return true;
+  // سيف, the number vetter, judges every new number (lib/wa-vetting.ts): the
+  // WhatsApp check is one of his readings. With the line down the rest of his
+  // verdict stands and the WhatsApp part waits for the connect.
+  vetInBackground(userId, groupIds, "upload");
+  return !!groupIds.length && !!getStatus(userId)?.connected;
+}
+
+/**
+ * Every list of this account with numbers still waiting for a verdict — an
+ * import made while the line was down, a number on hold — judged now by سيف.
+ * Run on every (re)connect.
+ */
+export async function validatePending(userId: number) {
+  return vetPending(userId, "connect");
 }

@@ -93,9 +93,7 @@ export function MessagingDialog({ open, onClose }: { open: boolean; onClose: () 
               <span className="text-sm font-semibold">زر «إيقاف الرسائل» تلقائياً<span className="block text-xs text-muted-foreground font-normal">على كل حملة، ورسائل العروض للزبائن، ورسائل موظف المبيعات الأولى والمتابعات.</span></span>
               <Switch checked={m.stopButton} onCheckedChange={(v) => save({ stopButton: v })} />
             </label>
-            <label className="block"><span className={labelCls}>مدة الإيقاف بالأيام (0 = إيقاف دائم)</span>
-              <input type="number" min={0} max={3650} className={inputCls} value={m.stopDays} onChange={(e) => setM({ ...m, stopDays: Number(e.target.value) })} onBlur={() => save({ stopDays: m.stopDays })} /></label>
-            <p className="text-[11px] text-muted-foreground">من يضغط الزر أو يكتب «توقف» لا تصله أي رسالة عروض من الحساب الذي راسله طوال المدة، ويُحذف من قوائم ذلك الحساب. طلباته ودوره وحجوزاته تصله عادي.</p>
+            <p className="text-[11px] text-muted-foreground">الإيقاف دائم: من يضغط الزر أو يكتب «توقف» (أو أي رسالة قصيرة تطلب الإيقاف) لا تصله أي رسالة عروض من الحساب الذي راسله بعد اليوم، ويُحذف من قوائم ذلك الحساب. طلباته ودوره وحجوزاته تصله عادي.</p>
           </div>
         </div>
       )}

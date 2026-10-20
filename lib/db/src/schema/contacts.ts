@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, varchar, jsonb, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -33,6 +33,14 @@ export const contactsTable = pgTable("contacts", {
   phone: varchar("phone", { length: 50 }).notNull(),
   name: varchar("name", { length: 255 }),
   status: varchar("status", { length: 20 }).default("active").notNull(),
+  /** حكم فاحص الأرقام (lib/wa-vetting.ts): ready | hold | rejected، وأسبابه، ومتى. لا حملة إلا إلى ready. */
+  verdict: varchar("verdict", { length: 10 }),
+  vetReasons: jsonb("vet_reasons").$type<string[]>(),
+  vettedAt: timestamp("vetted_at", { withTimezone: true }),
+  /** ما قاله واتساب عن الرقم: موجود، غير موجود، أو لم يُسأل بعد. */
+  waExists: boolean("wa_exists"),
+  /** خطر الإرسال إليه ٠–١٠٠ كما قدّره الفاحص. */
+  risk: integer("risk"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

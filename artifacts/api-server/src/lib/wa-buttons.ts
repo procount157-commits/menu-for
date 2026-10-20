@@ -24,13 +24,14 @@ export const STOP_TEXT = "إيقاف الرسائل";
 export interface MessagingSettings {
   /** Real WhatsApp buttons; off = clean text lines. */
   interactive: boolean;
-  /** Days a «إيقاف» keeps our messages away; 0 = for good. */
+  /** Days a «إيقاف» keeps our messages away; 0 = for good. Always 0 now:
+   *  the owner's rule (2026-10-20) — «من اختار لا خلاص ما هرسل له تاني». */
   stopDays: number;
   /** The stop button on campaigns, follow-ups and marketing messages. */
   stopButton: boolean;
   footer: string;
 }
-export const DEFAULT_MESSAGING: MessagingSettings = { interactive: false, stopDays: 150, stopButton: true, footer: "" };
+export const DEFAULT_MESSAGING: MessagingSettings = { interactive: false, stopDays: 0, stopButton: true, footer: "" };
 
 let cache: { at: number; s: MessagingSettings } | null = null;
 export async function messagingSettings(): Promise<MessagingSettings> {
@@ -45,10 +46,10 @@ export async function messagingSettings(): Promise<MessagingSettings> {
 }
 export function cleanMessaging(raw: unknown, cur: MessagingSettings): MessagingSettings {
   const b = (raw && typeof raw === "object" ? raw : {}) as Record<string, any>;
-  const days = Math.round(Number(b.stopDays));
   return {
     interactive: typeof b.interactive === "boolean" ? b.interactive : cur.interactive,
-    stopDays: "stopDays" in b && Number.isFinite(days) ? Math.max(0, Math.min(3650, days)) : cur.stopDays,
+    // «No» is final: a stop is for good, whatever was saved before (migration 127).
+    stopDays: 0,
     stopButton: typeof b.stopButton === "boolean" ? b.stopButton : cur.stopButton,
     footer: typeof b.footer === "string" ? b.footer.trim().slice(0, 60) : cur.footer,
   };
@@ -61,9 +62,13 @@ export async function saveMessaging(patch: unknown): Promise<MessagingSettings> 
   return s;
 }
 
-/** Stops whose period is over: the number may hear from us again. */
+/**
+ * A stop is for good now (the owner, 2026-10-20: «من اختار لا خلاص ما هرسل له
+ * تاني»): any row that still carries a date — from before the rule — is made
+ * permanent. Nothing is lifted.
+ */
 export async function sweepExpiredStops(): Promise<number> {
-  const r = await db.execute(sql`DELETE FROM unsubscribed_phones WHERE until IS NOT NULL AND until < now()`);
+  const r = await db.execute(sql`UPDATE unsubscribed_phones SET until = NULL WHERE until IS NOT NULL`);
   return (r as any).rowCount ?? 0;
 }
 

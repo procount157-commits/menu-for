@@ -123,7 +123,7 @@ router.post("/test-send", async (req, res) => {
   if (cleanPhone.length < 9) return res.status(400).json({ error: "رقم الهاتف غير صالح" });
 
   try {
-    await sendMessage(userId, cleanPhone, testMsg);
+    await sendMessage(userId, cleanPhone, testMsg, undefined, undefined, undefined, undefined, { kind: "manual" });
     res.json({ success: true, message: `تم إرسال رسالة اختبار إلى ${cleanPhone} ✓` });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || "فشل إرسال الرسالة الاختبارية" });
@@ -578,7 +578,14 @@ router.post("/inbox/:phone/send", async (req, res) => {
   const { text } = req.body as { text: string };
   if (!text?.trim()) return res.status(400).json({ error: "الرسالة فارغة" });
 
-  await sendMessage(userId, phone, text.trim());
+  try {
+    await sendMessage(userId, phone, text.trim(), undefined, undefined, undefined, undefined, { kind: "manual" });
+  } catch (err: any) {
+    // The firewall's word (a cold number's turn, a freeze, a «no») is shown to the owner as it is.
+    const msg = String(err?.message ?? err);
+    if (/^FIREWALL(-REFUSED)?:/.test(msg)) return res.status(409).json({ error: msg.replace(/^FIREWALL(-REFUSED)?:\s*/, "") });
+    throw err;
+  }
   // The owner is on this thread now; the bot and the ladder step back.
   await takeover(userId, phone, "app").catch(() => {});
 

@@ -9,6 +9,7 @@ import { db, salesProspectsTable, salesTouchesTable, unsubscribedPhonesTable } f
 import { localParts } from "@workspace/menu-shared";
 import { getStatus } from "../whatsapp";
 import { getDailyRemaining, numberAgeDays } from "../daily-limit";
+import { hourInSendingTz } from "../sending-hours";
 import { isHumanHeld } from "../lead-card";
 import { logger } from "../logger";
 import { salesSettings, sendFollowUp, sendOpener, sentToday, setStage } from "./service";
@@ -38,6 +39,9 @@ export interface TickResult { reason: string | null; followUps: number; openers:
 
 let running = false;
 let nextOpenerAt = 0;
+/** The firewall said no for the number today: nothing more is tried until the next day (sending timezone). */
+let heldUntil = 0;
+const holdForToday = (now: Date) => { heldUntil = now.getTime() + (24 - hourInSendingTz(now)) * 3_600_000; };
 
 export async function salesTick(now = new Date(), o: { ignoreSpacing?: boolean; maxOpeners?: number; settings?: SalesSettings } = {}): Promise<TickResult> {
   const res: TickResult = { reason: null, followUps: 0, openers: 0 };
@@ -48,6 +52,7 @@ export async function salesTick(now = new Date(), o: { ignoreSpacing?: boolean; 
     const closed = closedReason(s, now);
     if (closed) return { ...res, reason: closed };
     const wa = s.waUserId!;
+    if (!s.dryRun && now.getTime() < heldUntil) return { ...res, reason: "الحاجز التلقائي أوقف الإرسال لليوم" };
     let room = Infinity;
     if (!s.dryRun) {
       if (!(getStatus(wa) as { connected?: boolean })?.connected) return { ...res, reason: "واتساب غير متصل" };
@@ -68,6 +73,7 @@ export async function salesTick(now = new Date(), o: { ignoreSpacing?: boolean; 
         await db.update(salesProspectsTable).set({ nextAt: new Date(now.getTime() + 86_400_000) }).where(eq(salesProspectsTable.id, p.id)); continue;
       }
       const r = await sendFollowUp(s, p, now);
+      if (r === "held") { holdForToday(now); return { ...res, reason: "الحاجز التلقائي أوقف الإرسال لليوم" }; }
       if (r === "sent" || r === "dry") { res.followUps++; room--; }
     }
 
@@ -84,6 +90,7 @@ export async function salesTick(now = new Date(), o: { ignoreSpacing?: boolean; 
           .orderBy(desc(salesProspectsTable.priority), asc(salesProspectsTable.id)).limit(1);
         if (!p) break;
         const r = await sendOpener(s, p, now);
+        if (r === "held") { holdForToday(now); return { ...res, reason: "الحاجز التلقائي أوقف الإرسال لليوم" }; }
         if (r === "failed") { await setStage(p, "stopped", "تعذّر الإرسال"); }
         else res.openers++;
         left--;
